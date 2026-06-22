@@ -1,0 +1,32 @@
+# Demo 脚本 — 对齐 adb-ide game.yaml 语义
+includes: []
+
+defaults:
+  retry: 1
+  action:
+    timeout: 15
+
+yolo_conf: 0.35
+
+actions:
+  pause_short:
+    type: human_delay
+    base: 0.8
+    spread: 0.2
+
+  tap_center:
+    type: tap
+    x: 540
+    y: 960
+
+  find_red_dot:
+    type: color
+    bgr: [0, 0, 255]
+    tol: 18
+    timeout: 10
+
+flows:
+  main:
+    - pause_short
+    - tap_center
+    - find_red_dot

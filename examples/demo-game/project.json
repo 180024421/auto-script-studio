@@ -1,0 +1,19 @@
+{
+  "name": "Demo Game Script",
+  "package_id": "com.autoscript.demo",
+  "version_code": 1,
+  "version_name": "1.0.0",
+  "entry": "main.yaml",
+  "icon": "icon.png",
+  "permissions": {
+    "accessibility": true,
+    "screen_capture": true,
+    "overlay": true,
+    "foreground_service": true
+  },
+  "runtime": {
+    "default_interval_ms": 300,
+    "default_yolo_conf": 0.35,
+    "ocr_mode": "lazy"
+  }
+}

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Auto Script</string>
+    <string name="accessibility_desc">用于模拟点击与滑动，执行自动化脚本</string>
+    <string name="btn_start_script">开始运行脚本</string>
+    <string name="btn_stop_script">停止</string>
+    <string name="status_ready">就绪 — 请开启无障碍与录屏权限</string>
+    <string name="status_running">脚本运行中…</string>
+</resources>

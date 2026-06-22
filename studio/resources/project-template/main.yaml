@@ -1,0 +1,9 @@
+flows:
+  main:
+    - type: delay
+      seconds: 1
+    - type: tap
+      x: 540
+      y: 960
+
+actions: {}

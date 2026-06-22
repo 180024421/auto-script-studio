@@ -1,0 +1,232 @@
+# 脚本 API（对齐 adb-ide）
+
+本文定义 **脚本工程** 的 YAML DSL，PC Studio / adb-ide 联调与 APK 运行时共用同一语义。
+
+---
+
+## 1. 工程入口
+
+打包后运行时读取 `assets/project/`：
+
+| 文件 | 说明 |
+|------|------|
+| `project.json` | 元数据 |
+| `main.yaml` | 默认入口（可由 project.json.entry 指定） |
+| `image/` | 模板图 |
+| `models/` | YOLO ncnn（`.param` + `.bin`） |
+
+---
+
+## 2. 顶层结构
+
+```yaml
+includes:
+  - common.yaml
+
+defaults:
+  retry: 2
+  action:
+    timeout: 20
+
+yolo_model: models/ui.ncnn
+yolo_conf: 0.35
+yolo_roi: [0, 0, 1080, 1920]
+
+actions:
+  btn_start:
+    type: template
+    template: image/btn_start.png
+    threshold: 0.9
+
+flows:
+  main:
+    - btn_start
+    - wait_confirm
+```
+
+| 字段 | 说明 |
+|------|------|
+| `includes` | 合并其他 yaml（actions/flows/defaults） |
+| `actions` | 命名动作，flows 中引用 |
+| `flows` | 流程列表，打包后默认执行 `main` |
+| `yolo_model` | 默认 ncnn 模型前缀或目录名 |
+| `yolo_conf` | 默认置信度 |
+| `yolo_roi` | 默认 ROI `[x,y,w,h]` |
+
+---
+
+## 3. Action 类型
+
+### 3.1 template — 找图并点击
+
+```yaml
+btn_fight:
+  type: template
+  template: image/btn_fight.png
+  threshold: 0.9
+  timeout: 15
+  roi: [100, 200, 800, 400]
+  tap_dx: 0
+  tap_dy: 0
+```
+
+### 3.2 color — 找色并点击
+
+```yaml
+red_dot:
+  type: color
+  bgr: [0, 0, 255]    # OpenCV BGR
+  tol: 12
+  timeout: 10
+  roi: [0, 0, 1080, 1920]
+```
+
+### 3.3 text — 识字并点击
+
+```yaml
+txt_confirm:
+  type: text
+  target: 确定
+  match_mode: contains   # contains | exact
+  timeout: 12
+  min_confidence: 0.5
+```
+
+### 3.4 yolo — YOLO 检测并点击
+
+```yaml
+yolo_hand:
+  type: yolo
+  class_name: hand
+  pick: largest          # best_conf | largest | nearest
+  frac: [0.5, 0.3]       # 框内点击比例
+  conf: 0.35
+  model: models/hand.ncnn
+```
+
+### 3.5 yolo_swipe — YOLO 框内滑动
+
+```yaml
+swipe_up:
+  type: yolo_swipe
+  class_name: hand
+  pick: largest
+  direction: up          # up | down | left | right
+  distance: 480
+```
+
+### 3.6 tap / swipe / long_press
+
+```yaml
+tap_center:
+  type: tap
+  x: 540
+  y: 960
+
+swipe_up:
+  type: swipe
+  x1: 540
+  y1: 1600
+  x2: 540
+  y2: 400
+  duration_ms: 350
+```
+
+### 3.7 gone_template — 等待模板消失
+
+```yaml
+wait_loading:
+  type: gone_template
+  template: image/loading.png
+  timeout: 45
+```
+
+### 3.8 stable — 等待画面稳定
+
+```yaml
+wait_ready:
+  type: stable
+  timeout: 12
+  max_mean_diff: 4.0
+```
+
+### 3.9 human_delay — 随机延迟
+
+```yaml
+pause:
+  type: human_delay
+  base: 0.5
+  spread: 0.2
+```
+
+---
+
+## 4. Flow 步骤类型（内联）
+
+flows 中除 action 名外，也可内联步骤：
+
+```yaml
+flows:
+  daily:
+    - type: delay
+      seconds: 1
+    - type: wait_template
+      template: image/btn.png
+      threshold: 0.92
+    - type: wait_click_text
+      target: 确定
+    - type: click_color
+      bgr: [120, 80, 40]
+      tol: 12
+    - btn_fight          # 引用 actions
+```
+
+---
+
+## 5. 坐标与 ROI
+
+- 原点左上角，`(x, y)` 向右、向下
+- ROI 统一 `[x, y, w, h]`
+- 模板匹配返回中心点；点击可加 `tap_dx` / `tap_dy`
+
+---
+
+## 6. YOLO 模型格式
+
+PC 训练导出：
+
+```powershell
+python tools/export_yolo_ncnn.py --pt path/to/best.pt --out examples/demo-game/models/ui
+```
+
+工程内放置：
+
+```
+models/ui.ncnn.param
+models/ui.ncnn.bin
+```
+
+或在 `project.json` / yaml 中指定 `yolo_model: models/ui.ncnn`（不含扩展名）。
+
+---
+
+## 7. 运行时能力矩阵
+
+| 能力 | APK 运行时 | PC ADB 联调 |
+|------|-----------|-------------|
+| 找色 | ✅ Kotlin | ✅ adb-ide |
+| 找图 | ✅ Bitmap NCC / 后续 OpenCV | ✅ adb-ide |
+| 识字 | ✅ 懒加载 OCR（后续 NCNN） | ✅ PaddleOCR |
+| YOLO | ✅ NCNN（集成中） | ✅ Ultralytics |
+| 点击 | ✅ Accessibility | ✅ ADB input |
+
+---
+
+## 8. 与 adb-ide 互操作
+
+1. 在 adb-ide 中调试 YAML：`python -m app.automation workflow.yaml`
+2. 确认流程后复制到 `auto-script-studio/examples/xxx/main.yaml`
+3. 导出 ncnn 模型到 `models/`
+4. `python -m packager.packager_cli build ...`
+
+参考 adb-ide 文档：`E:\xiangmu\adb-ide\docs\automation-api.md`

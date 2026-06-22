@@ -1,0 +1,31 @@
+# Python
+.venv/
+.venv311/
+__pycache__/
+*.py[cod]
+dist/
+*.egg-info/
+
+# Android
+android-runtime/.gradle/
+android-runtime/**/build/
+android-runtime/local.properties
+android-runtime/.idea/
+*.apk
+*.aab
+*.keystore
+!android-runtime/keystore/debug.keystore.example
+
+# Studio outputs
+outputs/
+*.log
+
+# Models (large)
+*.pt
+*.onnx
+*.bin
+!examples/**/models/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db

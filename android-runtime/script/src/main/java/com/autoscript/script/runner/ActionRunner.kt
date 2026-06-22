@@ -1,0 +1,230 @@
+package com.autoscript.script.runner
+
+import com.autoscript.core.backend.AutomationBackend
+import com.autoscript.core.project.ProjectConfig
+import com.autoscript.script.parseBgr
+import com.autoscript.script.parseRoi
+import com.autoscript.vision.VisionEngine
+import com.autoscript.vision.yolo.YoloPick
+import kotlinx.coroutines.delay
+import kotlin.random.Random
+
+class ActionRunner(
+    private val backend: AutomationBackend,
+    private val vision: VisionEngine,
+    private val config: ProjectConfig,
+    private val onLog: (String) -> Unit,
+) {
+
+    suspend fun runAction(action: Map<String, Any?>, workflow: Map<String, Any?>) {
+        val type = str(action["type"]).lowercase()
+        when (type) {
+            "template" -> runTemplate(action, workflow, click = true)
+            "color" -> runColor(action, workflow, click = true)
+            "text" -> runText(action, workflow, click = true)
+            "yolo" -> runYolo(action, workflow, click = true)
+            "tap" -> backend.tap(num(action["x"]), num(action["y"]))
+            "swipe" -> backend.swipe(
+                num(action["x1"]), num(action["y1"]),
+                num(action["x2"]), num(action["y2"]),
+                num(action["duration_ms"], 300),
+            )
+            "human_delay" -> humanDelay(action)
+            "gone_template" -> waitGoneTemplate(action, workflow)
+            "stable" -> waitStable(action, workflow)
+            else -> throw IllegalArgumentException("未知 action type: $type")
+        }
+    }
+
+    suspend fun runStep(step: Map<String, Any?>, workflow: Map<String, Any?>) {
+        val type = str(step["type"]).lowercase()
+        when (type) {
+            "delay" -> delay((num(step["seconds"], 0) * 1000).toLong())
+            "tap" -> backend.tap(num(step["x"]), num(step["y"]))
+            "swipe" -> backend.swipe(
+                num(step["x1"]), num(step["y1"]),
+                num(step["x2"]), num(step["y2"]),
+                num(step["duration_ms"], 300),
+            )
+            "wait_template" -> runTemplate(step, workflow, click = false)
+            "click_color", "color" -> runColor(step, workflow, click = true)
+            "wait_click_text" -> runText(step, workflow, click = true)
+            "yolo_click", "yolo" -> runYolo(step, workflow, click = true)
+            else -> throw IllegalArgumentException("未知 step type: $type")
+        }
+    }
+
+    private suspend fun runTemplate(action: Map<String, Any?>, workflow: Map<String, Any?>, click: Boolean) {
+        val path = str(action["template"])
+        val threshold = flt(action["threshold"], 0.9f)
+        val timeout = flt(action["timeout"], 20f)
+        val interval = (config.defaultIntervalMs).toLong()
+        val roi = parseRoi(action["roi"]) ?: parseRoi(workflow["yolo_roi"])
+        val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
+        while (System.currentTimeMillis() < deadline) {
+            val frame = backend.capture()
+            val m = vision.findTemplate(frame, path, threshold, roi)
+            if (m != null) {
+                onLog("找图命中 $path score=${m.score}")
+                if (click) {
+                    backend.tap(
+                        m.centerX + num(action["tap_dx"], 0),
+                        m.centerY + num(action["tap_dy"], 0),
+                    )
+                }
+                return
+            }
+            delay(interval)
+        }
+        throw IllegalStateException("找图超时: $path")
+    }
+
+    private suspend fun runColor(action: Map<String, Any?>, workflow: Map<String, Any?>, click: Boolean) {
+        val bgr = parseBgr(action["bgr"] ?: action["color"])
+        val tol = num(action["tol"], 12)
+        val timeout = flt(action["timeout"], 15f)
+        val roi = parseRoi(action["roi"]) ?: parseRoi(workflow["yolo_roi"])
+        val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
+        while (System.currentTimeMillis() < deadline) {
+            val frame = backend.capture()
+            val pt = vision.findColor(frame, bgr, tol, roi)
+            if (pt != null) {
+                onLog("找色命中 $pt")
+                if (click) {
+                    backend.tap(pt.first + num(action["tap_dx"], 0), pt.second + num(action["tap_dy"], 0))
+                }
+                return
+            }
+            delay(config.defaultIntervalMs.toLong())
+        }
+        throw IllegalStateException("找色超时: $bgr")
+    }
+
+    private suspend fun runText(action: Map<String, Any?>, workflow: Map<String, Any?>, click: Boolean) {
+        val target = str(action["target"] ?: action["text"])
+        val mode = str(action["match_mode"], "contains")
+        val timeout = flt(action["timeout"], 20f)
+        val minConf = flt(action["min_confidence"], 0.5f)
+        val roi = parseRoi(action["roi"]) ?: parseRoi(workflow["yolo_roi"])
+        val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
+        while (System.currentTimeMillis() < deadline) {
+            val frame = backend.capture()
+            val hits = vision.findText(frame, target, mode, roi, minConf)
+            if (hits.isNotEmpty()) {
+                val h = hits[num(action["index"], 0).coerceAtMost(hits.lastIndex)]
+                onLog("识字命中 ${h.text}")
+                if (click) {
+                    backend.tap(h.centerX + num(action["tap_dx"], 0), h.centerY + num(action["tap_dy"], 0))
+                }
+                return
+            }
+            delay(config.defaultIntervalMs.toLong())
+        }
+        throw IllegalStateException("识字超时: $target")
+    }
+
+    private suspend fun runYolo(action: Map<String, Any?>, workflow: Map<String, Any?>, click: Boolean) {
+        val model = str(action["model"] ?: action["model_path"] ?: workflow["yolo_model"] ?: config.defaultYoloModel ?: "")
+        if (model.isBlank()) throw IllegalStateException("未指定 yolo 模型")
+        val className = str(action["class_name"], "")
+        val conf = flt(action["conf"], config.defaultYoloConf)
+        val pick = str(action["pick"], "best_conf")
+        val timeout = flt(action["timeout"], 20f)
+        val roi = parseRoi(action["roi"]) ?: parseRoi(workflow["yolo_roi"])
+        val frac = parseFrac(action["frac"])
+        val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
+        while (System.currentTimeMillis() < deadline) {
+            val frame = backend.capture()
+            val dets = vision.yoloDetect(frame, model, conf, className, roi)
+            val det = vision.pickYolo(dets, pick, null)
+            if (det != null) {
+                onLog("YOLO 命中 ${det.className} conf=${det.confidence}")
+                if (click) {
+                    val pt = vision.yoloClickPoint(det, frac)
+                    backend.tap(pt.first, pt.second)
+                }
+                return
+            }
+            delay(config.defaultIntervalMs.toLong())
+        }
+        throw IllegalStateException("YOLO 超时: class=$className")
+    }
+
+    private suspend fun waitGoneTemplate(action: Map<String, Any?>, workflow: Map<String, Any?>) {
+        val path = str(action["template"])
+        val threshold = flt(action["threshold"], 0.92f)
+        val timeout = flt(action["timeout"], 45f)
+        val roi = parseRoi(action["roi"])
+        val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
+        while (System.currentTimeMillis() < deadline) {
+            val frame = backend.capture()
+            val m = vision.findTemplate(frame, path, threshold, roi)
+            if (m == null) {
+                onLog("模板已消失 $path")
+                return
+            }
+            delay(config.defaultIntervalMs.toLong())
+        }
+        throw IllegalStateException("等待模板消失超时: $path")
+    }
+
+    private suspend fun waitStable(action: Map<String, Any?>, workflow: Map<String, Any?>) {
+        val timeout = flt(action["timeout"], 12f)
+        val maxDiff = flt(action["max_mean_diff"], 4f)
+        val samples = num(action["stable_samples"], 2)
+        val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
+        var stable = 0
+        var prev: ByteArray? = null
+        while (System.currentTimeMillis() < deadline) {
+            val frame = backend.capture()
+            val cur = frame.bgr
+            if (prev != null && meanDiff(prev, cur) <= maxDiff) {
+                stable++
+                if (stable >= samples) {
+                    onLog("画面稳定")
+                    return
+                }
+            } else {
+                stable = 0
+            }
+            prev = cur
+            delay(config.defaultIntervalMs.toLong())
+        }
+        throw IllegalStateException("等待画面稳定超时")
+    }
+
+    private suspend fun humanDelay(action: Map<String, Any?>) {
+        val base = flt(action["base"], 0.5f)
+        val spread = flt(action["spread"], 0.2f)
+        val ms = ((base + Random.nextDouble(-spread.toDouble(), spread.toDouble())) * 1000).toLong()
+        delay(ms.coerceAtLeast(0))
+    }
+
+    private fun meanDiff(a: ByteArray, b: ByteArray): Float {
+        val n = minOf(a.size, b.size) / 3
+        if (n == 0) return 0f
+        var sum = 0f
+        for (i in 0 until n) {
+            val j = i * 3
+            sum += kotlin.math.abs((a[j].toInt() and 0xFF) - (b[j].toInt() and 0xFF))
+        }
+        return sum / n
+    }
+
+    private fun parseFrac(value: Any?): Pair<Float, Float> {
+        if (value is List<*> && value.size == 2) {
+            return (value[0] as Number).toFloat() to (value[1] as Number).toFloat()
+        }
+        return 0.5f to 0.5f
+    }
+
+    private fun str(v: Any?, default: String = ""): String = v?.toString()?.trim() ?: default
+    private fun num(v: Any?, default: Int = 0): Int = when (v) {
+        is Number -> v.toInt()
+        else -> default
+    }
+    private fun flt(v: Any?, default: Float = 0f): Float = when (v) {
+        is Number -> v.toFloat()
+        else -> default
+    }
+}
