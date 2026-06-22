@@ -9,9 +9,11 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.autoscript.core.backend.DeviceAutomationBackend
-import com.autoscript.core.capture.CaptureSession
+import com.autoscript.core.log.ScriptLog
+import com.autoscript.core.log.ScriptStatus
 import com.autoscript.core.project.ProjectAssets
-import com.autoscript.script.ScriptEngine
+import com.autoscript.script.ScriptRuntime
+import com.autoscript.script.ScriptRuntimeFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,18 +38,23 @@ class ScriptRunnerService : Service() {
     private fun startRunning() {
         if (job?.isActive == true) return
         startForeground(NOTIFICATION_ID, buildNotification("脚本运行中"))
-        val backend = DeviceAutomationBackend(CaptureSession.get())
         val assets = ProjectAssets(this)
-        val engine = ScriptEngine(assets, backend) { msg ->
+        val config = assets.loadConfig()
+        val backend = DeviceAutomationBackend(config)
+        val runtime: ScriptRuntime = ScriptRuntimeFactory.create(assets, backend) { msg ->
+            ScriptLog.i(msg)
             MainActivity.logSink?.invoke(msg)
         }
         job = scope.launch {
             try {
-                engine.run("main")
+                ScriptStatus.write(this@ScriptRunnerService, "running")
+                runtime.run()
+                ScriptStatus.write(this@ScriptRunnerService, "done:main")
             } catch (e: Exception) {
+                ScriptStatus.write(this@ScriptRunnerService, "error:${e.message}")
                 MainActivity.logSink?.invoke("错误: ${e.message}")
             } finally {
-                engine.release()
+                runtime.release()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }

@@ -2,11 +2,18 @@ package com.autoscript.core.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.graphics.Bitmap
 import android.graphics.Path
+import android.os.Build
 import android.util.Log
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
+import com.autoscript.core.capture.bitmapToScreenFrame
+import com.autoscript.core.log.ScriptLog
+import com.autoscript.core.model.ScreenFrame
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeout
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 
 class AutomationAccessibilityService : AccessibilityService() {
@@ -15,6 +22,7 @@ class AutomationAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance.set(this)
         Log.i(TAG, "Accessibility service connected")
+        ScriptLog.i("无障碍服务已连接")
     }
 
     override fun onDestroy() {
@@ -25,6 +33,37 @@ class AutomationAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
 
     override fun onInterrupt() = Unit
+
+    suspend fun captureFrameA11y(): ScreenFrame? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        val done = CompletableDeferred<Bitmap?>()
+        val executor = Executors.newSingleThreadExecutor()
+        takeScreenshot(
+            Display.DEFAULT_DISPLAY,
+            executor,
+            object : TakeScreenshotCallback {
+                override fun onSuccess(result: ScreenshotResult) {
+                    val hw = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
+                    val soft = hw?.copy(Bitmap.Config.ARGB_8888, false)
+                    hw?.recycle()
+                    done.complete(soft)
+                }
+
+                override fun onFailure(errorCode: Int) {
+                    Log.w(TAG, "takeScreenshot failed: $errorCode")
+                    done.complete(null)
+                }
+            },
+        )
+        return try {
+            withTimeout(8_000) { done.await() }?.let { bitmapToScreenFrame(it) }
+        } catch (e: Exception) {
+            Log.e(TAG, "captureFrameA11y", e)
+            null
+        } finally {
+            executor.shutdown()
+        }
+    }
 
     suspend fun tap(x: Int, y: Int): Boolean = dispatchTap(x, y, 50)
 

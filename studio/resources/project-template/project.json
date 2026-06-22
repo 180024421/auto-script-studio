@@ -3,10 +3,12 @@
   "package_id": "com.autoscript.template",
   "version_code": 1,
   "version_name": "1.0.0",
-  "entry": "main.yaml",
+  "entry": "main.lua",
+  "script_language": "lua",
   "runtime": {
     "default_interval_ms": 300,
     "default_yolo_conf": 0.35,
-    "ocr_mode": "lazy"
+    "ocr_mode": "lazy",
+    "input_mode": "auto"
   }
 }

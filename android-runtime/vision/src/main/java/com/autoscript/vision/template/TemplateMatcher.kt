@@ -15,7 +15,9 @@ object TemplateMatcher {
         template: ScreenFrame,
         roi: Rect? = null,
         threshold: Float = 0.9f,
+        step: Int = 2,
     ): MatchResult? {
+        val stride = step.coerceIn(1, 8)
         val (x1, y1, x2, y2) = roiBounds(frame, roi)
         val tw = template.width
         val th = template.height
@@ -30,8 +32,8 @@ object TemplateMatcher {
         var bestX = 0
         var bestY = 0
 
-        for (y in y1 until y2 - th) {
-            for (x in x1 until x2 - tw) {
+        for (y in y1 until y2 - th step stride) {
+            for (x in x1 until x2 - tw step stride) {
                 val score = nccAt(frame, x, y, tw, th, tGray, tMean, tStd)
                 if (score > bestScore) {
                     bestScore = score

@@ -1,32 +1,49 @@
-# Demo 脚本 — 对齐 adb-ide game.yaml 语义
+# Demo — 找图 / 找色 / 识字 / YOLO 示例
 includes: []
 
-defaults:
-  retry: 1
-  action:
-    timeout: 15
-
+yolo_model: models/ui
 yolo_conf: 0.35
+yolo_roi: [0, 0, 1080, 1920]
 
 actions:
   pause_short:
     type: human_delay
-    base: 0.8
+    base: 0.5
     spread: 0.2
 
-  tap_center:
-    type: tap
-    x: 540
-    y: 960
-
-  find_red_dot:
+  # 找色：BGR 格式，点击第一个匹配点
+  find_red:
     type: color
     bgr: [0, 0, 255]
     tol: 18
-    timeout: 10
+    timeout: 8
+
+  # 找图：模板放 image/ 目录
+  btn_start:
+    type: template
+    template: image/btn_start.png
+    threshold: 0.88
+    timeout: 15
+
+  # 识字：点击包含关键词的文字
+  txt_confirm:
+    type: text
+    target: 确定
+    match_mode: contains
+    timeout: 12
+
+  # YOLO：需 models/ui.onnx + models/ui.labels
+  yolo_tap:
+    type: yolo
+    class_name: hand
+    pick: largest
+    frac: [0.5, 0.5]
+    timeout: 15
 
 flows:
   main:
     - pause_short
-    - tap_center
-    - find_red_dot
+    - find_red
+    - btn_start
+    - txt_confirm
+    - yolo_tap

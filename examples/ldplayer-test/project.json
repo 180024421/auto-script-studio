@@ -1,0 +1,16 @@
+{
+  "name": "LDPlayer Test",
+  "package_id": "com.autoscript.ldplayertest",
+  "version_code": 1,
+  "version_name": "1.0.0",
+  "entry": "main.lua",
+  "script_language": "lua",
+  "runtime": {
+    "default_interval_ms": 300,
+    "default_yolo_conf": 0.35,
+    "ocr_mode": "lazy",
+    "auto_run": true,
+    "screenshot_mode": "media_projection",
+    "input_mode": "auto"
+  }
+}

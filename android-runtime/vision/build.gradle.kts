@@ -25,4 +25,8 @@ android {
 dependencies {
     implementation(project(":core"))
     implementation("androidx.core:core-ktx:1.12.0")
+    // 中文识字（捆绑离线模型）
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
+    // YOLO ONNX 推理
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.3")
 }

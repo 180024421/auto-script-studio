@@ -25,7 +25,7 @@ class ScriptEngine(
 
     suspend fun run(flowName: String = "main") {
         config = assets.loadConfig()
-        vision = VisionEngine(assets, config.ocrMode)
+        vision = VisionEngine(assets, assets.appContext(), config.ocrMode)
         runner = ActionRunner(backend, vision, config, onLog)
 
         var root = loader.load(assets.readEntryYaml())

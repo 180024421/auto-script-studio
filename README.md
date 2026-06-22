@@ -1,6 +1,9 @@
 # auto-script-studio
 
-Android 脚本开发助手 + 打包运行时。对标 **按键精灵手机助手** + **adb-ide** 能力，面向云手机 / 模拟器独立运行。
+**Android 脚本**：Lua 编写 → 打包 APK → 云手机 / 模拟器 / 真机运行。  
+**Windows 脚本请用 [adb-ide](../adb-ide)**（本仓库不管 Windows 自动化）。
+
+支持 **无障碍** 与 **root** 两种设备控制方式（`runtime.input_mode`：`auto` / `accessibility` / `root`）。详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ## 架构
 
@@ -22,6 +25,17 @@ PC Studio（开发）  →  脚本工程（YAML/Lua + 资源）  →  Packager  
 ## 仓库
 
 - GitHub: https://github.com/180024421/auto-script-studio
+
+## 能力一览
+
+| 功能 | PC Studio（ADB 联调） | APK 运行时 |
+|------|----------------------|-----------|
+| 找色 | 抓抓页取色 + 测试 | ✅ |
+| 找图 | 框选存模板 + OpenCV 测试 | ✅ NCC 模板匹配 |
+| 识字 / 找字 | PaddleOCR 测试（可选安装） | ✅ ML Kit 中文离线 |
+| YOLO | Ultralytics 测试（可选安装） | ✅ ONNX 推理 |
+| 脚本 | YAML 编辑 | ✅ flows/actions |
+| 打包 APK | 一键打包 | 云手机/模拟器独立运行 |
 
 ## 快速开始
 
@@ -45,13 +59,31 @@ cd android-runtime
 .\gradlew.bat :app:assembleDebug
 ```
 
-### 4. PC Studio（后续完善）
+### 4. PC Studio
 
 ```powershell
-cd studio
-pip install -r requirements.txt
-python -m studio.main
+cd E:\xiangmu\auto-script-studio
+.\setup-studio.cmd
+.\run-studio.cmd
 ```
+
+- **工程**：新建/打开/打包
+- **抓抓**：ADB 截图、取色、存模板、测试找色/找图/识字/YOLO
+- **脚本编辑**：编辑 `main.yaml`
+
+可选安装 PC 端识字/YOLO 测试：
+
+```powershell
+.\.venv\Scripts\pip install paddleocr paddlepaddle ultralytics
+```
+
+### 5. YOLO 模型导出（打进 APK）
+
+```powershell
+python tools/export_yolo_onnx.py --pt D:\models\best.pt --out examples\demo-game\models\ui
+```
+
+生成 `models/ui.onnx` + `models/ui.labels`，打包时自动进 APK。
 
 ## 脚本工程结构
 

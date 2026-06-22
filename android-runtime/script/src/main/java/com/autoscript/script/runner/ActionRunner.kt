@@ -23,6 +23,7 @@ class ActionRunner(
             "color" -> runColor(action, workflow, click = true)
             "text" -> runText(action, workflow, click = true)
             "yolo" -> runYolo(action, workflow, click = true)
+            "yolo_swipe" -> runYoloSwipe(action, workflow)
             "tap" -> backend.tap(num(action["x"]), num(action["y"]))
             "swipe" -> backend.swipe(
                 num(action["x1"]), num(action["y1"]),
@@ -47,9 +48,16 @@ class ActionRunner(
                 num(step["duration_ms"], 300),
             )
             "wait_template" -> runTemplate(step, workflow, click = false)
+            "wait_click_template" -> runTemplate(step, workflow, click = true)
             "click_color", "color" -> runColor(step, workflow, click = true)
-            "wait_click_text" -> runText(step, workflow, click = true)
+            "find_color" -> runColor(step, workflow, click = false)
+            "wait_click_text", "click_text" -> runText(step, workflow, click = true)
+            "find_text", "text" -> runText(step, workflow, click = step.get("click") != false)
+            "recognize_text", "ocr" -> runRecognize(step, workflow)
             "yolo_click", "yolo" -> runYolo(step, workflow, click = true)
+            "yolo_swipe" -> runYoloSwipe(step, workflow)
+            "gone_template", "wait_gone_template" -> waitGoneTemplate(step, workflow)
+            "stable", "wait_stable" -> waitStable(step, workflow)
             else -> throw IllegalArgumentException("未知 step type: $type")
         }
     }
@@ -148,6 +156,50 @@ class ActionRunner(
             delay(config.defaultIntervalMs.toLong())
         }
         throw IllegalStateException("YOLO 超时: class=$className")
+    }
+
+    private suspend fun runYoloSwipe(action: Map<String, Any?>, workflow: Map<String, Any?>) {
+        val model = str(action["model"] ?: action["model_path"] ?: workflow["yolo_model"] ?: config.defaultYoloModel ?: "")
+        if (model.isBlank()) throw IllegalStateException("未指定 yolo 模型")
+        val className = str(action["class_name"], "")
+        val conf = flt(action["conf"], config.defaultYoloConf)
+        val pick = str(action["pick"], "best_conf")
+        val timeout = flt(action["timeout"], 20f)
+        val roi = parseRoi(action["roi"]) ?: parseRoi(workflow["yolo_roi"])
+        val distance = num(action["distance"], 400)
+        val direction = str(action["direction"], "up").lowercase()
+        val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
+        while (System.currentTimeMillis() < deadline) {
+            val frame = backend.capture()
+            val dets = vision.yoloDetect(frame, model, conf, className, roi)
+            val det = vision.pickYolo(dets, pick, null)
+            if (det != null) {
+                val (cx, cy) = vision.yoloClickPoint(det, parseFrac(action["frac"]))
+                val (x2, y2) = when (direction) {
+                    "down" -> cx to (cy + distance)
+                    "left" -> (cx - distance) to cy
+                    "right" -> (cx + distance) to cy
+                    else -> cx to (cy - distance)
+                }
+                onLog("YOLO 滑动 $direction 起点=($cx,$cy)")
+                backend.swipe(cx, cy, x2, y2, num(action["duration_ms"], 350))
+                return
+            }
+            delay(config.defaultIntervalMs.toLong())
+        }
+        throw IllegalStateException("YOLO 滑动超时: class=$className")
+    }
+
+    private suspend fun runRecognize(step: Map<String, Any?>, workflow: Map<String, Any?>) {
+        val minConf = flt(step["min_confidence"], 0.5f)
+        val roi = parseRoi(step["roi"]) ?: parseRoi(workflow["yolo_roi"])
+        val frame = backend.capture()
+        val hits = vision.recognizeAll(frame, roi, minConf)
+        onLog("识字共 ${hits.size} 条")
+        val limit = num(step["limit"], 20)
+        hits.take(limit).forEach { h ->
+            onLog("  [${h.confidence}] ${h.text} @ (${h.centerX},${h.centerY})")
+        }
     }
 
     private suspend fun waitGoneTemplate(action: Map<String, Any?>, workflow: Map<String, Any?>) {

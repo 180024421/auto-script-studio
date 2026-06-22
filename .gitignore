@@ -23,8 +23,9 @@ outputs/
 # Models (large)
 *.pt
 *.onnx
+!examples/**/models/**
 *.bin
-!examples/**/models/.gitkeep
+!examples/**/models/**
 
 # OS
 .DS_Store

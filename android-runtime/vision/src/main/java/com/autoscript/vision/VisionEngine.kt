@@ -1,5 +1,6 @@
 package com.autoscript.vision
 
+import android.content.Context
 import com.autoscript.core.model.Detection
 import com.autoscript.core.model.MatchResult
 import com.autoscript.core.model.Rect
@@ -7,36 +8,53 @@ import com.autoscript.core.model.ScreenFrame
 import com.autoscript.core.model.TextHit
 import com.autoscript.core.project.ProjectAssets
 import com.autoscript.vision.color.ColorFinder
+import com.autoscript.vision.ocr.MlKitOcrEngine
 import com.autoscript.vision.ocr.OcrEngine
-import com.autoscript.vision.ocr.StubOcrEngine
 import com.autoscript.vision.ocr.TextMatch
 import com.autoscript.vision.template.TemplateLoader
 import com.autoscript.vision.template.TemplateMatcher
-import com.autoscript.vision.yolo.StubYoloDetector
+import com.autoscript.vision.yolo.OnnxYoloDetector
 import com.autoscript.vision.yolo.YoloDetector
 import com.autoscript.vision.yolo.YoloPick
 import java.io.ByteArrayInputStream
 
 class VisionEngine(
     private val assets: ProjectAssets,
+    appContext: Context,
     ocrMode: String = "lazy",
+    yoloImgsz: Int = 320,
 ) {
     private val templateCache = mutableMapOf<String, ScreenFrame>()
-    private val yolo: YoloDetector = StubYoloDetector()
-    private var ocr: OcrEngine? = if (ocrMode == "eager") StubOcrEngine() else null
+    private val yolo: YoloDetector = OnnxYoloDetector(appContext, assets, yoloImgsz)
+    private var ocr: OcrEngine? = when (ocrMode) {
+        "disabled" -> null
+        "eager" -> MlKitOcrEngine(appContext)
+        else -> null
+    }
     private val ocrMode = ocrMode
+    private val appContext = appContext.applicationContext
 
     fun findColor(frame: ScreenFrame, bgr: Triple<Int, Int, Int>, tol: Int, roi: Rect?): Pair<Int, Int>? =
         ColorFinder.findColor(frame, bgr, tol, roi)
 
-    fun findTemplate(frame: ScreenFrame, path: String, threshold: Float, roi: Rect?): MatchResult? {
+    fun findTemplate(
+        frame: ScreenFrame,
+        path: String,
+        threshold: Float,
+        roi: Rect?,
+        step: Int = 2,
+    ): MatchResult? {
         val tpl = loadTemplate(path)
-        return TemplateMatcher.findTemplate(frame, tpl, roi, threshold)
+        return TemplateMatcher.findTemplate(frame, tpl, roi, threshold, step)
+    }
+
+    fun recognizeAll(frame: ScreenFrame, roi: Rect?, minConf: Float): List<TextHit> {
+        val engine = ensureOcr()
+        return engine.recognize(frame, roi, minConf)
     }
 
     fun findText(frame: ScreenFrame, target: String, matchMode: String, roi: Rect?, minConf: Float): List<TextHit> {
-        val engine = ensureOcr()
-        val hits = engine.recognize(frame, roi, minConf)
+        val hits = recognizeAll(frame, roi, minConf)
         return TextMatch.filter(hits, target, matchMode)
     }
 
@@ -69,7 +87,7 @@ class VisionEngine(
 
     private fun ensureOcr(): OcrEngine {
         if (ocr == null) {
-            ocr = StubOcrEngine()
+            ocr = MlKitOcrEngine(appContext)
         }
         return ocr!!
     }

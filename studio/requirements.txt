@@ -3,3 +3,9 @@ opencv-python>=4.8.0
 numpy>=1.24.0
 pillow>=10.0.0
 PyYAML>=6.0
+lupa>=2.0
+
+# 可选：PC 端识字 / YOLO 测试（抓抓页）
+# paddleocr>=2.8.0
+# paddlepaddle>=2.6.0
+# ultralytics>=8.3.0

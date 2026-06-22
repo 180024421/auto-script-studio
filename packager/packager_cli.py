@@ -16,24 +16,32 @@ PROPS = RUNTIME / "packager" / "project.properties"
 GRADLEW = RUNTIME / "gradlew.bat"
 
 
+from packager.compile_project import cleanup_staging, prepare_staging_dir, resolve_runtime_entry
+
+
 def validate_project(project_dir: Path) -> dict:
     project_dir = project_dir.resolve()
     cfg_path = project_dir / "project.json"
     if not cfg_path.is_file():
         raise FileNotFoundError(f"缺少 project.json: {cfg_path}")
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-    entry = cfg.get("entry", "main.yaml")
-    if not (project_dir / entry).is_file():
-        raise FileNotFoundError(f"入口脚本不存在: {project_dir / entry}")
+    dev_entry = cfg.get("entry", "main.lua")
+    if not (project_dir / dev_entry).is_file():
+        raise FileNotFoundError(f"入口脚本不存在: {project_dir / dev_entry}")
     if not cfg.get("package_id"):
         raise ValueError("project.json 缺少 package_id")
+    resolve_runtime_entry(project_dir, cfg)
     return cfg
 
 
 def sync_assets(project_dir: Path) -> None:
-    if ASSETS.exists():
-        shutil.rmtree(ASSETS)
-    shutil.copytree(project_dir, ASSETS)
+    staging, _ = prepare_staging_dir(project_dir)
+    try:
+        if ASSETS.exists():
+            shutil.rmtree(ASSETS)
+        shutil.copytree(staging, ASSETS)
+    finally:
+        cleanup_staging(staging)
 
 
 def write_gradle_props(cfg: dict) -> None:
