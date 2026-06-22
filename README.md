@@ -19,6 +19,10 @@ PC Studio（开发）  →  脚本工程（YAML/Lua + 资源）  →  Packager  
 | `examples/` | 示例脚本工程 |
 | `docs/` | 脚本 API、打包指南 |
 
+## 仓库
+
+- GitHub: https://github.com/180024421/auto-script-studio
+
 ## 快速开始
 
 ### 1. 查看示例工程
