@@ -5,7 +5,7 @@ pillow>=10.0.0
 PyYAML>=6.0
 lupa>=2.0
 
-# 可选：PC 端识字 / YOLO 测试（抓抓页）
+# optional: paddleocr / ultralytics for grab-page OCR & YOLO tests
 # paddleocr>=2.8.0
 # paddlepaddle>=2.6.0
 # ultralytics>=8.3.0

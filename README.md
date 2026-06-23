@@ -63,6 +63,12 @@ cd android-runtime
 
 ```powershell
 cd E:\xiangmu\auto-script-studio
+.\start.cmd
+```
+
+或分步执行：
+
+```powershell
 .\setup-studio.cmd
 .\run-studio.cmd
 ```
