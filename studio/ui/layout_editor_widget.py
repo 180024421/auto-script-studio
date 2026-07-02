@@ -1208,6 +1208,27 @@ class LayoutEditorWidget(QWidget):
         show_row(self._row_pick, action)
         show_row(self._row_lua, action and wtype in ("lua", "snippet"))
 
+    def _mirror_widget_to_canvas(self, path: tuple[int, ...], spec: dict[str, Any]) -> None:
+        canvas_layout = getattr(self.phone_canvas, "_layout", None)
+        if not canvas_layout:
+            return
+        cw = resolve_widget(canvas_layout, path)
+        if cw is None:
+            return
+        patch = json.loads(json.dumps(spec))
+        for key in list(cw.keys()):
+            if key not in patch:
+                del cw[key]
+        cw.update(patch)
+
+    def _refresh_canvas_after_spec_change(self, path: tuple[int, ...], spec: dict[str, Any]) -> None:
+        self._mirror_widget_to_canvas(path, spec)
+        if is_free_mode(self._layout):
+            if not self.phone_canvas.refresh_widget_at(path):
+                self._update_preview(force=True)
+        else:
+            self._update_preview()
+
     def _set_form_row_label(self, row: int, text: str) -> None:
         parent_form: QFormLayout = self.findChildren(QFormLayout)[0]
         label = parent_form.itemAt(row, QFormLayout.ItemRole.LabelRole)
@@ -1302,18 +1323,7 @@ class LayoutEditorWidget(QWidget):
             item = self.widget_list.item(row)
             if item:
                 item.setText(widget_display_name(w))
-        if is_free_mode(self._layout):
-            sender = self.sender()
-            geom_spin = sender in (
-                self.layout_x_spin,
-                self.layout_y_spin,
-                self.layout_w_spin,
-                self.layout_h_spin,
-            )
-            if geom_spin or sender in (self.text_edit, self.text_style_combo):
-                self._update_preview()
-        else:
-            self._update_preview()
+        self._refresh_canvas_after_spec_change(path, w)
         self._dirty = True
         self._emit_layout_changed()
 
@@ -1425,14 +1435,6 @@ class LayoutEditorWidget(QWidget):
         self._apply_header()
         payload = json.loads(json.dumps(self._layout))
         if is_free_mode(self._layout):
-            if not force and getattr(self.phone_canvas, "_layout", None):
-                cur = json.dumps(migrate_layout(self.phone_canvas._layout), sort_keys=True)
-                new = json.dumps(migrate_layout(payload), sort_keys=True)
-                if cur == new and self.phone_canvas._items:
-                    if self._selected_path:
-                        self.phone_canvas.set_selected_path(self._selected_path)
-                    self._refresh_value_summary()
-                    return
             self.phone_canvas.set_layout(payload, selected_path=self._selected_path or None)
             if self._selected_path:
                 self.phone_canvas.set_selected_path(self._selected_path)

@@ -104,6 +104,13 @@ QCheckBox::indicator:disabled {
 """
 
 
+def _options_list(spec: dict[str, Any]) -> list[str]:
+    raw = spec.get("options")
+    if raw is None:
+        return ["选项A", "选项B"]
+    return [str(o) for o in raw]
+
+
 def _make_switch(*, checked: bool = False, enabled: bool = True) -> QCheckBox:
     sw = QCheckBox()
     sw.setText("")
@@ -205,7 +212,7 @@ def _input_preview_widget(placeholder: str = "") -> QLineEdit:
 
 def _select_preview_widget(spec: dict[str, Any]) -> QComboBox:
     cb = QComboBox()
-    opts = [str(o) for o in (spec.get("options") or ["选项1", "选项2"])]
+    opts = _options_list(spec) if spec.get("options") is not None else ["选项1", "选项2"]
     if not opts:
         opts = ["请选择"]
     cb.addItems(opts)
@@ -277,7 +284,7 @@ def build_design_preview(spec: dict[str, Any]) -> QWidget | None:
     if wtype == "select":
         return _form_row(label, _select_preview_widget(spec))
     if wtype == "multiselect":
-        opts = [str(o) for o in (spec.get("options") or ["选项A", "选项B"])]
+        opts = _options_list(spec)
         selected = {x.strip() for x in str(spec.get("default", "")).split(",") if x.strip()}
         return _form_row(label, _multiselect_options(opts, selected, interactive=False))
     if wtype == "switch":
@@ -313,8 +320,8 @@ def build_interactive_widget(spec: dict[str, Any], on_change: OnChange = None) -
 
     if wtype == "select":
         cb = QComboBox()
-        opts = [str(o) for o in (spec.get("options") or ["选项1", "选项2"])]
-        cb.addItems(opts)
+        opts = _options_list(spec) if spec.get("options") is not None else ["选项1", "选项2"]
+        cb.addItems(opts if opts else ["请选择"])
         cur = PanelState.get(wid) or str(spec.get("default", ""))
         idx = cb.findText(cur)
         if idx >= 0:
@@ -342,7 +349,7 @@ def build_interactive_widget(spec: dict[str, Any], on_change: OnChange = None) -
         return _form_row(label, group_host)
 
     if wtype == "multiselect":
-        opts = [str(o) for o in (spec.get("options") or ["选项A", "选项B"])]
+        opts = _options_list(spec)
         selected = {
             x.strip()
             for x in (PanelState.get(wid) or str(spec.get("default", ""))).split(",")

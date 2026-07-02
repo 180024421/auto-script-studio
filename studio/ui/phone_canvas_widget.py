@@ -92,8 +92,10 @@ class FreeDesignItem(QFrame):
     self._interactive = interactive
     self._editable = editable
     self._on_values_changed = on_values_changed
+    self._spec = json.loads(json.dumps(spec))
     wtype = spec.get("type", "")
     self._form_like = wtype in FORM_PREVIEW_TYPES
+    self._label: QLabel | None = None
 
     self.setObjectName("FreeDesignItem")
     self.setMouseTracking(True)
@@ -115,26 +117,74 @@ class FreeDesignItem(QFrame):
     if self._form_like:
       self._drag_strip.hide()
     self._content_host = QWidget(self)
+    self._mount_preview(self._spec)
+    self._relayout_content()
+    self._update_style()
+
+  def _mount_preview(self, spec: dict[str, Any]) -> None:
+    wtype = spec.get("type", "")
     preview = None
-    if interactive and wtype in INTERACTIVE_TYPES:
-      preview = build_interactive_widget(spec, on_values_changed)
-    elif wtype in FORM_PREVIEW_TYPES:
+    if self._interactive and wtype in INTERACTIVE_TYPES:
+      preview = build_interactive_widget(spec, self._on_values_changed)
+    elif wtype == "divider" or wtype in FORM_PREVIEW_TYPES:
       preview = build_design_preview(spec)
     if preview is not None:
-      lay = QVBoxLayout(self._content_host)
-      lay.setContentsMargins(0, 0, 0, 0)
-      lay.setSpacing(0)
+      lay = self._content_host.layout()
+      if lay is None:
+        lay = QVBoxLayout(self._content_host)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+      else:
+        while lay.count():
+          item = lay.takeAt(0)
+          child = item.widget()
+          if child is not None:
+            child.setParent(None)
+            child.deleteLater()
       preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
       lay.addWidget(preview, 1)
-      self._label = None
+      if self._label is not None:
+        self._label.deleteLater()
+        self._label = None
+      return
+
+    title = spec.get("label") or spec.get("text") or spec.get("id", "?")
+    icon = CHROME_ICONS.get(wtype, "")
+    icon_only = bool(icon and wtype in CHROME_ICONS)
+    if icon_only and icon:
+      display = icon
+      title_line = f"{title} ({wtype})"
+    elif self._form_like:
+      display = ""
+      title_line = str(title)
     else:
-      self._label = QLabel(title_line if icon_only and icon else display, self._content_host)
-      self._label.setObjectName("FreeDesignTitle")
-      self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-      self._label.setWordWrap(not (icon_only and icon))
-      if icon_only and icon:
-        self._label.setStyleSheet("font-size: 22px; font-weight: 600;")
-      self._label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+      display = f"{icon} {title}" if icon else f"{title}\n({wtype})"
+      title_line = display
+    lay = self._content_host.layout()
+    if lay is not None:
+      while lay.count():
+        item = lay.takeAt(0)
+        child = item.widget()
+        if child is not None:
+          child.setParent(None)
+          child.deleteLater()
+    if self._label is not None:
+      self._label.deleteLater()
+    self._label = QLabel(title_line if icon_only and icon else display, self._content_host)
+    self._label.setObjectName("FreeDesignTitle")
+    self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    self._label.setWordWrap(not (icon_only and icon))
+    if icon_only and icon:
+      self._label.setStyleSheet("font-size: 22px; font-weight: 600;")
+    self._label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+  def reload_content(self, spec: dict[str, Any]) -> None:
+    self._spec = json.loads(json.dumps(spec))
+    wtype = self._spec.get("type", "")
+    self._form_like = wtype in FORM_PREVIEW_TYPES
+    if self._form_like:
+      self._drag_strip.hide()
+    self._mount_preview(self._spec)
     self._relayout_content()
     self._update_style()
 
@@ -352,6 +402,18 @@ class PhoneCanvasWidget(QScrollArea):
     self._selected_path = path
     for it in self._items:
       it.set_selected(it.path() == path)
+
+  def refresh_widget_at(self, path: tuple[int, ...]) -> bool:
+    from studio.services.screen_layout import resolve_widget
+
+    spec = resolve_widget(self._layout, path)
+    if spec is None:
+      return False
+    for item in self._items:
+      if item.path() == path:
+        item.reload_content(spec)
+        return True
+    return False
 
   def set_active_screen(self, idx: int) -> None:
     self._layout.setdefault("panel", {})["active_screen"] = idx
