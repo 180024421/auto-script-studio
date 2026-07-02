@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "enabled": true,
+  "panel": {
+    "title": "Demo 助手",
+    "theme": "light",
+    "width_dp": 200,
+    "opacity": 0.96,
+    "start_x": 30,
+    "start_y": 180,
+    "columns": 2,
+    "show_log": true
+  },
+  "buttons": [
+    { "id": "start", "type": "start_script", "label": "运行", "color": "#2563EB", "width": 1 },
+    { "id": "stop", "type": "stop_script", "label": "停止", "color": "#DC2626", "width": 1 },
+    { "id": "tap_center", "type": "tap", "label": "点中心", "color": "#0D9488", "width": 1, "x": 640, "y": 360 },
+    { "id": "swipe_up", "type": "swipe", "label": "上滑", "color": "#D97706", "width": 1, "x1": 640, "y1": 1200, "x2": 640, "y2": 600 },
+    { "id": "collapse", "type": "collapse", "label": "收起", "color": "#64748B", "width": 2 }
+  ]
+}

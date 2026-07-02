@@ -1,7 +1,9 @@
 package com.autoscript.script.lua
 
 import com.autoscript.core.model.Detection
+import com.autoscript.core.overlay.OverlayWidgetStore
 import kotlinx.coroutines.runBlocking
+import org.luaj.vm2.Globals
 import org.luaj.vm2.LuaInteger
 import org.luaj.vm2.LuaString
 import org.luaj.vm2.LuaTable
@@ -12,8 +14,14 @@ import org.luaj.vm2.lib.TwoArgFunction
 import org.luaj.vm2.lib.VarArgFunction
 
 object LuaBindings {
+    private var watchListener: ((String, String) -> Unit)? = null
 
     fun install(globals: LuaValue, bridge: AutoScriptBridge, onLog: (String) -> Unit) {
+        val g = globals as Globals
+        PanelWatchRegistry.clear()
+        watchListener?.let { OverlayWidgetStore.removeChangeListener(it) }
+        watchListener = { id, value -> PanelWatchRegistry.notify(g, id, value) }
+        OverlayWidgetStore.addChangeListener(watchListener!!)
         val bot = LuaTable()
         bot.set("delay", DelayFn(bridge))
         bot.set("tap", TapFn(bridge))
@@ -22,6 +30,7 @@ object LuaBindings {
         bot.set("findImage", FindImageFn(bridge))
         bot.set("findColor", FindColorFn(bridge))
         bot.set("findText", FindTextFn(bridge))
+        bot.set("findNode", FindNodeFn(bridge))
         bot.set("recognizeText", RecognizeTextFn(bridge))
         bot.set("yoloDetect", YoloDetectFn(bridge))
         bot.set("findYolo", FindYoloFn(bridge))
@@ -33,6 +42,69 @@ object LuaBindings {
             }
         })
         globals.set("bot", bot)
+        val panel = LuaTable()
+        panel.set("get", object : OneArgFunction() {
+            override fun call(id: LuaValue): LuaValue = LuaString.valueOf(OverlayWidgetStore.get(id.checkjstring()))
+        })
+        panel.set("set", object : TwoArgFunction() {
+            override fun call(id: LuaValue, value: LuaValue): LuaValue {
+                OverlayWidgetStore.set(id.checkjstring(), value.tojstring())
+                return NIL
+            }
+        })
+        panel.set("is", object : TwoArgFunction() {
+            override fun call(id: LuaValue, expected: LuaValue): LuaValue =
+                LuaValue.valueOf(OverlayWidgetStore.isValue(id.checkjstring(), expected.checkjstring()))
+        })
+        panel.set("has", object : TwoArgFunction() {
+            override fun call(id: LuaValue, option: LuaValue): LuaValue =
+                LuaValue.valueOf(OverlayWidgetStore.hasOption(id.checkjstring(), option.checkjstring()))
+        })
+        panel.set("values", object : OneArgFunction() {
+            override fun call(_arg: LuaValue): LuaValue {
+                val t = LuaTable()
+                OverlayWidgetStore.all().forEach { (k, v) -> t.set(k, LuaString.valueOf(v)) }
+                return t
+            }
+        })
+        panel.set("watch", object : TwoArgFunction() {
+            override fun call(id: LuaValue, fn: LuaValue): LuaValue {
+                if (!fn.isfunction()) {
+                    throw org.luaj.vm2.LuaError("panel.watch 第二个参数须为函数")
+                }
+                PanelWatchRegistry.register(id.checkjstring(), fn.checkfunction())
+                return NIL
+            }
+        })
+        panel.set("unwatch", object : VarArgFunction() {
+            override fun invoke(args: Varargs): Varargs {
+                val id = args.arg(1).checkjstring()
+                val fn = if (args.narg() >= 2 && args.arg(2).isfunction()) args.arg(2).checkfunction() else null
+                PanelWatchRegistry.unregister(id, fn)
+                return NONE
+            }
+        })
+        panel.set("isOn", object : OneArgFunction() {
+            override fun call(id: LuaValue): LuaValue =
+                LuaValue.valueOf(OverlayWidgetStore.isOn(id.checkjstring()))
+        })
+        panel.set("getTimeRange", object : OneArgFunction() {
+            override fun call(id: LuaValue): LuaValue {
+                val (start, end) = OverlayWidgetStore.timeRange(id.checkjstring())
+                val t = LuaTable()
+                t.set("start", start)
+                t.set("end", end)
+                return t
+            }
+        })
+        panel.set("snapshot", object : OneArgFunction() {
+            override fun call(_arg: LuaValue): LuaValue {
+                val t = LuaTable()
+                OverlayWidgetStore.all().forEach { (k, v) -> t.set(k, LuaString.valueOf(v)) }
+                return t
+            }
+        })
+        globals.set("panel", panel)
         val loaded = globals.get("package").checktable().get("loaded").checktable()
         loaded.set("autoscript", bot)
     }
@@ -98,6 +170,14 @@ object LuaBindings {
             val target = args.arg(1).checkjstring()
             val opts = LuaOpts.table(if (args.narg() >= 2) args.arg(2) else null)
             val pt = runBlocking { bridge.findText(target, opts) }
+            return ptToVarargs(pt)
+        }
+    }
+
+    private class FindNodeFn(private val bridge: AutoScriptBridge) : VarArgFunction() {
+        override fun invoke(args: Varargs): Varargs {
+            val opts = LuaOpts.table(if (args.narg() >= 1) args.arg(1) else null)
+            val pt = runBlocking { bridge.findNode(opts) }
             return ptToVarargs(pt)
         }
     }

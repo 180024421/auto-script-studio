@@ -11,6 +11,7 @@ import androidx.core.app.NotificationCompat
 import com.autoscript.core.backend.DeviceAutomationBackend
 import com.autoscript.core.log.ScriptLog
 import com.autoscript.core.log.ScriptStatus
+import com.autoscript.core.script.ScriptCancelToken
 import com.autoscript.core.project.ProjectAssets
 import com.autoscript.script.ScriptRuntime
 import com.autoscript.script.ScriptRuntimeFactory
@@ -37,6 +38,7 @@ class ScriptRunnerService : Service() {
 
     private fun startRunning() {
         if (job?.isActive == true) return
+        ScriptCancelToken.reset()
         startForeground(NOTIFICATION_ID, buildNotification("脚本运行中"))
         val assets = ProjectAssets(this)
         val config = assets.loadConfig()
@@ -47,11 +49,11 @@ class ScriptRunnerService : Service() {
         }
         job = scope.launch {
             try {
-                ScriptStatus.write(this@ScriptRunnerService, "running")
+                ScriptStatus.write(this@ScriptRunnerService, "running", phase = "main")
                 runtime.run()
-                ScriptStatus.write(this@ScriptRunnerService, "done:main")
+                ScriptStatus.write(this@ScriptRunnerService, "done", phase = "main")
             } catch (e: Exception) {
-                ScriptStatus.write(this@ScriptRunnerService, "error:${e.message}")
+                ScriptStatus.write(this@ScriptRunnerService, "error", phase = "main", error = e.message ?: "unknown")
                 MainActivity.logSink?.invoke("错误: ${e.message}")
             } finally {
                 runtime.release()
@@ -62,6 +64,7 @@ class ScriptRunnerService : Service() {
     }
 
     private fun stopRunning() {
+        ScriptCancelToken.cancel()
         job?.cancel()
         job = null
         stopForeground(STOP_FOREGROUND_REMOVE)

@@ -1,9 +1,12 @@
 package com.autoscript.script.lua
 
+import com.autoscript.core.accessibility.AccessibilityFinder
 import com.autoscript.core.backend.AutomationBackend
+import com.autoscript.core.capture.CaptureCache
 import com.autoscript.core.model.Detection
 import com.autoscript.core.model.Rect
 import com.autoscript.core.project.ProjectConfig
+import com.autoscript.core.script.ScriptCancelToken
 import com.autoscript.script.parseBgr
 import com.autoscript.vision.VisionEngine
 import kotlinx.coroutines.delay
@@ -18,8 +21,18 @@ class AutoScriptBridge(
     private val onLog: (String) -> Unit,
     private val defaultYoloModel: String? = null,
 ) {
+    private val captureCache = CaptureCache()
+
     suspend fun delaySeconds(seconds: Double) {
-        delay((seconds * 1000).toLong().coerceAtLeast(0))
+        val total = (seconds * 1000).toLong().coerceAtLeast(0)
+        var elapsed = 0L
+        val step = 100L
+        while (elapsed < total) {
+            ScriptCancelToken.check()
+            val wait = minOf(step, total - elapsed)
+            delay(wait)
+            elapsed += wait
+        }
     }
 
     suspend fun tap(x: Int, y: Int) {
@@ -44,7 +57,8 @@ class AutoScriptBridge(
         val interval = config.defaultIntervalMs.toLong()
         val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
         while (System.currentTimeMillis() < deadline) {
-            val frame = backend.capture()
+            ScriptCancelToken.check()
+            val frame = captureCache.getOrCapture { backend.capture() }
             val m = vision.findTemplate(frame, path, threshold, roi)
             if (m != null) {
                 onLog("找图命中 $path score=${m.score}")
@@ -55,6 +69,7 @@ class AutoScriptBridge(
             }
             delay(interval)
         }
+        captureCache.invalidate()
         if (LuaOpts.bool(opts, "optional", false)) return null
         throw IllegalStateException("找图超时: $path")
     }
@@ -69,7 +84,8 @@ class AutoScriptBridge(
         val tapDy = LuaOpts.int(opts, "tap_dy", 0)
         val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
         while (System.currentTimeMillis() < deadline) {
-            val frame = backend.capture()
+            ScriptCancelToken.check()
+            val frame = captureCache.getOrCapture { backend.capture() }
             val pt = vision.findColor(frame, bgr, tol, roi)
             if (pt != null) {
                 onLog("找色命中 $pt")
@@ -80,6 +96,7 @@ class AutoScriptBridge(
             }
             delay(config.defaultIntervalMs.toLong())
         }
+        captureCache.invalidate()
         if (LuaOpts.bool(opts, "optional", false)) return null
         throw IllegalStateException("找色超时: $bgr")
     }
@@ -100,7 +117,8 @@ class AutoScriptBridge(
         val tapDy = LuaOpts.int(opts, "tap_dy", 0)
         val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
         while (System.currentTimeMillis() < deadline) {
-            val frame = backend.capture()
+            ScriptCancelToken.check()
+            val frame = captureCache.getOrCapture { backend.capture() }
             val hits = vision.findText(frame, target, mode, roi, minConf)
             if (hits.isNotEmpty()) {
                 val h = hits[index.coerceIn(0, hits.lastIndex)]
@@ -112,15 +130,42 @@ class AutoScriptBridge(
             }
             delay(config.defaultIntervalMs.toLong())
         }
+        captureCache.invalidate()
         if (LuaOpts.bool(opts, "optional", false)) return null
         throw IllegalStateException("识字超时: $target")
+    }
+
+    suspend fun findNode(opts: Map<String, Any?>): Pair<Int, Int>? {
+        val text = LuaOpts.str(opts, "text")
+        val resourceId = LuaOpts.str(opts, "id")
+        val matchMode = LuaOpts.str(opts, "match_mode", "contains")
+        val index = LuaOpts.int(opts, "index", 0)
+        val click = LuaOpts.bool(opts, "click", false)
+        val timeout = LuaOpts.float(opts, "timeout", 10f)
+        val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
+        while (System.currentTimeMillis() < deadline) {
+            ScriptCancelToken.check()
+            val hit = when {
+                text.isNotBlank() -> AccessibilityFinder.findByText(text, matchMode, index)
+                resourceId.isNotBlank() -> AccessibilityFinder.findById(resourceId, index)
+                else -> null
+            }
+            if (hit != null) {
+                onLog("控件命中 ${hit.text} @ (${hit.centerX},${hit.centerY})")
+                if (click) backend.tap(hit.centerX, hit.centerY)
+                return hit.centerX to hit.centerY
+            }
+            delay(config.defaultIntervalMs.toLong())
+        }
+        if (LuaOpts.bool(opts, "optional", false)) return null
+        throw IllegalStateException("控件查找超时: text=$text id=$resourceId")
     }
 
     suspend fun recognizeText(opts: Map<String, Any?>): List<Map<String, Any>> {
         val minConf = LuaOpts.float(opts, "min_confidence", 0.5f)
         val roi = LuaOpts.roi(opts)
         val limit = LuaOpts.int(opts, "limit", 30)
-        val frame = backend.capture()
+        val frame = captureCache.getOrCapture { backend.capture() }
         val hits = vision.recognizeAll(frame, roi, minConf)
         onLog("识字共 ${hits.size} 条")
         return hits.take(limit).map {
@@ -138,7 +183,7 @@ class AutoScriptBridge(
         val className = LuaOpts.str(opts, "class_name", "")
         val conf = LuaOpts.float(opts, "conf", config.defaultYoloConf)
         val roi = LuaOpts.roi(opts)
-        val frame = backend.capture()
+        val frame = captureCache.getOrCapture { backend.capture() }
         return vision.yoloDetect(frame, model, conf, className, roi)
     }
 
@@ -153,7 +198,8 @@ class AutoScriptBridge(
         val frac = LuaOpts.frac(opts)
         val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
         while (System.currentTimeMillis() < deadline) {
-            val frame = backend.capture()
+            ScriptCancelToken.check()
+            val frame = captureCache.getOrCapture { backend.capture() }
             val dets = vision.yoloDetect(frame, model, conf, className, roi)
             val det = vision.pickYolo(dets, pick, null)
             if (det != null) {
@@ -181,7 +227,8 @@ class AutoScriptBridge(
         val frac = LuaOpts.frac(opts)
         val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
         while (System.currentTimeMillis() < deadline) {
-            val frame = backend.capture()
+            ScriptCancelToken.check()
+            val frame = captureCache.getOrCapture { backend.capture() }
             val dets = vision.yoloDetect(frame, model, conf, className, roi)
             val det = vision.pickYolo(dets, pick, null)
             if (det != null) {

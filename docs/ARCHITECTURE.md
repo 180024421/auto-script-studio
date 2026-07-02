@@ -1,80 +1,53 @@
-# 项目定位与分工
+# 项目定位
 
-## 两个项目各管什么
-
-| 项目 | 平台 | 脚本跑在哪 | 语言 |
-|------|------|------------|------|
-| **auto-script-studio** | **Android** | 打包 APK，在设备/云手机/模拟器上跑 | **Lua**（`main.lua`） |
-| **adb-ide** | **Windows** | PC 本机（窗口截图、UIA 控件） | Python + 可选 YAML |
+**auto-script-studio** 是独立的 Android 脚本开发与打包工具链，不依赖任何外部 IDE 项目。
 
 ```
-auto-script-studio                adb-ide
-─────────────────                 ───────
-PC Studio（抓抓/编辑/打包）        PC IDE（抓抓/编辑/运行）
-       │                                 │
-       ▼                                 ▼
-  独立 APK + Lua                    本机 Python
-       │                                 │
-       ▼                                 ▼
- 云手机 / 模拟器 / 真机              Windows 窗口 / 游戏
+PC Studio（抓抓/编辑/打包）  →  脚本工程（Lua + ui/layout.json + 资源）  →  Packager  →  独立 APK
+                                                                              ↓
+                                                            云手机 / 模拟器 / 真机 + 浮动面板
 ```
 
-**不要混用职责：** Android 自动化以 `auto-script-studio` 为准；Windows 自动化以 `adb-ide` 为准。  
-`auto-script-studio` 的 PC 端只负责 **开发、ADB 联调、打包**，不在 PC 上替代 APK 跑正式脚本（联调可用 `lua_runner`）。
+| 目录 | 说明 |
+|------|------|
+| `studio/` | PC 开发助手（PySide6）：工程、抓抓、浮动面板、Lua 编辑、ADB 联调 |
+| `android-runtime/` | Android 运行时壳（无障碍/root、截屏、视觉、Lua、浮动面板） |
+| `packager/` | 工程 → assets → Gradle APK |
+| `tools/` | YOLO 导出、YAML→Lua 迁移、模拟器冒烟 |
+| `examples/` | 示例工程 |
 
----
+## 脚本形态
 
-## Android 输入/截屏模式（`project.json` → `runtime`）
+- **推荐语言：Lua**（`main.lua`，`bot.*` API）
+- 打包后进 APK `assets/project/`，设备上**离线运行**
+- PC 联调：`python -m studio.runtime.lua_runner` 或 Studio「PC 运行 Lua」
 
-| `input_mode` | 点击/滑动 | 截屏 | 适用场景 |
-|--------------|-----------|------|----------|
-| `auto`（默认） | 有 root 用 shell `input`，否则无障碍 | 有 root 用 `screencap`，否则录屏/无障碍截图 | 云手机 root、模拟器 |
+YAML 为遗留兼容，新工程请用 Lua。
+
+## Android 输入/截屏（`project.json` → `runtime`）
+
+| `input_mode` | 点击/滑动 | 截屏 | 适用 |
+|--------------|-----------|------|------|
+| `auto` | root 优先，否则无障碍 | root / 录屏 / 无障碍截图 | 云手机、模拟器 |
 | `accessibility` | 无障碍手势 | MediaProjection / API30+ 无障碍截图 | 无 root 真机 |
-| `root` | `su -c input tap/swipe` | `su -c screencap` | 已 root 设备，免开无障碍 |
+| `root` | `su input` | `su screencap` | 已 root，免无障碍/录屏 |
 
-```json
-{
-  "entry": "main.lua",
-  "script_language": "lua",
-  "runtime": {
-    "input_mode": "auto",
-    "screenshot_mode": "media_projection",
-    "auto_run": false
-  }
-}
-```
+## 推荐工作流
 
-- **无障碍**：用户手动在系统设置里开启本应用无障碍；雷电等模拟器可用 ADB 辅助开启（测试用）。
-- **Root**：应用内检测 `su`；有 root 时 **不必开无障碍**，也 **不必授权录屏**（`input_mode: root` 或 `auto` 且检测到 root）。
+1. `start.cmd` 启动 Studio → 新建/打开工程
+2. **抓抓**页 ADB 截图、取色、模板、识字/YOLO 测试（可选依赖）
+3. **浮动面板**页编辑 `ui/layout.json`，抓抓页叠加预览
+4. **脚本编辑** `main.lua`，PC ADB 联调
+5. 打包 APK → 安装到设备 → 授权无障碍/悬浮窗 → 运行
 
----
+## PC Studio 与 APK 能力对应
 
-## 脚本形态（Android）
+| 能力 | PC Studio（联调） | APK 运行时 |
+|------|-------------------|------------|
+| 找色/找图 | OpenCV 测试 | Kotlin NCC |
+| OCR | PaddleOCR（可选） | ML Kit 中文离线 |
+| YOLO | Ultralytics（可选） | ONNX Runtime |
+| 浮动面板 | 布局编辑 + 截图预览 | OverlayService |
+| 脚本 | Lua + lupa 联调 | LuaJ |
 
-- **唯一推荐脚本语言：Lua**（`bot.findImage` / `findColor` / `findText` / `findYolo` …）
-- 打包：工程目录 → `packager` → APK（`assets/project/main.lua`）
-- PC 联调：同一份 `main.lua` + `python -m studio.runtime.lua_runner`（ADB，非 APK）
-
-YAML / Python 仅作历史兼容，新工程不要用。
-
----
-
-## 与 adb-ide 的关系
-
-| 能力 | auto-script-studio | adb-ide |
-|------|-------------------|---------|
-| Windows 找图/识字/YOLO | ❌ | ✅ |
-| Android APK 离线跑 | ✅ | ❌（靠 PC+ADB 在线跑） |
-| Lua 脚本进 APK | ✅ | ❌ |
-| 可选复用 adb-ide UI | Studio 可挂载 adb-ide 抓抓界面做 Android 开发 | 主仓库 |
-
-若已安装同级目录 `adb-ide`，`run-studio.cmd` 可打开完整抓抓 IDE +「打包 APK」菜单；**Windows 脚本请在 adb-ide 里做**。
-
----
-
-## 推荐工作流（Android）
-
-1. `auto-script-studio` 新建工程 → 编辑 `main.lua`
-2. PC：`run-lua-pc.cmd` 或 Studio「PC 运行 Lua」ADB 联调
-3. 打包 APK → 装到云手机/雷电
-4. 设备上：`input_mode` 按环境选 `auto` / `root` / `accessibility`，运行脚本
+算法语义在 `bot.*` API 层对齐；PC 与设备实现不同，但脚本写法一致。

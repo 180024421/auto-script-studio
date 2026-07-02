@@ -1,6 +1,7 @@
-# 脚本 API（对齐 adb-ide）
+# 脚本 API（YAML 遗留）
 
-本文定义 **脚本工程** 的 YAML DSL，PC Studio / adb-ide 联调与 APK 运行时共用同一语义。
+本文定义 **YAML DSL**（遗留兼容）。**新工程请用 Lua**，见 [LUA.md](LUA.md)。  
+PC Studio 与 APK 运行时共用同一套 action 语义（YAML 引擎仍可用）。
 
 ---
 
@@ -212,21 +213,22 @@ models/ui.ncnn.bin
 
 ## 7. 运行时能力矩阵
 
-| 能力 | APK 运行时 | PC ADB 联调 |
-|------|-----------|-------------|
-| 找色 | ✅ Kotlin | ✅ adb-ide |
-| 找图 | ✅ Bitmap NCC / 后续 OpenCV | ✅ adb-ide |
-| 识字 | ✅ 懒加载 OCR（后续 NCNN） | ✅ PaddleOCR |
-| YOLO | ✅ NCNN（集成中） | ✅ Ultralytics |
-| 点击 | ✅ Accessibility | ✅ ADB input |
+| 能力 | APK 运行时 | PC Studio 联调 |
+|------|-----------|----------------|
+| 找色 | ✅ Kotlin | ✅ OpenCV |
+| 找图 | ✅ NCC 模板匹配 | ✅ OpenCV |
+| 识字 | ✅ ML Kit 中文 | ✅ PaddleOCR（可选） |
+| YOLO | ✅ ONNX Runtime | ✅ Ultralytics（可选） |
+| 点击 | ✅ 无障碍 / root | ✅ ADB input |
 
 ---
 
-## 8. 与 adb-ide 互操作
+## 8. 迁移到 Lua
 
-1. 在 adb-ide 中调试 YAML：`python -m app.automation workflow.yaml`
-2. 确认流程后复制到 `auto-script-studio/examples/xxx/main.yaml`
-3. 导出 ncnn 模型到 `models/`
-4. `python -m packager.packager_cli build ...`
+旧 YAML 工程可用：
 
-参考 adb-ide 文档：`E:\xiangmu\adb-ide\docs\automation-api.md`
+```powershell
+python tools/yaml_to_lua.py examples/demo-game/main.yaml
+```
+
+生成 `main.lua` 后，将 `project.json` 的 `entry` 改为 `main.lua`。

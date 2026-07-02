@@ -1,4 +1,4 @@
-"""Auto Script Studio — PC 开发助手入口。"""
+"""Auto Script Studio — PC 开发助手入口（独立，不依赖 adb-ide）。"""
 
 from __future__ import annotations
 
@@ -11,12 +11,7 @@ if str(ROOT) not in sys.path:
 
 
 def main() -> int:
-    try:
-        from studio.ui.studio_main_window import run_app
-    except RuntimeError as exc:
-        print(exc, file=sys.stderr)
-        print("\n回退到简易 Studio（无 adb-ide）…", file=sys.stderr)
-        from studio.ui.main_window import run_app
+    from studio.ui.main_window import run_app
 
     return run_app()
 

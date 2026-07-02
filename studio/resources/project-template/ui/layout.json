@@ -1,0 +1,56 @@
+{
+  "version": 2,
+  "enabled": true,
+  "panel": {
+    "title": "脚本助手",
+    "theme": "light",
+    "width_dp": 240,
+    "opacity": 0.96,
+    "start_x": 20,
+    "start_y": 200,
+    "columns": 2,
+    "ball_size_dp": 48,
+    "show_log": true,
+    "draggable": true,
+    "collapsible": true,
+    "allow_design": true,
+    "start_confirm_collapse": true
+  },
+  "widgets": [
+    {
+      "id": "main_tabs",
+      "type": "tabs",
+      "width": 2,
+      "tabs": [
+        {
+          "title": "参数",
+          "widgets": [
+            {
+              "id": "mode",
+              "type": "select",
+              "label": "模式",
+              "width": 2,
+              "options": ["普通", "极速"],
+              "default": "普通"
+            }
+          ]
+        },
+        {
+          "title": "任务",
+          "widgets": [
+            {
+              "id": "tasks",
+              "type": "multiselect",
+              "label": "任务",
+              "width": 2,
+              "options": ["日常", "副本"],
+              "default": "日常"
+            }
+          ]
+        }
+      ]
+    },
+    { "id": "start", "type": "start_script", "label": "开始", "color": "#2563EB", "width": 1 },
+    { "id": "stop", "type": "stop_script", "label": "停止", "color": "#DC2626", "width": 1 }
+  ]
+}

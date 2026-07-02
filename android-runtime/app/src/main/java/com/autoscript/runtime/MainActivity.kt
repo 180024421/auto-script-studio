@@ -2,12 +2,14 @@ package com.autoscript.runtime
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.widget.Button
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.autoscript.core.accessibility.AutomationAccessibilityService
 import com.autoscript.core.backend.DeviceAutomationBackend
@@ -55,6 +57,7 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.btnStart).setOnClickListener { startScript() }
         findViewById<Button>(R.id.btnStop).setOnClickListener { stopScript() }
+        findViewById<Button>(R.id.btnOverlay).setOnClickListener { requestOverlayAndStart() }
 
         appendLog("工程: ${runCatching { ProjectAssets(this).loadConfig().name }.getOrElse { "未打包" }}")
         logSink = { msg -> runOnUiThread { appendLog(msg) } }
@@ -70,6 +73,29 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         refreshStatus()
         scheduleAutoRun()
+        if (Settings.canDrawOverlays(this)) {
+            OverlayService.start(this)
+        }
+    }
+
+    private fun requestOverlayAndStart() {
+        if (Settings.canDrawOverlays(this)) {
+            OverlayService.start(this)
+            appendLog("浮动面板已启动")
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("悬浮窗权限")
+            .setMessage("按键精灵式浮动面板需要「显示在其他应用上层」权限，请在设置中允许后返回。")
+            .setPositiveButton("去设置") { _, _ ->
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName"),
+                )
+                startActivity(intent)
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -79,6 +105,17 @@ class MainActivity : AppCompatActivity() {
                 appendLog("屏幕录制已授权")
             } else {
                 appendLog("屏幕录制授权被拒绝")
+                AlertDialog.Builder(this)
+                    .setTitle("需要屏幕录制")
+                    .setMessage("找图/识字/YOLO 需要屏幕录制权限。无障碍截图模式（screenshot_mode: accessibility）可免录屏。")
+                    .setPositiveButton("重试") { _, _ ->
+                        startActivityForResult(
+                            capture.createCaptureIntent(),
+                            ScreenCaptureManager.REQUEST_MEDIA_PROJECTION,
+                        )
+                    }
+                    .setNegativeButton("取消", null)
+                    .show()
             }
             refreshStatus()
             scheduleAutoRun()

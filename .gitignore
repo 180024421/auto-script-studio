@@ -9,6 +9,7 @@ dist/
 # Android
 android-runtime/.gradle/
 android-runtime/**/build/
+android-runtime/packager/generated-res/
 android-runtime/local.properties
 android-runtime/.idea/
 *.apk
@@ -30,3 +31,7 @@ outputs/
 # OS
 .DS_Store
 Thumbs.db
+
+# IDE / local Studio state
+.idea/
+**/.studio/

@@ -68,7 +68,7 @@ def main() -> int:
     name = "auto-script-studio"
     desc = "Android script studio + APK packager (find image/color/text, YOLO)"
 
-    # Try Gitee first (same account as adb-ide)
+    # Try Gitee first
     cred = git_credential("gitee.com")
     token = cred.get("password", "")
     username = cred.get("username", "")

@@ -17,26 +17,23 @@ GRADLEW = RUNTIME / "gradlew.bat"
 
 
 from packager.compile_project import cleanup_staging, prepare_staging_dir, resolve_runtime_entry
+from packager.validate_project import validate_project_full
 
 
 def validate_project(project_dir: Path) -> dict:
-    project_dir = project_dir.resolve()
-    cfg_path = project_dir / "project.json"
-    if not cfg_path.is_file():
-        raise FileNotFoundError(f"缺少 project.json: {cfg_path}")
-    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-    dev_entry = cfg.get("entry", "main.lua")
-    if not (project_dir / dev_entry).is_file():
-        raise FileNotFoundError(f"入口脚本不存在: {project_dir / dev_entry}")
-    if not cfg.get("package_id"):
-        raise ValueError("project.json 缺少 package_id")
-    resolve_runtime_entry(project_dir, cfg)
-    return cfg
+    result = validate_project_full(project_dir)
+    for w in result.get("warnings", []):
+        print(f"警告: {w}")
+    return result["cfg"]
 
 
 def sync_assets(project_dir: Path) -> None:
-    staging, _ = prepare_staging_dir(project_dir)
+    staging, cfg = prepare_staging_dir(project_dir)
     try:
+        from packager.icon_processor import prepare_pack_icons
+
+        icon_src = prepare_pack_icons(project_dir, cfg, RUNTIME, staging)
+        print(f"图标: {icon_src.name} → mipmap + ui/ball.png")
         if ASSETS.exists():
             shutil.rmtree(ASSETS)
         shutil.copytree(staging, ASSETS)
@@ -44,13 +41,20 @@ def sync_assets(project_dir: Path) -> None:
         cleanup_staging(staging)
 
 
-def write_gradle_props(cfg: dict) -> None:
+def write_gradle_props(cfg: dict, signing: dict | None = None) -> None:
     lines = [
         f"applicationId={cfg['package_id']}",
         f"versionCode={cfg.get('version_code', 1)}",
         f"versionName={cfg.get('version_name', '1.0.0')}",
         f"appName={cfg.get('name', 'Auto Script')}",
     ]
+    if signing:
+        ks = signing.get("keystore")
+        if ks:
+            lines.append(f"signingStoreFile={Path(ks).resolve()}")
+            lines.append(f"signingStorePassword={signing.get('ks_pass', '')}")
+            lines.append(f"signingKeyAlias={signing.get('key_alias', '')}")
+            lines.append(f"signingKeyPassword={signing.get('key_pass', signing.get('ks_pass', ''))}")
     PROPS.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -70,10 +74,15 @@ def run_gradle(release: bool) -> Path:
     return apk
 
 
-def build(project_dir: Path, output: Path, release: bool = False) -> Path:
+def build(
+    project_dir: Path,
+    output: Path,
+    release: bool = False,
+    signing: dict | None = None,
+) -> Path:
     cfg = validate_project(project_dir)
     sync_assets(project_dir)
-    write_gradle_props(cfg)
+    write_gradle_props(cfg, signing if release else None)
     apk = run_gradle(release)
     output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -90,6 +99,10 @@ def main(argv: list[str] | None = None) -> int:
     p_build.add_argument("project", type=Path, help="脚本工程目录")
     p_build.add_argument("-o", "--output", type=Path, required=True, help="输出 APK 路径")
     p_build.add_argument("--release", action="store_true", help="Release 构建")
+    p_build.add_argument("--keystore", type=Path, help="Release 签名 keystore 路径")
+    p_build.add_argument("--ks-pass", type=str, default="", help="keystore 密码")
+    p_build.add_argument("--key-alias", type=str, default="", help="密钥别名")
+    p_build.add_argument("--key-pass", type=str, default="", help="密钥密码（默认同 ks-pass）")
 
     p_validate = sub.add_parser("validate", help="校验工程")
     p_validate.add_argument("project", type=Path)
@@ -100,7 +113,15 @@ def main(argv: list[str] | None = None) -> int:
         print("OK:", cfg.get("name"), cfg.get("package_id"))
         return 0
     if args.cmd == "build":
-        build(args.project, args.output, release=args.release)
+        signing = None
+        if args.release and args.keystore:
+            signing = {
+                "keystore": args.keystore,
+                "ks_pass": args.ks_pass,
+                "key_alias": args.key_alias,
+                "key_pass": args.key_pass or args.ks_pass,
+            }
+        build(args.project, args.output, release=args.release, signing=signing)
         return 0
     return 1
 

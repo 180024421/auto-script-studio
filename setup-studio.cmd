@@ -1,15 +1,21 @@
 @echo off
+setlocal EnableExtensions
+chcp 65001 >nul
 cd /d "%~dp0"
+
 if not exist .venv\Scripts\python.exe (
+  echo 创建虚拟环境...
   python -m venv .venv
 )
-.venv\Scripts\pip install -r studio\requirements.txt
-if exist ..\adb-ide\requirements.txt (
-  echo 安装 adb-ide 依赖（IDE 识图/YOLO/OCR 与 adb-ide 相同）…
-  .venv\Scripts\pip install -r ..\adb-ide\requirements.txt
-) else (
-  echo 警告: 未找到 ..\adb-ide\requirements.txt，请先 clone adb-ide 到同级目录
+
+echo 安装 Studio 依赖...
+.venv\Scripts\python.exe -m pip install -q --upgrade pip
+.venv\Scripts\pip.exe install --default-timeout=120 -i https://pypi.tuna.tsinghua.edu.cn/simple -r studio\requirements.txt
+if errorlevel 1 (
+  .venv\Scripts\pip.exe install --default-timeout=300 -r studio\requirements.txt
 )
+
 echo.
-echo 安装完成。需 adb-ide 在: %~dp0..\adb-ide
-echo 运行 run-studio.cmd 启动 Studio（界面与 adb-ide 相同 + 打包 APK）
+echo 安装完成。运行 start.cmd 或 run-studio.cmd 启动 Studio。
+echo 可选识字/YOLO 测试: pip install paddleocr paddlepaddle ultralytics
+endlocal

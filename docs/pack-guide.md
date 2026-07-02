@@ -10,10 +10,12 @@
 
 打包前确认：
 
-- [ ] `project.json` 中 `package_id` 唯一且合法
-- [ ] `main.yaml` 中 `flows.main` 存在（或指定其他 flow）
-- [ ] `image/` 中模板图路径与 yaml 一致
-- [ ] YOLO 模型已导出为 ncnn（若使用 yolo action）
+- [ ] `project.json` 中 `name`、`package_id` 正确（Studio 打包时会弹窗确认）
+- [ ] 应用图标：可选 `icon.png`；未设置时自动使用内置猫咪图 `images/jimeng.png`
+- [ ] 入口 `main.lua`（或遗留 `main.yaml`）存在
+- [ ] `image/` 中模板图路径与脚本一致
+- [ ] YOLO 使用 `.onnx` + `.labels`（若使用 `bot.findYolo`）
+- [ ] `ui/layout.json` 已配置（若使用浮动面板）
 - [ ] 在目标分辨率模拟器上 ADB 联调通过
 
 ## 命令行打包
@@ -32,10 +34,11 @@ python -m packager.packager_cli build examples/demo-game -o dist/demo-game.apk ^
 ## 打包流程
 
 1. 校验 `project.json` 与入口 yaml
-2. 清空并复制工程到 `android-runtime/app/src/main/assets/project/`
-3. 根据 `project.json` 写入 `packager/generated.gradle`（applicationId、version、label）
-4. 执行 `gradlew :app:assembleDebug` 或 `assembleRelease`
-5. 复制 APK 到 `-o` 指定路径
+2. 处理图标：生成各密度 `mipmap/ic_launcher.png` + 透明猫咪 `ui/ball.png`（悬浮球）
+3. 清空并复制工程到 `android-runtime/app/src/main/assets/project/`
+4. 根据 `project.json` 写入 `packager/project.properties`（applicationId、version、label）
+5. 执行 `gradlew :app:assembleDebug` 或 `assembleRelease`
+6. 复制 APK 到 `-o` 指定路径
 
 ## 安装到模拟器
 

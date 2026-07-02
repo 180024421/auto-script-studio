@@ -6,7 +6,7 @@ cd /d "%~dp0"
 
 echo ========================================
 echo   Auto Script Studio 一键启动
-echo   PC 开发助手：工程 / 抓抓 / Lua 脚本
+echo   PC 开发助手：工程 / 抓抓 / 浮动面板 / Lua 脚本
 echo   关闭本窗口即退出 Studio
 echo ========================================
 echo.
@@ -41,13 +41,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if exist "..\adb-ide\requirements.txt" (
-  echo [安装] 检测到同级 adb-ide，安装完整 IDE 依赖...
-  ".venv\Scripts\pip.exe" install --default-timeout=120 -i https://pypi.tuna.tsinghua.edu.cn/simple -r ..\adb-ide\requirements.txt
-) else (
-  echo [提示] 未找到 ..\adb-ide，将使用简易 Studio 界面
-  echo         完整 IDE 请将 adb-ide 放在: %~dp0..\adb-ide
-)
+echo [提示] 可选安装抓抓页 OCR/YOLO 测试: pip install paddleocr paddlepaddle ultralytics
 echo.
 
 call ".venv\Scripts\activate.bat"

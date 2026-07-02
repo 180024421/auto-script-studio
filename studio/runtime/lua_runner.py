@@ -18,6 +18,7 @@ def _ensure_path() -> None:
 
 def install_bot(lua, bot) -> None:
     from studio.runtime.lua_values import table_to_dict
+    from studio.runtime.panel_state import PanelState
 
     def _ret_point(pt):
         if pt is None:
@@ -78,6 +79,56 @@ def install_bot(lua, bot) -> None:
     )
     g = lua.globals()
     g["bot"] = bot_table
+
+    def panel_get(widget_id):
+        return PanelState.get(str(widget_id))
+
+    def panel_set(widget_id, value):
+        PanelState.set(str(widget_id), str(value))
+
+    def panel_is(widget_id, expected):
+        return PanelState.is_value(str(widget_id), str(expected))
+
+    def panel_has(widget_id, option):
+        return PanelState.has_option(str(widget_id), str(option))
+
+    def panel_values():
+        return dict(PanelState.all())
+
+    def panel_watch(widget_id, fn):
+        PanelState.watch(str(widget_id), lambda v: fn(v))
+
+    def panel_unwatch(widget_id, fn=None):
+        if fn is None:
+            PanelState.unwatch(str(widget_id))
+        else:
+            PanelState.unwatch(str(widget_id), lambda v: fn(v))
+
+    def panel_is_on(widget_id):
+        return PanelState.is_on(str(widget_id))
+
+    def panel_get_time_range(widget_id):
+        start, end = PanelState.time_range(str(widget_id))
+        return start, end
+
+    def panel_snapshot():
+        return PanelState.snapshot()
+
+    g["panel"] = lua.table_from(
+        {
+            "get": panel_get,
+            "set": panel_set,
+            "is": panel_is,
+            "has": panel_has,
+            "values": panel_values,
+            "watch": panel_watch,
+            "unwatch": panel_unwatch,
+            "isOn": panel_is_on,
+            "getTimeRange": panel_get_time_range,
+            "snapshot": panel_snapshot,
+        }
+    )
+
     pkg = g["package"]
     if pkg is not None:
         loaded = pkg["loaded"]
@@ -94,6 +145,8 @@ def run_project(project_dir: Path, *, serial: str | None = None) -> int:
         raise SystemExit(1) from exc
 
     from studio.runtime.pc_bot import PcBot
+    from studio.runtime.panel_state import PanelState
+    from studio.services.layout_defaults import load_layout
 
     project_dir = Path(project_dir)
     cfg_path = project_dir / "project.json"
@@ -108,6 +161,9 @@ def run_project(project_dir: Path, *, serial: str | None = None) -> int:
         return 1
 
     bot = PcBot(project_dir, serial=serial, on_log=lambda m: print(m, flush=True))
+    PanelState.clear_watches()
+    if not PanelState.load_sidecar(project_dir):
+        PanelState.seed_from_layout(load_layout(project_dir))
     lua = LuaRuntime(unpack_returned_tuples=True)
     install_bot(lua, bot)
     code = script_path.read_text(encoding="utf-8")

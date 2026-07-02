@@ -12,7 +12,12 @@
     },
     "version_code": { "type": "integer", "minimum": 1, "default": 1 },
     "version_name": { "type": "string", "default": "1.0.0" },
-    "entry": { "type": "string", "default": "main.yaml" },
+    "entry": { "type": "string", "default": "main.lua" },
+    "script_language": {
+      "type": "string",
+      "enum": ["lua", "yaml", "yml", "auto"],
+      "default": "lua"
+    },
     "icon": { "type": "string", "description": "相对工程根目录的图标 PNG" },
     "permissions": {
       "type": "object",
@@ -33,7 +38,18 @@
           "type": "string",
           "enum": ["lazy", "eager", "disabled"],
           "default": "lazy"
-        }
+        },
+        "input_mode": {
+          "type": "string",
+          "enum": ["auto", "accessibility", "root"],
+          "default": "auto"
+        },
+        "screenshot_mode": {
+          "type": "string",
+          "enum": ["media_projection", "accessibility"],
+          "default": "media_projection"
+        },
+        "auto_run": { "type": "boolean", "default": false }
       }
     }
   }

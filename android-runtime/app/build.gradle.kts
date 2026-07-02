@@ -31,6 +31,18 @@ android {
         resValue("string", "app_name", prop("appName", "Auto Script"))
     }
 
+    signingConfigs {
+        val storeFilePath = packagerProps.getProperty("signingStoreFile")
+        if (!storeFilePath.isNullOrBlank()) {
+            create("release") {
+                storeFile = file(storeFilePath)
+                storePassword = packagerProps.getProperty("signingStorePassword", "")
+                keyAlias = packagerProps.getProperty("signingKeyAlias", "")
+                keyPassword = packagerProps.getProperty("signingKeyPassword", "")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -39,6 +51,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (packagerProps.getProperty("signingStoreFile") != null) {
+                signingConfig = signingConfigs.findByName("release")
+            }
         }
         debug {
             isMinifyEnabled = false
@@ -56,6 +71,12 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+
+    sourceSets {
+        getByName("main") {
+            res.srcDir(rootProject.file("packager/generated-res"))
         }
     }
 }

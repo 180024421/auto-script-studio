@@ -9,6 +9,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.luaj.vm2.Globals
 import org.luaj.vm2.LuaError
+import org.luaj.vm2.LuaValue
+import org.luaj.vm2.lib.OneArgFunction
+import org.luaj.vm2.lib.TwoArgFunction
 import org.luaj.vm2.lib.jse.JsePlatform
 
 class LuaScriptEngine(
@@ -33,6 +36,7 @@ class LuaScriptEngine(
         try {
             withContext(Dispatchers.Default) {
                 val globals: Globals = JsePlatform.standardGlobals()
+                installLibLoader(globals)
                 LuaBindings.install(globals, bridge, onLog)
                 val chunk = globals.load(source, config.entry)
                 chunk.call()
@@ -41,6 +45,39 @@ class LuaScriptEngine(
         } catch (e: LuaError) {
             throw IllegalStateException("Lua 错误: ${e.message}", e)
         }
+    }
+
+    private fun installLibLoader(globals: Globals) {
+        val loader = object : TwoArgFunction() {
+            override fun call(modname: LuaValue, path: LuaValue): LuaValue {
+                val name = modname.checkjstring()
+                val rel = when {
+                    name.startsWith("lib/") -> "$name.lua"
+                    name.endsWith(".lua") -> "lib/$name"
+                    else -> "lib/$name.lua"
+                }
+                if (!assets.exists(rel)) {
+                    return LuaValue.NIL
+                }
+                val src = assets.readYaml(rel)
+                val chunk = globals.load(src, rel)
+                val result = chunk.call()
+                return if (result.isnil()) LuaValue.TRUE else result
+            }
+        }
+        globals.get("package").checktable().get("searchers").checktable().set(2, loader)
+        globals.set("require", object : OneArgFunction() {
+            private val loaded = globals.get("package").checktable().get("loaded").checktable()
+            override fun call(modname: LuaValue): LuaValue {
+                val name = modname.checkjstring()
+                val cached = loaded.get(name)
+                if (!cached.isnil()) return cached
+                val result = loader.call(modname, LuaValue.NIL)
+                if (result.isnil()) throw LuaError("module '$name' not found")
+                loaded.set(name, result)
+                return result
+            }
+        })
     }
 
     override fun release() {

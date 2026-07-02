@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-script-studio/schemas/layout.schema.json",
+  "title": "Auto Script Studio layout.json",
+  "type": "object",
+  "required": ["version", "panel"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 3 },
+    "enabled": { "type": "boolean" },
+    "panel": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "theme": { "enum": ["light", "dark"] },
+        "layout_mode": { "enum": ["free", "grid"] },
+        "design_width": { "type": "integer", "minimum": 320 },
+        "design_height": { "type": "integer", "minimum": 480 },
+        "active_screen": { "type": "integer", "minimum": 0 },
+        "width_dp": { "type": "integer", "minimum": 120, "maximum": 480 },
+        "columns": { "type": "integer", "minimum": 1, "maximum": 3 },
+        "start_x": { "type": "integer" },
+        "start_y": { "type": "integer" },
+        "allow_design": { "type": "boolean" },
+        "start_confirm_collapse": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "screens": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "widgets"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "widgets": { "type": "array", "items": { "$ref": "#/$defs/widget" } }
+        }
+      }
+    },
+    "widgets": {
+      "type": "array",
+      "description": "Chrome 动作区（开始/停止等）",
+      "items": { "$ref": "#/$defs/widget" }
+    }
+  },
+  "$defs": {
+    "widget": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": {
+          "type": "string",
+          "enum": [
+            "text", "label", "input", "select", "radio", "multiselect",
+            "switch", "time_range", "slider", "stepper", "textarea", "divider",
+            "tabs", "start_script", "stop_script", "tap", "swipe", "long_press",
+            "lua", "snippet", "collapse", "open_app"
+          ]
+        },
+        "label": { "type": "string" },
+        "text": { "type": "string" },
+        "text_style": { "type": "string", "enum": ["title", "hint", "normal"] },
+        "align": { "type": "string", "enum": ["left", "center", "right"] },
+        "layout_x": { "type": "integer", "minimum": 0 },
+        "layout_y": { "type": "integer", "minimum": 0 },
+        "layout_w": { "type": "integer", "minimum": 24 },
+        "layout_h": { "type": "integer", "minimum": 20 },
+        "default": {},
+        "default_start": { "type": "string" },
+        "default_end": { "type": "string" },
+        "options": { "type": "array", "items": { "type": "string" } },
+        "min": {},
+        "max": {},
+        "step": { "type": "integer" },
+        "rows": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": true
+    }
+  }
+}
