@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from studio.services.free_layout import min_rect_for_type
 from studio.services.screen_layout import CHROME_PATH_TAG, ensure_migrated, flatten_all_widgets
 
 
@@ -21,9 +22,11 @@ def validate_layout(layout: dict[str, Any]) -> list[str]:
             y = int(w.get("layout_y", 0))
             ww = int(w.get("layout_w", 48))
             hh = int(w.get("layout_h", 28))
+            wtype = str(w.get("type", ""))
+            min_w, min_h = min_rect_for_type(wtype)
             if x < 0 or y < 0:
                 errors.append(f"控件「{w.get('id', '?')}」坐标不能为负")
-            if ww < 24 or hh < 20:
+            if ww < min_w or hh < min_h:
                 errors.append(f"控件「{w.get('id', '?')}」尺寸过小")
             if x + ww > dw + 8:
                 errors.append(f"控件「{w.get('id', '?')}」超出设计宽度 {dw}")

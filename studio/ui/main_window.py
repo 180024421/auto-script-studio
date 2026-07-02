@@ -293,6 +293,7 @@ class MainWindow(QMainWindow):
         self.reload_script()
         self.layout_editor.on_project_opened()
         self.grab.on_project_opened()
+        self.grab.apply_layout_from_editor(self.layout_editor.current_layout())
 
     def reload_script(self) -> None:
         main = self._script_path()

@@ -762,6 +762,10 @@ class LayoutEditorWidget(QWidget):
         self._refresh_ui()
         self._commit_history()
         self._dirty = False
+        self._emit_layout_changed()
+
+    def current_layout(self) -> dict[str, Any]:
+        return json.loads(json.dumps(self._layout))
 
     def save_to_project(self) -> None:
         project = self._project_dir_getter()

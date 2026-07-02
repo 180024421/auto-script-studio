@@ -1,21 +1,151 @@
 {
-  "version": 1,
+  "version": 3,
   "enabled": true,
   "panel": {
     "title": "Demo 助手",
     "theme": "light",
-    "width_dp": 200,
+    "layout_mode": "free",
+    "design_width": 720,
+    "design_height": 1280,
+    "active_screen": 0,
+    "width_dp": 320,
     "opacity": 0.96,
+    "position": "right_center",
     "start_x": 30,
     "start_y": 180,
     "columns": 2,
-    "show_log": true
+    "ball_size_dp": 48,
+    "show_log": true,
+    "draggable": true,
+    "collapsible": true,
+    "allow_design": true,
+    "start_confirm_collapse": true
   },
+  "screens": [
+    {
+      "title": "标签页1",
+      "widgets": [
+        {
+          "id": "hint",
+          "type": "text",
+          "text": "请填写登陆账号信息",
+          "text_style": "title",
+          "layout_x": 24,
+          "layout_y": 24,
+          "layout_w": 164,
+          "layout_h": 40
+        },
+        {
+          "id": "account",
+          "type": "input",
+          "label": "账号",
+          "placeholder": "请输入账号，多个用:号分隔",
+          "layout_x": 24,
+          "layout_y": 72,
+          "layout_w": 672,
+          "layout_h": 52
+        },
+        {
+          "id": "password",
+          "type": "input",
+          "label": "密码",
+          "placeholder": "请输入密码",
+          "layout_x": 24,
+          "layout_y": 132,
+          "layout_w": 672,
+          "layout_h": 52
+        },
+        {
+          "id": "section_div",
+          "type": "divider",
+          "text": "",
+          "layout_x": 24,
+          "layout_y": 192,
+          "layout_w": 672,
+          "layout_h": 12
+        },
+        {
+          "id": "func_hint",
+          "type": "text",
+          "text": "脚本功能选择：",
+          "text_style": "hint",
+          "layout_x": 24,
+          "layout_y": 228,
+          "layout_w": 112,
+          "layout_h": 36
+        },
+        {
+          "id": "mode",
+          "type": "select",
+          "label": "模式",
+          "options": ["普通", "极速"],
+          "default": "普通",
+          "layout_x": 24,
+          "layout_y": 272,
+          "layout_w": 672,
+          "layout_h": 52
+        }
+      ]
+    },
+    {
+      "title": "界面1",
+      "widgets": [
+        {
+          "id": "tasks",
+          "type": "multiselect",
+          "label": "任务",
+          "options": ["日常", "副本"],
+          "default": "日常",
+          "layout_x": 24,
+          "layout_y": 24,
+          "layout_w": 672,
+          "layout_h": 52
+        }
+      ]
+    }
+  ],
+  "widgets": [
+    {
+      "id": "start",
+      "type": "start_script",
+      "label": "运行",
+      "color": "#2563EB",
+      "layout_x": 24,
+      "layout_y": 4,
+      "layout_w": 320,
+      "layout_h": 52
+    },
+    {
+      "id": "collapse",
+      "type": "collapse",
+      "label": "收起",
+      "color": "#64748B",
+      "layout_x": 376,
+      "layout_y": 4,
+      "layout_w": 320,
+      "layout_h": 52
+    }
+  ],
   "buttons": [
-    { "id": "start", "type": "start_script", "label": "运行", "color": "#2563EB", "width": 1 },
-    { "id": "stop", "type": "stop_script", "label": "停止", "color": "#DC2626", "width": 1 },
-    { "id": "tap_center", "type": "tap", "label": "点中心", "color": "#0D9488", "width": 1, "x": 640, "y": 360 },
-    { "id": "swipe_up", "type": "swipe", "label": "上滑", "color": "#D97706", "width": 1, "x1": 640, "y1": 1200, "x2": 640, "y2": 600 },
-    { "id": "collapse", "type": "collapse", "label": "收起", "color": "#64748B", "width": 2 }
+    {
+      "id": "start",
+      "type": "start_script",
+      "label": "运行",
+      "color": "#2563EB",
+      "layout_x": 24,
+      "layout_y": 4,
+      "layout_w": 320,
+      "layout_h": 52
+    },
+    {
+      "id": "collapse",
+      "type": "collapse",
+      "label": "收起",
+      "color": "#64748B",
+      "layout_x": 376,
+      "layout_y": 4,
+      "layout_w": 320,
+      "layout_h": 52
+    }
   ]
 }

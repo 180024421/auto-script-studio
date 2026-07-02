@@ -61,6 +61,29 @@ _FIELD_CTRL_STYLE = (
     "QLineEdit:focus, QComboBox:focus, QTextEdit:focus { border-color: #2563EB; }"
 )
 
+_FIELD_COMBO_STYLE = (
+    _FIELD_CTRL_STYLE
+    + """
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 28px;
+    border: none;
+    border-left: 1px solid #CBD5E1;
+    background: #F8FAFC;
+    border-top-right-radius: 4px;
+    border-bottom-right-radius: 4px;
+}
+QComboBox::down-arrow {
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid #64748B;
+}
+"""
+)
+
 _SWITCH_STYLE = """
 QCheckBox { spacing: 0; background: transparent; }
 QCheckBox::indicator {
@@ -171,6 +194,31 @@ def _control_box(text: str = "") -> QFrame:
     return box
 
 
+def _input_preview_widget(placeholder: str = "") -> QLineEdit:
+    edit = QLineEdit()
+    edit.setPlaceholderText(placeholder or "请输入…")
+    edit.setReadOnly(True)
+    edit.setStyleSheet(_FIELD_CTRL_STYLE)
+    edit.setMinimumHeight(32)
+    return edit
+
+
+def _select_preview_widget(spec: dict[str, Any]) -> QComboBox:
+    cb = QComboBox()
+    opts = [str(o) for o in (spec.get("options") or ["选项1", "选项2"])]
+    if not opts:
+        opts = ["请选择"]
+    cb.addItems(opts)
+    cur = str(spec.get("default") or opts[0])
+    idx = cb.findText(cur)
+    if idx >= 0:
+        cb.setCurrentIndex(idx)
+    cb.setEnabled(False)
+    cb.setStyleSheet(_FIELD_COMBO_STYLE)
+    cb.setMinimumHeight(32)
+    return cb
+
+
 def _divider_line_widget() -> QWidget:
     host = QWidget()
     lay = QVBoxLayout(host)
@@ -225,10 +273,9 @@ def build_design_preview(spec: dict[str, Any]) -> QWidget | None:
         return _text_display_widget(spec)
     if wtype == "input":
         hint = str(spec.get("placeholder") or "请输入…")
-        return _form_row(label, _control_box(hint))
+        return _form_row(label, _input_preview_widget(hint))
     if wtype == "select":
-        cur = str(spec.get("default") or "请选择")
-        return _form_row(label, _control_box(cur))
+        return _form_row(label, _select_preview_widget(spec))
     if wtype == "multiselect":
         opts = [str(o) for o in (spec.get("options") or ["选项A", "选项B"])]
         selected = {x.strip() for x in str(spec.get("default", "")).split(",") if x.strip()}
@@ -272,6 +319,7 @@ def build_interactive_widget(spec: dict[str, Any], on_change: OnChange = None) -
         idx = cb.findText(cur)
         if idx >= 0:
             cb.setCurrentIndex(idx)
+        cb.setStyleSheet(_FIELD_COMBO_STYLE)
         if wid:
             cb.currentTextChanged.connect(lambda t, i=wid: (PanelState.set(i, t), emit()))
         return _form_row(label, cb)

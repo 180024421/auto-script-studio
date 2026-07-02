@@ -404,6 +404,15 @@ class LayoutPreviewWidget(QScrollArea):
                 lbl.setWordWrap(True)
                 wrap.addWidget(lbl)
             cb = QComboBox()
+            cb.setStyleSheet(
+                "QComboBox { padding: 2px 6px; border: 1px solid #CBD5E1; border-radius: 4px; }"
+                "QComboBox::drop-down { width: 28px; border-left: 1px solid #CBD5E1; background: #F8FAFC; }"
+                "QComboBox::down-arrow {"
+                "  width: 0; height: 0;"
+                "  border-left: 5px solid transparent; border-right: 5px solid transparent;"
+                "  border-top: 6px solid #64748B;"
+                "}"
+            )
             opts = [str(o) for o in (spec.get("options") or ["选项1", "选项2"])]
             cb.addItems(opts)
             cur = PanelState.get(wid) or str(spec.get("default", ""))

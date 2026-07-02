@@ -24,6 +24,15 @@ def is_free_mode(layout: dict[str, Any]) -> bool:
     return layout.get("panel", {}).get("layout_mode", "grid") == "free"
 
 
+def min_rect_for_type(wtype: str) -> tuple[int, int]:
+    """自由布局控件最小宽/高（设计像素）。"""
+    if wtype == "divider":
+        return 48, 4
+    if wtype in ("text", "label"):
+        return 48, 20
+    return 48, 28
+
+
 def estimate_text_layout_width(text: str, style: str = "normal") -> int:
     """按文字内容与样式估算文字框/标签所需宽度（设计像素）。"""
     t = (text or "").strip()
@@ -120,8 +129,10 @@ def set_widget_rect(
     if target is None:
         return out
     dw, dh = panel_design_size(out.get("panel", {}))
+    wtype = str(target.get("type", ""))
+    min_w, min_h = min_rect_for_type(wtype)
     target["layout_x"] = max(0, min(dw - 40, int(x)))
     target["layout_y"] = max(0, min(dh - 24, int(y)))
-    target["layout_w"] = max(48, min(dw, int(w)))
-    target["layout_h"] = max(28, min(dh, int(h)))
+    target["layout_w"] = max(min_w, min(dw, int(w)))
+    target["layout_h"] = max(min_h, min(dh, int(h)))
     return out

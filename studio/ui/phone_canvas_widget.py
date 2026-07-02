@@ -78,6 +78,7 @@ class FreeDesignItem(QFrame):
     parent: QWidget | None = None,
     *,
     interactive: bool = False,
+    editable: bool = True,
     on_values_changed: Any = None,
     icon_only: bool = False,
   ) -> None:
@@ -89,6 +90,7 @@ class FreeDesignItem(QFrame):
     self._press_global = QPoint()
     self._start_geom = QRect()
     self._interactive = interactive
+    self._editable = editable
     self._on_values_changed = on_values_changed
     wtype = spec.get("type", "")
     self._form_like = wtype in FORM_PREVIEW_TYPES
@@ -186,6 +188,8 @@ class FreeDesignItem(QFrame):
     return pos.y() <= self.DRAG_STRIP
 
   def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+    if not self._editable:
+      return super().mousePressEvent(event)
     if event.button() != Qt.MouseButton.LeftButton:
       return super().mousePressEvent(event)
     self.clicked.emit(self._path)
@@ -198,6 +202,8 @@ class FreeDesignItem(QFrame):
     event.accept()
 
   def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+    if not self._editable:
+      return super().mouseMoveEvent(event)
     pos = event.position().toPoint()
     if not (event.buttons() & Qt.MouseButton.LeftButton):
       self.setCursor(
@@ -294,6 +300,8 @@ class PhoneCanvasWidget(QScrollArea):
     self._rebuilding = False
     self._suppress_layout_emit = False
     self._interactive_preview = False
+    self._editable = True
+    self._compact_preview = False
     self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
     self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
     self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -306,6 +314,18 @@ class PhoneCanvasWidget(QScrollArea):
     if self._interactive_preview == enabled:
       return
     self._interactive_preview = enabled
+    self._rebuild(full=True)
+
+  def set_editable(self, enabled: bool) -> None:
+    if self._editable == enabled:
+      return
+    self._editable = enabled
+    self._rebuild(full=True)
+
+  def set_compact_preview(self, enabled: bool) -> None:
+    if self._compact_preview == enabled:
+      return
+    self._compact_preview = enabled
     self._rebuild(full=True)
 
   def interactive_preview(self) -> bool:
@@ -470,22 +490,23 @@ class PhoneCanvasWidget(QScrollArea):
       wrap = QWidget()
       wrap.setLayout(row)
       wrap.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+      self._root.addWidget(wrap, 0, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
 
       hint_text = (
         f"设计 {dw}×{dh}  ·  点击标签切换界面  ·  拖动移动控件  ·  右下角缩放  ·  界面可上下滚动"
       )
       if self._interactive_preview:
         hint_text += "  ·  交互预览：顶部色条拖动，控件区内可操作"
-      hint = QLabel(hint_text)
-      hint.setObjectName("HintLabel")
-      hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-      hint.setWordWrap(True)
-
-      self._root.addWidget(wrap, 0, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
-      self._root.addWidget(hint, 0, Qt.AlignmentFlag.AlignHCenter)
+      if not self._compact_preview:
+        hint = QLabel(hint_text)
+        hint.setObjectName("HintLabel")
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hint.setWordWrap(True)
+        self._root.addWidget(hint, 0, Qt.AlignmentFlag.AlignHCenter)
       self._root.addStretch(1)
 
-      total_h = phone_h + 16 + hint.sizeHint().height() + 24
+      hint_h = 0 if self._compact_preview else hint.sizeHint().height() + 24
+      total_h = phone_h + 16 + hint_h
       self._viewport.setMinimumHeight(total_h)
     finally:
       self._viewport.setUpdatesEnabled(True)
@@ -513,6 +534,7 @@ class PhoneCanvasWidget(QScrollArea):
         scale,
         parent,
         interactive=self._interactive_preview,
+        editable=self._editable,
         on_values_changed=self.values_changed.emit,
         icon_only=screen_idx == CHROME_PATH_TAG and spec.get("type") in CHROME_ICONS,
       )

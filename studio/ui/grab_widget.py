@@ -19,12 +19,15 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
+    QStackedWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from studio.ui.app_theme import set_button_role
 from studio.ui.layout_preview_widget import LayoutPreviewWidget
+from studio.ui.phone_canvas_widget import PhoneCanvasWidget
 from studio.ui.page_shell import (
     card_frame,
     hint_label,
@@ -39,6 +42,7 @@ from studio.services.adb_service import AdbService
 from studio.services import lua_snippets
 from studio.services import vision_pc
 from studio.services.layout_defaults import load_layout
+from studio.services.free_layout import is_free_mode
 from studio.services.layout_preview import paint_layout_overlay
 from studio.services.canvas_overlay import paint_crosshair, paint_ocr_hits
 
@@ -302,12 +306,21 @@ class GrabWidget(QWidget):
         right, right_lay = side_column(280, None)
         right_lay.addWidget(section_title("面板预览"))
         right_lay.addWidget(
-            hint_label("居中显示 APK 浮窗效果；填表值与浮动面板页、Lua 运行共享")
+            hint_label("与「浮动面板」页同一套布局；自由布局与打包后 APK 一致")
         )
-        self.panel_preview = LayoutPreviewWidget()
-        self.panel_preview.setMinimumHeight(360)
-        self.panel_preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        right_lay.addWidget(self.panel_preview, 1)
+        self.panel_preview_stack = QStackedWidget()
+        self.panel_preview_free = PhoneCanvasWidget()
+        self.panel_preview_free.set_editable(False)
+        self.panel_preview_free.set_compact_preview(True)
+        self.panel_preview_free.setMinimumHeight(360)
+        self.panel_preview_grid = LayoutPreviewWidget()
+        self.panel_preview_grid.setMinimumHeight(360)
+        self.panel_preview_stack.addWidget(self.panel_preview_free)
+        self.panel_preview_stack.addWidget(self.panel_preview_grid)
+        self.panel_preview_stack.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        right_lay.addWidget(self.panel_preview_stack, 1)
 
         root.addLayout(three_columns(left, center, right), 1)
 
@@ -368,16 +381,24 @@ class GrabWidget(QWidget):
         if checked:
             self.log_message.emit("已开启浮动面板叠加预览")
 
+    def _set_panel_preview_layout(self, layout: dict[str, Any]) -> None:
+        if is_free_mode(layout):
+            self.panel_preview_stack.setCurrentWidget(self.panel_preview_free)
+            self.panel_preview_free.set_layout(layout)
+        else:
+            self.panel_preview_stack.setCurrentWidget(self.panel_preview_grid)
+            self.panel_preview_grid.set_layout(layout)
+
     def _on_side_preview_toggled(self, checked: bool) -> None:
-        self.panel_preview.setVisible(checked)
+        self.panel_preview_stack.setVisible(checked)
         if checked and self._layout_cache:
-            self.panel_preview.set_layout(self._layout_cache)
+            self._set_panel_preview_layout(self._layout_cache)
 
     def refresh_panel_preview(self, layout: Optional[dict[str, Any]] = None) -> None:
         if layout is not None:
             self._layout_cache = layout
         if self._layout_cache and self.side_preview_cb.isChecked():
-            self.panel_preview.set_layout(self._layout_cache)
+            self._set_panel_preview_layout(self._layout_cache)
 
     def _clear_pick_modes(self) -> None:
         self._pick_panel_pos = False

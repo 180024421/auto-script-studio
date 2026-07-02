@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from studio.services.free_layout import ensure_widget_rect, estimate_text_layout_width, panel_design_size
+from studio.services.free_layout import ensure_widget_rect, estimate_text_layout_width, min_rect_for_type, panel_design_size
 
 CHROME_PATH_TAG = -1
 
@@ -169,10 +169,12 @@ def set_widget_rect(
     if target is None:
         return layout
     dw, _ = panel_design_size(layout.get("panel", {}))
+    wtype = str(target.get("type", ""))
+    min_w, min_h = min_rect_for_type(wtype)
     target["layout_x"] = max(0, min(dw - 24, int(x)))
     target["layout_y"] = max(0, int(y))
-    target["layout_w"] = max(48, min(dw, int(w)))
-    target["layout_h"] = max(28, int(h))
+    target["layout_w"] = max(min_w, min(dw, int(w)))
+    target["layout_h"] = max(min_h, int(h))
     return layout
 
 
@@ -209,14 +211,20 @@ def repair_screen_widgets(widgets: list[dict[str, Any]]) -> None:
         raw_w = int(w.get("layout_w", 0))
         raw_h = int(w.get("layout_h", 0))
         raw_y = int(w.get("layout_y", y))
-        broken = raw_w < 80 or raw_h < 32 or raw_y < 16
+        min_w, min_h = min_rect_for_type(wtype)
+        broken = raw_w < min_w or raw_h < min_h or raw_y < 16
         dup = i > 0 and abs(raw_y - prev_y) < 8
         if broken or dup:
             raw_y = y
         w["layout_x"] = max(24, int(w.get("layout_x", 24)))
         w["layout_y"] = raw_y
-        w["layout_w"] = max(48 if wtype in ("text", "label") else 80, min(672, raw_w if raw_w >= 48 else 672))
-        w["layout_h"] = max(40, raw_h if raw_h >= 32 else 56)
+        w["layout_w"] = max(min_w, min(672, raw_w if raw_w >= min_w else 672))
+        if wtype == "divider":
+            w["layout_h"] = max(8, min(16, raw_h if raw_h >= min_h else 12))
+        elif wtype in ("text", "label"):
+            w["layout_h"] = max(min_h, raw_h if raw_h >= min_h else 36)
+        else:
+            w["layout_h"] = max(40, raw_h if raw_h >= 32 else 56)
         prev_y = raw_y
         y = raw_y + int(w["layout_h"]) + 16
 

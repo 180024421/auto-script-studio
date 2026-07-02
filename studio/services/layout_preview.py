@@ -20,6 +20,71 @@ def dp_to_px(dp: float, image_width: int) -> int:
     return max(1, int(dp * density))
 
 
+def _paint_free_layout_overlay(
+    painter: QPainter,
+    layout: dict[str, Any],
+    image_w: int,
+    image_h: int,
+    scale: float = 1.0,
+) -> None:
+    """自由布局：按设计尺寸估算面板外框（详细控件见右侧预览）。"""
+    from studio.services.screen_layout import active_screen_index, chrome_widgets, content_height
+    from studio.services.free_layout import panel_design_size
+
+    panel = layout.get("panel", {})
+    dw, _dh = panel_design_size(panel)
+    width_dp = int(panel.get("width_dp", 320))
+    start_x = int(panel.get("start_x", 20))
+    start_y = int(panel.get("start_y", 200))
+    opacity = float(panel.get("opacity", 0.96))
+    title = str(panel.get("title", "脚本助手"))
+    theme = str(panel.get("theme", "light")).lower()
+    is_dark = theme == "dark"
+
+    active = active_screen_index(layout)
+    body_h = content_height(layout, active)
+    chrome_h = 64
+    if chrome_widgets(layout):
+        chrome_h = max(
+            int(w.get("layout_y", 0) + w.get("layout_h", 52)) for w in chrome_widgets(layout)
+        ) + 16
+    design_h = 48 + 44 + body_h + chrome_h
+    panel_w = dp_to_px(width_dp, image_w)
+    panel_h = int(panel_w * design_h / max(1, dw))
+
+    sx = start_x * scale
+    sy = start_y * scale
+    pw = panel_w * scale
+    ph = panel_h * scale
+    pad = max(4, int(8 * scale))
+
+    bg_alpha = int(245 * opacity) if not is_dark else int(235 * opacity)
+    panel_bg = "#282830" if is_dark else "#ffffff"
+    border_color = "#4caf50" if is_dark else "#2563eb"
+    painter.setBrush(_parse_color(panel_bg, bg_alpha))
+    painter.setPen(QPen(_parse_color(border_color, int(220 * opacity)), max(1, int(2 * scale))))
+    painter.drawRoundedRect(QRectF(sx, sy, pw, ph), 10 * scale, 10 * scale)
+
+    title_color = QColor(232, 238, 246, int(255 * opacity)) if is_dark else QColor(26, 35, 50, int(255 * opacity))
+    painter.setPen(title_color)
+    font = QFont()
+    font.setPointSizeF(max(7.0, 9 * scale))
+    font.setBold(True)
+    painter.setFont(font)
+    painter.drawText(QRectF(sx + pad, sy + pad, pw - pad * 2, 20 * scale), Qt.AlignLeft | Qt.AlignVCenter, title)
+
+    font.setBold(False)
+    font.setPointSizeF(max(6.0, 7.5 * scale))
+    painter.setFont(font)
+    hint_color = QColor(100, 116, 139, int(200 * opacity))
+    painter.setPen(hint_color)
+    painter.drawText(
+        QRectF(sx + pad, sy + ph - 28 * scale, pw - pad * 2, 20 * scale),
+        Qt.AlignCenter,
+        "自由布局 · 右侧预览与打包一致",
+    )
+
+
 def paint_layout_overlay(
     painter: QPainter,
     layout: dict[str, Any],
@@ -29,6 +94,12 @@ def paint_layout_overlay(
 ) -> None:
     """在已缩放的 pixmap 上绘制面板与动作坐标标记。"""
     if not layout.get("enabled", True):
+        return
+
+    from studio.services.free_layout import is_free_mode
+
+    if is_free_mode(layout):
+        _paint_free_layout_overlay(painter, layout, image_w, image_h, scale)
         return
 
     panel = layout.get("panel", {})
