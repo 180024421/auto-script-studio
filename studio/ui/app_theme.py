@@ -36,34 +36,58 @@ QMainWindow, QWidget {{
     font-size: 13px;
 }}
 
-/* —— 顶栏 —— */
+/* —— 顶栏（已并入主标签栏） —— */
 #AppHeader {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
         stop:0 #ffffff, stop:1 {COLORS['surface2']});
     border-bottom: 1px solid {COLORS['border']};
-    min-height: 56px;
+    min-height: 44px;
 }}
-#AppTitle {{
-    font-size: 20px;
-    font-weight: 700;
-    color: {COLORS['text']};
-    letter-spacing: 0.3px;
+QTabWidget#MainTabs::pane {{
+    border: none;
+    background: {COLORS['bg']};
+    top: 0px;
 }}
-#AppSubtitle {{
-    font-size: 12px;
+QTabWidget#MainTabs > QTabBar {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #ffffff, stop:1 {COLORS['surface2']});
+    border-bottom: 1px solid {COLORS['border']};
+    min-height: 40px;
+}}
+QTabWidget#MainTabs > QTabBar::tab {{
+    background: transparent;
     color: {COLORS['text_muted']};
+    padding: 6px 16px;
+    margin: 0;
+    border: none;
+    border-bottom: 3px solid transparent;
+    font-weight: 600;
+    font-size: 13px;
 }}
+QTabWidget#MainTabs > QTabBar::tab:selected {{
+    color: {COLORS['primary']};
+    border-bottom: 3px solid {COLORS['primary']};
+    background: {COLORS['bg']};
+}}
+QTabWidget#MainTabs > QTabBar::tab:hover:!selected {{
+    color: {COLORS['text']};
+    background: {COLORS['surface2']};
+}}
+#TabBarCorner {{
+    background: transparent;
+}}
+
 #ProjectChip {{
     background-color: {COLORS['primary_bg']};
     border: 1px solid #bfdbfe;
-    border-radius: 8px;
-    padding: 8px 14px;
+    border-radius: 6px;
+    padding: 4px 10px;
     color: {COLORS['primary_dim']};
     font-family: Consolas, "Cascadia Mono", monospace;
-    font-size: 12px;
+    font-size: 11px;
 }}
 
-/* —— 标签页 —— */
+/* —— 标签页（通用） —— */
 QTabWidget::pane {{
     border: none;
     background: {COLORS['bg']};
@@ -196,6 +220,15 @@ QComboBox QAbstractItemView {{
     selection-background-color: {COLORS['primary_bg']};
     selection-color: {COLORS['primary']};
 }}
+QComboBox QAbstractItemView::item {{
+    padding-left: 8px;
+}}
+QPushButton::menu-indicator {{
+    width: 14px;
+    subcontrol-position: right center;
+    subcontrol-origin: padding;
+    right: 6px;
+}}
 QListWidget::item {{
     padding: 8px 10px;
     border-radius: 6px;
@@ -204,17 +237,38 @@ QListWidget::item:selected {{
     background: {COLORS['primary_bg']};
     color: {COLORS['primary']};
 }}
+QTreeWidget {{
+    background-color: {COLORS['surface']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 8px;
+    padding: 4px;
+}}
+QTreeWidget::item {{
+    padding: 4px 6px;
+    border-radius: 4px;
+}}
+QTreeWidget::item:selected {{
+    background: {COLORS['primary_bg']};
+    color: {COLORS['primary']};
+}}
+QTextBrowser#CommandHelpView {{
+    background-color: {COLORS['surface2']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 8px;
+    padding: 8px;
+    font-size: 12px;
+}}
 QListWidget::item:hover:!selected {{
     background: {COLORS['surface3']};
 }}
 
-QTextEdit#LogConsole, QTextEdit#ScriptEditor {{
+QTextEdit#LogConsole, QTextEdit#ScriptEditor, QTextEdit#ScriptRunLog {{
     font-family: Consolas, "Cascadia Mono", "Microsoft YaHei UI", monospace;
     font-size: 13px;
     line-height: 1.45;
     padding: 12px;
 }}
-QTextEdit#LogConsole {{
+QTextEdit#LogConsole, QTextEdit#ScriptRunLog {{
     background-color: {COLORS['surface2']};
     border: 1px solid {COLORS['border']};
     color: {COLORS['text_dim']};
@@ -251,32 +305,33 @@ QTextEdit#ScriptEditor {{
     padding: 4px 2px;
 }}
 #PhoneFrame {{
-    background: #1E293B;
-    border-radius: 16px;
+    background: transparent;
+    border: 1px solid {COLORS['border_light']};
+    border-radius: 8px;
 }}
 #PhoneScreen {{
     background: #FFFFFF;
 }}
 QScrollArea#PhoneCanvas {{
-    background: {COLORS['surface2']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 10px;
+    background: #FFFFFF;
+    border: 1px solid {COLORS['border_light']};
+    border-radius: 8px;
 }}
 #PreviewPanel {{
-    background-color: {COLORS['surface2']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 10px;
+    background-color: #FFFFFF;
+    border: 1px solid {COLORS['border_light']};
+    border-radius: 8px;
 }}
 #PreviewPanel > QWidget > QWidget {{
     background: transparent;
 }}
 #PreviewViewport {{
-    background: transparent;
+    background: #FFFFFF;
 }}
 #OverlayPanelCard {{
-    background-color: {COLORS['surface']};
+    background-color: #FFFFFF;
     border: 1px solid {COLORS['border_light']};
-    border-radius: 12px;
+    border-radius: 8px;
 }}
 #PanelTitleBar {{
     background-color: {COLORS['surface3']};

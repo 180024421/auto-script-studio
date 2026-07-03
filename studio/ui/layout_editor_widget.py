@@ -6,8 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import Qt, Signal, QTime
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QColorDialog,
@@ -37,8 +36,8 @@ from PySide6.QtWidgets import (
 
 from studio.runtime.panel_state import PanelState
 from studio.ui.app_theme import set_button_role
-from studio.ui.layout_preview_widget import LayoutPreviewWidget
-from studio.ui.phone_canvas_widget import PhoneCanvasWidget
+from studio.ui.layout_editor_preview import LayoutEditorPreviewMixin
+from studio.ui.layout_editor_property import LayoutEditorPropertyMixin
 from studio.ui.page_shell import (
     card_frame,
     section_title,
@@ -50,12 +49,14 @@ from studio.ui.screen_tabs_editor import ScreenTabsEditor
 from studio.services.layout_history import LayoutHistory
 from studio.services.layout_validate import validate_layout
 from studio.services.layout_templates import get_template, template_choices
-from studio.services.free_layout import estimate_text_layout_width, is_free_mode
+from studio.services.layout_clone import clone_layout, clone_list, clone_widget
+from studio.services.free_layout import is_free_mode
 from studio.services.screen_layout import (
     CHROME_PATH_TAG,
     active_screen_index,
     active_screen_widgets,
     chrome_widgets,
+    editor_widget_list,
     ensure_migrated,
     export_screen_dict,
     import_screen_dict,
@@ -80,15 +81,16 @@ from studio.services.layout_defaults import (
 )
 
 
-class LayoutEditorWidget(QWidget):
+class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorPropertyMixin):
     layout_changed = Signal(dict)
+    dirty_changed = Signal(bool)
     request_pick_mode = Signal(str)
     insert_lua = Signal(str)
 
     def __init__(self, project_dir_getter: Callable[[], Optional[str]]) -> None:
         super().__init__()
         self._project_dir_getter = project_dir_getter
-        self._layout = migrate_layout(json.loads(json.dumps(DEFAULT_LAYOUT)))
+        self._layout = migrate_layout(clone_layout(DEFAULT_LAYOUT))
         self._dirty = False
         self._selected_path: tuple[int, ...] = ()
         self._history = LayoutHistory()
@@ -236,241 +238,29 @@ class LayoutEditorWidget(QWidget):
         left_scroll.setWidget(left_inner)
         left_card_lay.addWidget(left_scroll)
 
-        # —— 中：预览主区（无额外卡片边距，尽量留给画布） ——
-        center_wrap = QWidget()
-        center_layout = QVBoxLayout(center_wrap)
-        center_layout.setContentsMargins(0, 0, 0, 0)
-        center_layout.setSpacing(4)
+        center_wrap = self._build_preview_column(add_menu)
+        form_scroll = self._build_property_panel()
 
-        preview_header = QHBoxLayout()
-        preview_header.setSpacing(8)
-        self.design_mode_cb = QCheckBox("网格设计")
-        self.design_mode_cb.setToolTip("仅网格布局：拖动排序、拉宽")
-        self.design_mode_cb.toggled.connect(self._on_design_mode_toggled)
-        preview_header.addWidget(self.design_mode_cb)
-        self.design_mode_cb.hide()
+        root.addWidget(
+            three_column_splitter(
+                left_card,
+                center_wrap,
+                form_scroll,
+                sizes=(280, 720, 380),
+                mins=(260, 400, 300),
+                stretches=(1, 4, 1),
+            ),
+            1,
+        )
 
-        self.interactive_preview_cb = QCheckBox("交互预览")
-        self.interactive_preview_cb.setToolTip("在手机画布内直接操作表单控件（顶部色条仍可拖动）")
-        self.interactive_preview_cb.toggled.connect(self._on_interactive_preview_toggled)
-        preview_header.addWidget(self.interactive_preview_cb)
+        self._wire_preview_signals()
+        self._wire_property_signals()
 
-        preview_add_btn = QPushButton("添加控件")
-        set_button_role(preview_add_btn, "accent")
-        preview_add_btn.setMinimumHeight(30)
-        preview_add_btn.setMenu(self._build_add_menu())
-        preview_add_btn.setToolTip("向当前界面添加控件（与左侧「＋ 添加控件」相同）")
-        preview_header.addWidget(preview_add_btn)
-
-        preview_header.addWidget(QLabel("缩放"))
-        self.zoom_combo = QComboBox()
-        self.zoom_combo.addItem("适应宽度", None)
-        for label, val in [("150%", 1.5), ("175%", 1.75), ("200%", 2.0), ("250%", 2.5)]:
-            self.zoom_combo.addItem(label, val)
-        self.zoom_combo.setCurrentIndex(0)
-        self.zoom_combo.setToolTip("适应宽度：按中间区域自动放大；固定比例仅影响 PC 预览")
-        self.zoom_combo.currentIndexChanged.connect(self._on_preview_zoom_changed)
-        preview_header.addWidget(self.zoom_combo)
-
-        self.values_label = QLabel()
-        self.values_label.setObjectName("InfoBar")
-        self.values_label.setWordWrap(False)
-        self.values_label.setMaximumHeight(26)
-        preview_header.addWidget(self.values_label, 1)
-
-        snippet_btn = QPushButton("Lua 示例")
-        set_button_role(snippet_btn, "ghost")
-        snippet_btn.setToolTip("插入 panel Lua 示例到脚本")
-        snippet_btn.clicked.connect(self._insert_panel_lua_example)
-        preview_header.addWidget(snippet_btn)
-        center_layout.addLayout(preview_header)
-
-        self.canvas_stack = QStackedWidget()
-        self.phone_canvas = PhoneCanvasWidget()
-        self.phone_canvas.setMinimumHeight(480)
-        self.preview = LayoutPreviewWidget()
-        self.preview.setMinimumHeight(420)
-        self.canvas_stack.addWidget(self.phone_canvas)
-        self.canvas_stack.addWidget(self.preview)
-        center_layout.addWidget(self.canvas_stack, 1)
-
-        # —— 右：属性表单（可滚动） ——
-        form_box = QGroupBox("控件属性")
-        form = QFormLayout(form_box)
-        self.id_edit = QLineEdit()
-        self.type_combo = QComboBox()
-        for t, desc in FORM_WIDGET_TYPES + action_types_for_layout(self._layout):
-            self.type_combo.addItem(f"{desc} ({t})", t)
-        self.label_edit = QLineEdit()
-        self.text_edit = QLineEdit()
-        self.text_style_combo = QComboBox()
-        for val, desc in [("title", "标题"), ("hint", "提示"), ("normal", "普通")]:
-            self.text_style_combo.addItem(desc, val)
-        self.color_edit = QLineEdit("#2563EB")
-        pick_color_btn = QPushButton("选色")
-        set_button_role(pick_color_btn, "ghost")
-        pick_color_btn.clicked.connect(self._pick_color)
-        color_row = QHBoxLayout()
-        color_row.addWidget(self.color_edit, 1)
-        color_row.addWidget(pick_color_btn)
-        color_wrap = QWidget()
-        color_wrap.setLayout(color_row)
-        self.width_spin = QSpinBox()
-        self.width_spin.setRange(1, 3)
-        self.placeholder_edit = QLineEdit()
-        self.default_edit = QLineEdit()
-        self.options_edit = QTextEdit()
-        self.options_edit.setMaximumHeight(72)
-        self.options_edit.setPlaceholderText("每行一个选项")
-        self.layout_x_spin = QSpinBox()
-        self.layout_y_spin = QSpinBox()
-        self.layout_w_spin = QSpinBox()
-        self.layout_h_spin = QSpinBox()
-        for sp in (self.layout_x_spin, self.layout_y_spin):
-            sp.setRange(0, 4096)
-        for sp in (self.layout_w_spin, self.layout_h_spin):
-            sp.setRange(24, 4096)
-        self.required_cb = QCheckBox("必填")
-        self.min_edit = QLineEdit()
-        self.min_edit.setPlaceholderText("最小值（留空不限）")
-        self.max_edit = QLineEdit()
-        self.max_edit.setPlaceholderText("最大值（留空不限）")
-        self.switch_default_cb = QCheckBox("默认开启")
-        self.time_start_edit = QTimeEdit()
-        self.time_start_edit.setDisplayFormat("HH:mm")
-        self.time_end_edit = QTimeEdit()
-        self.time_end_edit.setDisplayFormat("HH:mm")
-        time_row = QWidget()
-        time_row_l = QHBoxLayout(time_row)
-        time_row_l.setContentsMargins(0, 0, 0, 0)
-        time_row_l.addWidget(QLabel("从"))
-        time_row_l.addWidget(self.time_start_edit)
-        time_row_l.addWidget(QLabel("到"))
-        time_row_l.addWidget(self.time_end_edit)
-        self.x_spin = QSpinBox()
-        self.y_spin = QSpinBox()
-        self.x1_spin = QSpinBox()
-        self.y1_spin = QSpinBox()
-        self.x2_spin = QSpinBox()
-        self.y2_spin = QSpinBox()
-        for sp in (self.x_spin, self.y_spin, self.x1_spin, self.y1_spin, self.x2_spin, self.y2_spin):
-            sp.setRange(0, 4096)
-        self.lua_edit = QTextEdit()
-        self.lua_edit.setMaximumHeight(80)
-        self.lua_edit.setPlaceholderText('bot.tap(100, 200) 或 panel.get("mode")')
-
-        self._row_id = form.rowCount()
-        form.addRow("ID", self.id_edit)
-        self._row_type = form.rowCount()
-        form.addRow("类型", self.type_combo)
-        self._row_label = form.rowCount()
-        form.addRow("显示文字", self.label_edit)
-        self._row_text = form.rowCount()
-        form.addRow("标签文本", self.text_edit)
-        self._row_text_style = form.rowCount()
-        form.addRow("文字样式", self.text_style_combo)
-        self._row_color = form.rowCount()
-        form.addRow("颜色", color_wrap)
-        self._row_width = form.rowCount()
-        form.addRow("占列宽", self.width_spin)
-        self._row_placeholder = form.rowCount()
-        form.addRow("占位提示", self.placeholder_edit)
-        self._row_default = form.rowCount()
-        form.addRow("默认值", self.default_edit)
-        self._row_options = form.rowCount()
-        form.addRow("选项(每行)", self.options_edit)
-        self._row_layout_rect = form.rowCount()
-        form.addRow("位置 X/Y", self._xy_row(self.layout_x_spin, self.layout_y_spin))
-        self._row_layout_size = form.rowCount()
-        form.addRow("大小 W/H", self._xy_row(self.layout_w_spin, self.layout_h_spin))
-        self._row_required = form.rowCount()
-        form.addRow("校验", self.required_cb)
-        self._row_min = form.rowCount()
-        form.addRow("最小值", self.min_edit)
-        self._row_max = form.rowCount()
-        form.addRow("最大值", self.max_edit)
-        self._row_switch_default = form.rowCount()
-        form.addRow("开关默认", self.switch_default_cb)
-        self._row_time_range = form.rowCount()
-        form.addRow("时间范围", time_row)
-        self._row_xy = form.rowCount()
-        form.addRow("点击 X/Y", self._xy_row(self.x_spin, self.y_spin))
-        self._row_swipe1 = form.rowCount()
-        form.addRow("滑动起止", self._xy_row(self.x1_spin, self.y1_spin))
-        self._row_swipe2 = form.rowCount()
-        form.addRow("", self._xy_row(self.x2_spin, self.y2_spin))
-        pick_wrap = QWidget()
-        pick_grid_l = QGridLayout(pick_wrap)
-        pick_grid_l.setContentsMargins(0, 0, 0, 0)
-        pick_grid_l.setHorizontalSpacing(8)
-        pick_grid_l.setVerticalSpacing(8)
-        for i, (text, mode, role) in enumerate([
-            ("面板位置", "panel", "accent"),
-            ("点击坐标", "tap", "ghost"),
-            ("滑起点", "swipe1", "ghost"),
-            ("滑终点", "swipe2", "ghost"),
-        ]):
-            b = QPushButton(text)
-            set_button_role(b, role)
-            b.setMinimumHeight(34)
-            b.clicked.connect(lambda _c=False, m=mode: self.request_pick_mode.emit(m))
-            pick_grid_l.addWidget(b, i // 2, i % 2)
-        for c in range(2):
-            pick_grid_l.setColumnStretch(c, 1)
-        self._row_pick = form.rowCount()
-        form.addRow("从截图取点", pick_wrap)
-        self._row_lua = form.rowCount()
-        form.addRow("Lua 代码", self.lua_edit)
-
-        form_box.setMinimumWidth(400)
-        form_scroll = QScrollArea()
-        form_scroll.setWidgetResizable(True)
-        form_scroll.setObjectName("PropertyScroll")
-        form_scroll.setMinimumWidth(420)
-        form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        form_scroll.setWidget(form_box)
-
-        self.preview.set_zoom_auto(True)
-        root.addWidget(three_column_splitter(left_card, center_wrap, form_scroll, sizes=(300, 680, 420)), 1)
-
-        self.phone_canvas.layout_changed.connect(self._on_phone_structure_changed)
-        self.phone_canvas.widget_selected.connect(self._on_preview_widget_selected)
-        self.phone_canvas.screen_changed.connect(self._on_canvas_screen_changed)
-        self.phone_canvas.nudge_selected.connect(self._on_nudge_selected)
-        self.phone_canvas.delete_selected.connect(self._on_delete_selected)
-        self.phone_canvas.duplicate_selected.connect(self._duplicate_widget)
-        self.phone_canvas.values_changed.connect(self._refresh_value_summary)
-        self.phone_canvas.context_menu_requested.connect(self._show_canvas_context_menu)
-        self.preview.values_changed.connect(self._refresh_value_summary)
-        self.preview.widget_selected.connect(self._on_preview_widget_selected)
-        self.preview.structure_changed.connect(self._on_preview_structure_changed)
-        PanelState.add_listener(self._refresh_value_summary)
-
-        self.type_combo.currentIndexChanged.connect(self._on_type_changed)
-        for w in (self.title_edit, self.color_edit, self.id_edit, self.label_edit, self.text_edit,
-                  self.placeholder_edit, self.default_edit):
-            w.textChanged.connect(self._sync_form_to_layout)
-        self.text_style_combo.currentIndexChanged.connect(self._sync_form_to_layout)
-        self.width_spin.valueChanged.connect(self._sync_form_to_layout)
-        for sp in (self.x_spin, self.y_spin, self.x1_spin, self.y1_spin, self.x2_spin, self.y2_spin):
-            sp.valueChanged.connect(self._sync_form_to_layout)
-        self.start_x_spin.valueChanged.connect(self._sync_panel_position)
-        self.start_y_spin.valueChanged.connect(self._sync_panel_position)
-        self.lua_edit.textChanged.connect(self._sync_form_to_layout)
-        self.options_edit.textChanged.connect(self._sync_form_to_layout)
-        self.min_edit.textChanged.connect(self._sync_form_to_layout)
-        self.max_edit.textChanged.connect(self._sync_form_to_layout)
-        self.required_cb.toggled.connect(self._sync_form_to_layout)
-        self.switch_default_cb.toggled.connect(self._sync_form_to_layout)
-        self.time_start_edit.timeChanged.connect(self._sync_form_to_layout)
-        self.time_end_edit.timeChanged.connect(self._sync_form_to_layout)
         self.enabled_cb.currentIndexChanged.connect(self._on_header_changed)
         self.theme_combo.currentIndexChanged.connect(self._on_header_changed)
         self.cols_spin.valueChanged.connect(self._on_header_changed)
         self.width_dp_spin.valueChanged.connect(self._on_header_changed)
         self.allow_design_cb.toggled.connect(self._on_header_changed)
-        for sp in (self.layout_x_spin, self.layout_y_spin, self.layout_w_spin, self.layout_h_spin):
-            sp.valueChanged.connect(self._sync_form_to_layout)
         # layout_mode 由 _on_layout_mode_changed 单独处理，避免重复 rebuild
 
         self.start_confirm_cb.toggled.connect(self._on_header_changed)
@@ -483,108 +273,24 @@ class LayoutEditorWidget(QWidget):
         self._refresh_ui()
         self._commit_history()
 
-    def _on_interactive_preview_toggled(self, checked: bool) -> None:
-        self.phone_canvas.set_interactive_preview(checked)
+    @property
+    def is_dirty(self) -> bool:
+        return self._dirty
 
-    def _show_canvas_context_menu(self, global_pos) -> None:
-        if not is_free_mode(self._layout):
-            return
-        menu = self._build_add_menu()
-        menu.addSeparator()
-        dup = menu.addAction("复制选中")
-        dup.setEnabled(bool(self._selected_path))
-        dup.triggered.connect(self._duplicate_widget)
-        del_act = menu.addAction("删除选中")
-        del_act.setEnabled(bool(self._selected_path))
-        del_act.triggered.connect(self._on_delete_selected)
-        menu.exec(global_pos)
+    def _mark_dirty(self) -> None:
+        if not self._dirty:
+            self._dirty = True
+            self.dirty_changed.emit(True)
+
+    def _clear_dirty(self) -> None:
+        if self._dirty:
+            self._dirty = False
+            self.dirty_changed.emit(False)
 
     def _on_layout_mode_changed(self, _index: int = 0) -> None:
         self._apply_header()
-        self._dirty = True
+        self._mark_dirty()
         self._sync_canvas_mode()
-        self._emit_layout_changed()
-
-    def _sync_canvas_mode(self) -> None:
-        free = is_free_mode(self._layout)
-        self.canvas_stack.setCurrentIndex(0 if free else 1)
-        self.design_mode_cb.setVisible(not free)
-        self.zoom_combo.setVisible(not free)
-        self.interactive_preview_cb.setVisible(free)
-        if not free:
-            self.interactive_preview_cb.setChecked(False)
-        self.screen_tabs_editor.setVisible(free)
-        for w in getattr(self, "_grid_header_widgets", []):
-            w.setVisible(not free)
-        if free:
-            self.screen_tabs_editor.set_screens(
-                screens(self._layout),
-                active_screen_index(self._layout),
-            )
-        self._update_preview()
-
-    def _sync_screen_tabs_from_layout(self) -> None:
-        if not is_free_mode(self._layout):
-            return
-        self.screen_tabs_editor.set_screens(
-            screens(self._layout),
-            active_screen_index(self._layout),
-        )
-
-    def _on_phone_structure_changed(self, layout: dict) -> None:
-        """画布拖动/缩放后，仅合并坐标，不覆盖 screens 控件列表。"""
-        if not is_free_mode(self._layout):
-            self._layout = migrate_layout(layout)
-            self._refresh_widget_list(keep_row=True)
-            self._dirty = True
-            self._emit_layout_changed()
-            return
-        incoming = migrate_layout(layout)
-        self._apply_canvas_layout_patch(incoming)
-        self._refresh_widget_list(keep_row=True)
-        if self._selected_path:
-            w = resolve_widget(self._layout, self._selected_path)
-            if w is not None:
-                self._load_widget_into_form(w)
-        self._dirty = True
-        self._emit_layout_changed()
-
-    def _apply_canvas_layout_patch(self, incoming: dict) -> None:
-        ensure_migrated(self._layout)
-        in_panel = incoming.get("panel", {})
-        panel = self._layout.setdefault("panel", {})
-        if "active_screen" in in_panel:
-            panel["active_screen"] = in_panel["active_screen"]
-
-        def patch_list(dst_widgets: list, src_widgets: list) -> None:
-            for i, src in enumerate(src_widgets):
-                if i >= len(dst_widgets):
-                    break
-                dst = dst_widgets[i]
-                if dst.get("id") != src.get("id") or dst.get("type") != src.get("type"):
-                    continue
-                for key in ("layout_x", "layout_y", "layout_w", "layout_h"):
-                    if key in src:
-                        dst[key] = src[key]
-
-        in_screens = incoming.get("screens") or []
-        dst_screens = screens(self._layout)
-        for si, in_sc in enumerate(in_screens):
-            if si >= len(dst_screens):
-                break
-            patch_list(
-                dst_screens[si].setdefault("widgets", []),
-                in_sc.get("widgets") or [],
-            )
-        patch_list(chrome_widgets(self._layout), incoming.get("widgets") or [])
-
-    def _on_canvas_screen_changed(self, idx: int) -> None:
-        self._layout.setdefault("panel", {})["active_screen"] = idx
-        self.screen_tabs_editor.set_active_index(idx)
-        self._selected_path = ()
-        self._refresh_widget_list()
-        self._clear_form()
-        self._dirty = True
         self._emit_layout_changed()
 
     def _on_screens_changed(self) -> None:
@@ -594,7 +300,7 @@ class LayoutEditorWidget(QWidget):
         self._refresh_widget_list()
         self._clear_form()
         self._update_preview(force=True)
-        self._dirty = True
+        self._mark_dirty()
         self._emit_layout_changed()
 
     def _refresh_widget_list(self, *, keep_row: bool = False, select_row: int | None = None) -> None:
@@ -610,74 +316,6 @@ class LayoutEditorWidget(QWidget):
             self.widget_list.setCurrentRow(row)
         elif self.widget_list.count() and not keep_row and select_row is None:
             self.widget_list.setCurrentRow(0)
-
-    def _on_design_mode_toggled(self, checked: bool) -> None:
-        self.preview.set_design_mode(checked)
-
-    def _on_preview_zoom_changed(self, _index: int = 0) -> None:
-        data = self.zoom_combo.currentData()
-        if data is None:
-            self.preview.set_zoom_auto(True)
-        else:
-            self.preview.set_preview_zoom(float(data))
-
-    def _select_widget_path(self, path: tuple[int, ...]) -> None:
-        if not path:
-            return
-        if len(path) == 2:
-            screen_idx, widget_idx = path
-            if screen_idx == CHROME_PATH_TAG:
-                w = resolve_widget(self._layout, path)
-                if w:
-                    self._selected_path = path
-                    self.widget_list.blockSignals(True)
-                    self.widget_list.clearSelection()
-                    self.widget_list.blockSignals(False)
-                    self._load_widget_into_form(w)
-                    self.phone_canvas.set_selected_path(path)
-                return
-            act = active_screen_index(self._layout)
-            if screen_idx != act:
-                self._layout.setdefault("panel", {})["active_screen"] = screen_idx
-                self.screen_tabs_editor.set_active_index(screen_idx)
-                self._refresh_widget_list()
-                payload = json.loads(json.dumps(self._layout))
-                self.phone_canvas.set_layout(payload)
-            self.widget_list.blockSignals(True)
-            if 0 <= widget_idx < self.widget_list.count():
-                self.widget_list.setCurrentRow(widget_idx)
-            self.widget_list.blockSignals(False)
-            w = resolve_widget(self._layout, path)
-            if w:
-                self._selected_path = path
-                self._load_widget_into_form(w)
-                self.phone_canvas.set_selected_path(path)
-            return
-        if len(path) == 1:
-            self.widget_list.blockSignals(True)
-            self.widget_list.setCurrentRow(path[0])
-            self.widget_list.blockSignals(False)
-            self._on_select_widget(path[0])
-
-    def _on_preview_widget_selected(self, path: tuple) -> None:
-        if isinstance(path, tuple):
-            self._select_widget_path(path)
-        elif isinstance(path, int) and 0 <= path < self.widget_list.count():
-            self.widget_list.setCurrentRow(path)
-
-    def _on_preview_structure_changed(self, layout: dict) -> None:
-        self._layout = migrate_layout(layout)
-        row = self.widget_list.currentRow()
-        self._refresh_widget_list()
-        if 0 <= row < self.widget_list.count():
-            self.widget_list.setCurrentRow(row)
-            self._on_select_widget(row)
-        panel = self._layout.get("panel", {})
-        self.width_dp_spin.blockSignals(True)
-        self.width_dp_spin.setValue(int(panel.get("width_dp", 220)))
-        self.width_dp_spin.blockSignals(False)
-        self._dirty = True
-        self._emit_layout_changed()
 
     def apply_template(self) -> None:
         choices = template_choices()
@@ -698,21 +336,21 @@ class LayoutEditorWidget(QWidget):
         if not ok2:
             return
         if mode == "替换全部控件":
-            self._layout = migrate_layout(json.loads(json.dumps(tpl)))
+            self._layout = migrate_layout(clone_layout(tpl))
         else:
             panel = self._layout.setdefault("panel", {})
             panel.update(tpl.get("panel", {}))
             self._layout["enabled"] = tpl.get("enabled", True)
             if is_free_mode(self._layout):
                 active_screen_widgets(self._layout).extend(
-                    json.loads(json.dumps(tpl.get("widgets", [])))
+                    clone_list(tpl.get("widgets", []))
                 )
             else:
                 self._layout.setdefault("widgets", []).extend(
-                    json.loads(json.dumps(tpl.get("widgets", [])))
+                    clone_list(tpl.get("widgets", []))
                 )
         self._refresh_ui()
-        self._dirty = True
+        self._mark_dirty()
         self._emit_layout_changed()
 
     def _build_add_menu(self) -> QMenu:
@@ -728,29 +366,11 @@ class LayoutEditorWidget(QWidget):
         return menu
 
     def _widgets(self) -> list:
-        ensure_migrated(self._layout)
-        if is_free_mode(self._layout):
-            return active_screen_widgets(self._layout)
-        return self._layout.setdefault("widgets", [])
+        return editor_widget_list(self._layout)
 
     def _chrome_widgets(self) -> list:
         ensure_migrated(self._layout)
         return chrome_widgets(self._layout)
-
-    def _xy_row(self, a: QSpinBox, b: QSpinBox) -> QWidget:
-        w = QWidget()
-        row = QHBoxLayout(w)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.addWidget(a)
-        row.addWidget(b)
-        return w
-
-    def _pick_color(self) -> None:
-        initial = QColor(self.color_edit.text().strip() or "#2563EB")
-        color = QColorDialog.getColor(initial, self, "选择按钮颜色")
-        if color.isValid():
-            self.color_edit.setText(color.name())
-            self._sync_form_to_layout()
 
     def load_from_project(self) -> None:
         project = self._project_dir_getter()
@@ -761,36 +381,40 @@ class LayoutEditorWidget(QWidget):
         self._history.clear()
         self._refresh_ui()
         self._commit_history()
-        self._dirty = False
+        self._clear_dirty()
         self._emit_layout_changed()
 
     def current_layout(self) -> dict[str, Any]:
-        return json.loads(json.dumps(self._layout))
+        return clone_layout(self._layout)
 
-    def save_to_project(self) -> None:
+    def save_to_project(self, *, silent: bool = False) -> bool:
         project = self._project_dir_getter()
         if not project:
-            QMessageBox.warning(self, "提示", "请先在「工程」页打开脚本工程")
-            return
+            if not silent:
+                QMessageBox.warning(self, "提示", "请先在「工程」页打开脚本工程")
+            return False
         self._apply_header()
         self._sync_form_to_layout()
         errors = validate_layout(self._layout)
         if errors:
-            QMessageBox.warning(self, "布局校验", "\n".join(errors[:10]))
-            return
+            if not silent:
+                QMessageBox.warning(self, "布局校验", "\n".join(errors[:10]))
+            return False
         save_layout(project, self._layout)
-        self._dirty = False
-        self.layout_changed.emit(json.loads(json.dumps(self._layout)))
-        QMessageBox.information(self, "完成", "已保存 ui/layout.json")
+        self._clear_dirty()
+        self.layout_changed.emit(clone_layout(self._layout))
+        if not silent:
+            QMessageBox.information(self, "完成", "已保存 ui/layout.json")
+        return True
 
     def _commit_history(self) -> None:
         self._history.push(self._layout)
 
     def _apply_layout_snapshot(self, snap: dict) -> None:
-        self._layout = json.loads(json.dumps(snap))
+        self._layout = clone_layout(snap)
         self._selected_path = ()
         self._refresh_ui()
-        self._dirty = True
+        self._mark_dirty()
         self._emit_layout_changed()
 
     def _undo_layout(self) -> None:
@@ -808,12 +432,12 @@ class LayoutEditorWidget(QWidget):
         if not target:
             return
         w, _, _ = target
-        self._clipboard_widget = json.loads(json.dumps(w))
+        self._clipboard_widget = clone_widget(w)
 
     def _paste_widget(self) -> None:
         if not self._clipboard_widget:
             return
-        src = json.loads(json.dumps(self._clipboard_widget))
+        src = clone_widget(self._clipboard_widget)
         widgets = self._widgets()
         w = default_widget(str(src.get("type", "label")), len(widgets) + 1)
         w.update({k: v for k, v in src.items() if k != "id"})
@@ -826,7 +450,7 @@ class LayoutEditorWidget(QWidget):
         self._refresh_widget_list()
         self.widget_list.setCurrentRow(row)
         self._load_widget_into_form(widgets[row])
-        self._dirty = True
+        self._mark_dirty()
         self._update_preview(force=True)
 
     def _duplicate_widget(self) -> None:
@@ -851,7 +475,7 @@ class LayoutEditorWidget(QWidget):
         )
         self._load_widget_into_form(w)
         self._update_preview(force=True)
-        self._dirty = True
+        self._mark_dirty()
         self._emit_layout_changed()
 
     def _on_delete_selected(self) -> None:
@@ -878,7 +502,7 @@ class LayoutEditorWidget(QWidget):
         else:
             self._clear_form()
         self._update_preview(force=True)
-        self._dirty = True
+        self._mark_dirty()
         self._emit_layout_changed()
 
     def save_if_dirty(self) -> bool:
@@ -891,9 +515,17 @@ class LayoutEditorWidget(QWidget):
             self._sync_form_to_layout()
         else:
             self._apply_header()
+        errors = validate_layout(self._layout)
+        if errors:
+            QMessageBox.warning(
+                self,
+                "布局校验",
+                "自动保存已取消：\n" + "\n".join(errors[:8]),
+            )
+            return False
         save_layout(project, self._layout)
-        self._dirty = False
-        self.layout_changed.emit(json.loads(json.dumps(self._layout)))
+        self._clear_dirty()
+        self.layout_changed.emit(clone_layout(self._layout))
         return True
 
     def add_widget(self, wtype: str) -> None:
@@ -926,7 +558,7 @@ class LayoutEditorWidget(QWidget):
             self._sync_screen_tabs_from_layout()
             self._refresh_widget_list(select_row=row)
             self._load_widget_into_form(widgets[row])
-        self._dirty = True
+        self._mark_dirty()
         self._update_preview(force=True)
         self._commit_history()
         self._emit_layout_changed()
@@ -958,16 +590,16 @@ class LayoutEditorWidget(QWidget):
         else:
             self._clear_form()
         self._update_preview(force=True)
-        self._dirty = True
+        self._mark_dirty()
         self._commit_history()
         self._emit_layout_changed()
 
     def reset_default(self) -> None:
-        self._layout = json.loads(json.dumps(DEFAULT_LAYOUT))
+        self._layout = clone_layout(DEFAULT_LAYOUT)
         self._history.clear()
         self._refresh_ui()
         self._commit_history()
-        self._dirty = True
+        self._mark_dirty()
 
     def _move_widget(self, delta: int) -> None:
         row = self.widget_list.currentRow()
@@ -978,7 +610,7 @@ class LayoutEditorWidget(QWidget):
         widgets[row], widgets[new_row] = widgets[new_row], widgets[row]
         self._refresh_ui()
         self.widget_list.setCurrentRow(new_row)
-        self._dirty = True
+        self._mark_dirty()
 
     def _apply_header(self) -> None:
         panel = self._layout.setdefault("panel", {})
@@ -995,13 +627,15 @@ class LayoutEditorWidget(QWidget):
         panel["design_height"] = int(panel.get("design_height", 1280))
         if is_free_mode(self._layout):
             panel["active_screen"] = self.screen_tabs_editor.active_index()
-            self._layout["screens"] = json.loads(json.dumps(self.screen_tabs_editor.get_screens()))
+            editor_screens = self.screen_tabs_editor.get_screens()
+            if self._layout.get("screens") is not editor_screens:
+                self._layout["screens"] = editor_screens
         self._layout["enabled"] = self.enabled_cb.currentIndex() == 0
 
     def _on_header_changed(self, *_args) -> None:
         self._apply_header()
         self._update_preview()
-        self._dirty = True
+        self._mark_dirty()
         self._emit_layout_changed()
 
     def _sync_panel_position(self, *_args) -> None:
@@ -1012,7 +646,7 @@ class LayoutEditorWidget(QWidget):
         self._emit_layout_changed()
 
     def _emit_layout_changed(self) -> None:
-        self.layout_changed.emit(json.loads(json.dumps(self._layout)))
+        self.layout_changed.emit(clone_layout(self._layout))
 
     def _refresh_ui(self) -> None:
         self._layout = migrate_layout(self._layout)
@@ -1050,310 +684,6 @@ class LayoutEditorWidget(QWidget):
         else:
             self._clear_form()
         self._sync_canvas_mode()
-
-    def _load_widget_into_form(self, w: dict) -> None:
-        self._loading_form = True
-        blocked: list[tuple[Any, bool]] = []
-        for wdg in (
-            self.id_edit,
-            self.label_edit,
-            self.text_edit,
-            self.text_style_combo,
-            self.type_combo,
-            self.color_edit,
-            self.width_spin,
-            self.placeholder_edit,
-            self.default_edit,
-            self.layout_x_spin,
-            self.layout_y_spin,
-            self.layout_w_spin,
-            self.layout_h_spin,
-            self.required_cb,
-            self.switch_default_cb,
-            self.time_start_edit,
-            self.time_end_edit,
-            self.x_spin,
-            self.y_spin,
-            self.x1_spin,
-            self.y1_spin,
-            self.x2_spin,
-            self.y2_spin,
-        ):
-            blocked.append((wdg, wdg.blockSignals(True)))
-        self.options_edit.blockSignals(True)
-        self.lua_edit.blockSignals(True)
-        try:
-            self.id_edit.setText(w.get("id", ""))
-            self.label_edit.setText(w.get("label", ""))
-            self.text_edit.setText(w.get("text", ""))
-            ts_idx = self.text_style_combo.findData(str(w.get("text_style") or "normal"))
-            self.text_style_combo.setCurrentIndex(max(0, ts_idx))
-            idx = self.type_combo.findData(w.get("type", "tap"))
-            self.type_combo.setCurrentIndex(max(0, idx))
-            self.color_edit.setText(w.get("color", "#2563EB"))
-            self.width_spin.setValue(int(w.get("width", 1)))
-            self.placeholder_edit.setText(w.get("placeholder", ""))
-            self.options_edit.setPlainText("\n".join(w.get("options") or []))
-            self.layout_x_spin.setValue(int(w.get("layout_x", 24)))
-            self.layout_y_spin.setValue(int(w.get("layout_y", 120)))
-            self.layout_w_spin.setValue(int(w.get("layout_w", 320)))
-            self.layout_h_spin.setValue(int(w.get("layout_h", 56)))
-            self.required_cb.setChecked(bool(w.get("required")))
-            wtype = w.get("type", "")
-            if wtype == "time_range":
-                self.time_start_edit.setTime(
-                    self._qtime_from_str(str(w.get("default_start", "09:00")), "09:00")
-                )
-                self.time_end_edit.setTime(
-                    self._qtime_from_str(str(w.get("default_end", "18:00")), "18:00")
-                )
-                self.default_edit.setText(str(w.get("default", "")))
-            elif wtype == "switch":
-                raw = w.get("default", False)
-                self.switch_default_cb.setChecked(
-                    str(raw).lower() in ("true", "1", "yes", "on")
-                )
-            else:
-                self.min_edit.setText("" if w.get("min") is None else str(w.get("min")))
-                self.max_edit.setText("" if w.get("max") is None else str(w.get("max")))
-                self.default_edit.setText(w.get("default", ""))
-            self.x_spin.setValue(int(w.get("x", 0)))
-            self.y_spin.setValue(int(w.get("y", 0)))
-            self.x1_spin.setValue(int(w.get("x1", 0)))
-            self.y1_spin.setValue(int(w.get("y1", 0)))
-            self.x2_spin.setValue(int(w.get("x2", 0)))
-            self.y2_spin.setValue(int(w.get("y2", 0)))
-            self.lua_edit.setPlainText(w.get("lua", ""))
-            self._update_form_visibility(wtype)
-        finally:
-            self.options_edit.blockSignals(False)
-            self.lua_edit.blockSignals(False)
-            for wdg, was in blocked:
-                wdg.blockSignals(was)
-            self._loading_form = False
-
-    def _on_select_widget(self, row: int) -> None:
-        widgets = self._widgets()
-        if row < 0 or row >= len(widgets):
-            self._clear_form()
-            self._selected_path = ()
-            return
-        w = widgets[row]
-        self._selected_path = (
-            (active_screen_index(self._layout), row) if is_free_mode(self._layout) else (row,)
-        )
-        self._load_widget_into_form(w)
-        if is_free_mode(self._layout):
-            self.phone_canvas.set_selected_path(self._selected_path)
-        else:
-            self._update_preview()
-
-    def _clear_form(self) -> None:
-        self._selected_path = ()
-        self.id_edit.clear()
-        self.label_edit.clear()
-        self.text_edit.clear()
-        self.lua_edit.clear()
-
-    def _on_type_changed(self) -> None:
-        wtype = self.type_combo.currentData() or ""
-        self._update_form_visibility(wtype)
-        self._sync_form_to_layout()
-
-    def _update_form_visibility(self, wtype: str) -> None:
-        form = self.findChild(QGroupBox, "")
-        # toggle rows via widgets parent form — use stored row indices on form layout
-        parent_form: QFormLayout = self.findChildren(QFormLayout)[0]
-
-        def show_row(row: int, visible: bool) -> None:
-            if row < 0:
-                return
-            label = parent_form.itemAt(row, QFormLayout.ItemRole.LabelRole)
-            field = parent_form.itemAt(row, QFormLayout.ItemRole.FieldRole)
-            if label and label.widget():
-                label.widget().setVisible(visible)
-            if field and field.widget():
-                field.widget().setVisible(visible)
-
-        action = is_action_type(wtype)
-        free = is_free_mode(self._layout)
-        show_row(self._row_label, wtype not in ("label", "divider", "text"))
-        show_row(self._row_text, wtype in ("label", "text"))
-        show_row(self._row_text_style, wtype == "text")
-        if wtype == "text":
-            self._set_form_row_label(self._row_text, "提示文字")
-        elif wtype == "label":
-            self._set_form_row_label(self._row_text, "标签文本")
-        show_row(self._row_color, action)
-        show_row(self._row_placeholder, wtype in ("input", "textarea"))
-        show_row(self._row_default, wtype in ("input", "select", "radio", "multiselect", "slider", "stepper", "textarea"))
-        show_row(self._row_switch_default, wtype == "switch")
-        show_row(self._row_time_range, wtype == "time_range")
-        show_row(self._row_options, wtype in ("select", "radio", "multiselect"))
-        show_row(self._row_layout_rect, free)
-        show_row(self._row_layout_size, free)
-        show_row(self._row_width, not free)
-        show_row(self._row_required, wtype == "input")
-        show_row(self._row_min, wtype in ("input", "slider", "stepper"))
-        show_row(self._row_max, wtype in ("input", "slider", "stepper"))
-        self._set_form_row_label(self._row_min, "最小值")
-        self._set_form_row_label(self._row_max, "最大值")
-        if wtype == "time_range":
-            self.default_edit.setPlaceholderText("可选：09:00-18:00")
-        else:
-            self.default_edit.setPlaceholderText("")
-        show_row(self._row_xy, action and wtype in ("tap", "long_press"))
-        show_row(self._row_swipe1, action and wtype == "swipe")
-        show_row(self._row_swipe2, action and wtype == "swipe")
-        show_row(self._row_pick, action)
-        show_row(self._row_lua, action and wtype in ("lua", "snippet"))
-
-    def _mirror_widget_to_canvas(self, path: tuple[int, ...], spec: dict[str, Any]) -> None:
-        canvas_layout = getattr(self.phone_canvas, "_layout", None)
-        if not canvas_layout:
-            return
-        cw = resolve_widget(canvas_layout, path)
-        if cw is None:
-            return
-        patch = json.loads(json.dumps(spec))
-        for key in list(cw.keys()):
-            if key not in patch:
-                del cw[key]
-        cw.update(patch)
-
-    def _refresh_canvas_after_spec_change(self, path: tuple[int, ...], spec: dict[str, Any]) -> None:
-        self._mirror_widget_to_canvas(path, spec)
-        if is_free_mode(self._layout):
-            if not self.phone_canvas.refresh_widget_at(path):
-                self._update_preview(force=True)
-        else:
-            self._update_preview()
-
-    def _set_form_row_label(self, row: int, text: str) -> None:
-        parent_form: QFormLayout = self.findChildren(QFormLayout)[0]
-        label = parent_form.itemAt(row, QFormLayout.ItemRole.LabelRole)
-        if label and label.widget():
-            label.widget().setText(text)
-
-    def _sync_form_to_layout(self, *_args) -> None:
-        if self._loading_form:
-            return
-        target = self._edit_target()
-        if target is None:
-            self._apply_header()
-            if not is_free_mode(self._layout):
-                self._update_preview()
-            self._emit_layout_changed()
-            return
-        w, path, row = target
-        wtype = self.type_combo.currentData() or "tap"
-        w["id"] = self.id_edit.text().strip() or f"w_{row}"
-        w["type"] = wtype
-        w["label"] = self.label_edit.text().strip()
-        w["text"] = self.text_edit.text().strip()
-        if wtype == "text":
-            w["text_style"] = self.text_style_combo.currentData() or "normal"
-        elif "text_style" in w:
-            del w["text_style"]
-        w["color"] = self.color_edit.text().strip() or "#2563EB"
-        w["width"] = self.width_spin.value()
-        w["placeholder"] = self.placeholder_edit.text().strip()
-        if wtype == "time_range":
-            start = self.time_start_edit.time().toString("HH:mm")
-            end = self.time_end_edit.time().toString("HH:mm")
-            w["default_start"] = start
-            w["default_end"] = end
-            w["default"] = self.default_edit.text().strip() or f"{start}-{end}"
-        elif wtype == "switch":
-            w["default"] = "true" if self.switch_default_cb.isChecked() else "false"
-        else:
-            w["default"] = self.default_edit.text().strip()
-        opts = [ln.strip() for ln in self.options_edit.toPlainText().splitlines() if ln.strip()]
-        if opts:
-            w["options"] = opts
-        elif "options" in w:
-            del w["options"]
-        if wtype == "input":
-            w["required"] = self.required_cb.isChecked()
-            min_t = self.min_edit.text().strip()
-            max_t = self.max_edit.text().strip()
-            if min_t:
-                w["min"] = float(min_t) if "." in min_t else int(min_t)
-            elif "min" in w:
-                del w["min"]
-            if max_t:
-                w["max"] = float(max_t) if "." in max_t else int(max_t)
-            elif "max" in w:
-                del w["max"]
-        elif "required" in w:
-            del w["required"]
-            w.pop("min", None)
-            w.pop("max", None)
-        w["x"] = self.x_spin.value()
-        w["y"] = self.y_spin.value()
-        w["x1"] = self.x1_spin.value()
-        w["y1"] = self.y1_spin.value()
-        w["x2"] = self.x2_spin.value()
-        w["y2"] = self.y2_spin.value()
-        w["lua"] = self.lua_edit.toPlainText().strip()
-        if is_free_mode(self._layout):
-            w["layout_x"] = self.layout_x_spin.value()
-            w["layout_y"] = self.layout_y_spin.value()
-            sender = self.sender()
-            geom_spin = sender in (
-                self.layout_x_spin,
-                self.layout_y_spin,
-                self.layout_w_spin,
-                self.layout_h_spin,
-            )
-            text_geom = sender in (self.text_edit, self.text_style_combo)
-            if wtype in ("text", "label") and text_geom and not geom_spin:
-                style = str(w.get("text_style") or "normal") if wtype == "text" else "normal"
-                content = w.get("text") or w.get("label") or ""
-                est_w = estimate_text_layout_width(str(content), style)
-                w["layout_w"] = est_w
-                self.layout_w_spin.blockSignals(True)
-                self.layout_w_spin.setValue(est_w)
-                self.layout_w_spin.blockSignals(False)
-            else:
-                w["layout_w"] = self.layout_w_spin.value()
-            w["layout_h"] = self.layout_h_spin.value()
-        self._apply_header()
-        if path[0] != CHROME_PATH_TAG and 0 <= row < self.widget_list.count():
-            item = self.widget_list.item(row)
-            if item:
-                item.setText(widget_display_name(w))
-        self._refresh_canvas_after_spec_change(path, w)
-        self._dirty = True
-        self._emit_layout_changed()
-
-    def _edit_target(self) -> tuple[dict, tuple[int, ...], int] | None:
-        if self._selected_path and len(self._selected_path) == 2:
-            w = resolve_widget(self._layout, self._selected_path)
-            if w is not None:
-                row = self._selected_path[1] if self._selected_path[0] != CHROME_PATH_TAG else -1
-                return w, self._selected_path, row
-        row = self.widget_list.currentRow()
-        widgets = self._widgets()
-        if 0 <= row < len(widgets):
-            path: tuple[int, ...] = (
-                (active_screen_index(self._layout), row)
-                if is_free_mode(self._layout)
-                else (row,)
-            )
-            return widgets[row], path, row
-        return None
-
-    def _refresh_value_summary(self) -> None:
-        self.values_label.setText(PanelState.format_summary())
-        PanelState.save_sidecar(Path(self._project_dir_getter() or ".")) if self._project_dir_getter() else None
-
-    def _qtime_from_str(self, text: str, fallback: str) -> QTime:
-        for candidate in (text, fallback):
-            parsed = QTime.fromString(candidate, "HH:mm")
-            if parsed.isValid():
-                return parsed
-        return QTime(9, 0)
 
     def export_active_screen(self) -> None:
         if not is_free_mode(self._layout):
@@ -1402,7 +732,7 @@ class LayoutEditorWidget(QWidget):
         import_screen_dict(self._layout, data, replace=replace)
         self._commit_history()
         self._refresh_ui()
-        self._dirty = True
+        self._mark_dirty()
         self._emit_layout_changed()
 
     def _insert_panel_lua_example(self) -> None:
@@ -1433,9 +763,13 @@ class LayoutEditorWidget(QWidget):
 
     def _update_preview(self, *, force: bool = False) -> None:
         self._apply_header()
-        payload = json.loads(json.dumps(self._layout))
+        payload = clone_layout(self._layout)
         if is_free_mode(self._layout):
-            self.phone_canvas.set_layout(payload, selected_path=self._selected_path or None)
+            self.phone_canvas.set_layout(
+                payload,
+                selected_path=self._selected_path or None,
+                full=force,
+            )
             if self._selected_path:
                 self.phone_canvas.set_selected_path(self._selected_path)
         else:
@@ -1459,7 +793,7 @@ class LayoutEditorWidget(QWidget):
         panel = self._layout.setdefault("panel", {})
         panel["start_x"] = x
         panel["start_y"] = y
-        self._dirty = True
+        self._mark_dirty()
         self._emit_layout_changed()
 
     def fill_button_coords(self, x: int, y: int, mode: str) -> None:
@@ -1478,7 +812,7 @@ class LayoutEditorWidget(QWidget):
         else:
             return
         self._sync_form_to_layout()
-        self._dirty = True
+        self._mark_dirty()
 
     # 兼容旧信号名
     @property

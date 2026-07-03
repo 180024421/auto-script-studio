@@ -26,6 +26,13 @@ def test_resolve_icon_fallback():
     assert path == default_icon_path()
 
 
+def test_ensure_default_launcher_res():
+    from packager.icon_processor import ensure_default_launcher_res
+
+    path = ensure_default_launcher_res(ROOT / "android-runtime")
+    assert (path / "mipmap-xxhdpi" / "ic_launcher.png").is_file()
+
+
 def test_prepare_pack_icons_outputs():
     import tempfile
 

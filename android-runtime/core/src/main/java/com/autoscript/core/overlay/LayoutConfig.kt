@@ -6,6 +6,16 @@ import org.json.JSONObject
 data class PanelConfig(
     val title: String = "脚本助手",
     val widthDp: Int = 220,
+    /** fixed=Android dp；auto=设计稿像素宽度并按屏宽等比缩放 */
+    val widthMode: String = "fixed",
+    /** wrap=内容高度；full=撑满屏高；auto=按 design_height 等比缩放 */
+    val heightMode: String = "wrap",
+    /** auto 高度模式下设计稿像素高度 */
+    val heightDp: Int = 1280,
+    /** form=完整表单；minimal=仅开始/结束 */
+    val displayMode: String = "form",
+    /** 无操作多少毫秒后自动收起到悬浮球；0=关闭 */
+    val autoCollapseIdleMs: Int = 0,
     val opacity: Float = 0.96f,
     val position: String = "right_center",
     val startX: Int = 20,
@@ -13,6 +23,8 @@ data class PanelConfig(
     val columns: Int = 2,
     val ballSizeDp: Int = 48,
     val showLog: Boolean = true,
+    /** minimal 悬浮窗日志区展开高度（dp） */
+    val logHeightDp: Int = 88,
     val draggable: Boolean = true,
     val collapsible: Boolean = true,
     val theme: String = "light",
@@ -22,6 +34,8 @@ data class PanelConfig(
     val designWidth: Int = 720,
     val designHeight: Int = 1280,
     val activeScreen: Int = 0,
+    /** APK 启动时是否自动显示浮动面板（仍须悬浮窗权限） */
+    val showOnLaunch: Boolean = false,
 )
 
 data class ScreenConfig(
@@ -150,7 +164,7 @@ data class LayoutConfig(
     companion object {
         val DEFAULT = LayoutConfig(
             enabled = true,
-            panel = PanelConfig(widthDp = 320, layoutMode = "free"),
+            panel = PanelConfig(widthDp = 360, widthMode = "auto", layoutMode = "free"),
             screens = listOf(
                 ScreenConfig(
                     title = "标签页1",
@@ -248,6 +262,11 @@ data class LayoutConfig(
         private fun parsePanel(panelObj: JSONObject?): PanelConfig = PanelConfig(
             title = panelObj?.optString("title", "脚本助手") ?: "脚本助手",
             widthDp = panelObj?.optInt("width_dp", 220) ?: 220,
+            widthMode = panelObj?.optString("width_mode", "fixed") ?: "fixed",
+            heightMode = panelObj?.optString("height_mode", "wrap") ?: "wrap",
+            heightDp = panelObj?.optInt("height_dp", 1280) ?: 1280,
+            displayMode = panelObj?.optString("display_mode", "form") ?: "form",
+            autoCollapseIdleMs = panelObj?.optInt("auto_collapse_idle_ms", 0) ?: 0,
             opacity = panelObj?.optDouble("opacity", 0.96)?.toFloat() ?: 0.96f,
             position = panelObj?.optString("position", "right_center") ?: "right_center",
             startX = panelObj?.optInt("start_x", 20) ?: 20,
@@ -255,6 +274,7 @@ data class LayoutConfig(
             columns = panelObj?.optInt("columns", 2) ?: 2,
             ballSizeDp = panelObj?.optInt("ball_size_dp", 48) ?: 48,
             showLog = panelObj?.optBoolean("show_log", true) ?: true,
+            logHeightDp = panelObj?.optInt("log_height_dp", 88) ?: 88,
             draggable = panelObj?.optBoolean("draggable", true) ?: true,
             collapsible = panelObj?.optBoolean("collapsible", true) ?: true,
             theme = panelObj?.optString("theme", "light") ?: "light",
@@ -264,6 +284,7 @@ data class LayoutConfig(
             designWidth = panelObj?.optInt("design_width", 720) ?: 720,
             designHeight = panelObj?.optInt("design_height", 1280) ?: 1280,
             activeScreen = panelObj?.optInt("active_screen", 0) ?: 0,
+            showOnLaunch = panelObj?.optBoolean("show_on_launch", false) ?: false,
         )
 
         private fun parseWidgetArray(arr: JSONArray): List<WidgetConfig> {

@@ -35,8 +35,33 @@ lib/              # 可选 Lua 模块
 
 - `timeout` 秒、`threshold`、`tol`、`click=true`
 - `optional=true` 找不到不抛错，返回 `nil`
-- `findNode`: `text`, `id`, `match_mode`, `index`
-- YOLO: `model`, `class_name`, `conf`, `pick`, `frac={0.5,0.3}`
+- `findNode`: `text`, `id`, `match_mode`（`contains`/`equals`/`starts_with`）, `index`, `click`
+- YOLO: `model`, `class_name`, `conf`, `pick`, `frac={0.5,0.3}`, `tap_dx`/`tap_dy`, `delay_before_click`, `roi`
+
+### `bot.yoloDetect` 返回列表元素
+
+每个检测项为表，字段固定如下（PC 调试与 APK 一致）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `class_name` | string | 类别名（来自 `.labels`） |
+| `confidence` | number | 置信度 0~1 |
+| `x`, `y` | int | 框左上角 |
+| `w`, `h` | int | 框宽高 |
+| `center_x`, `center_y` | int | 框中心点 |
+
+```lua
+local dets = bot.yoloDetect({ model = "models/ui.onnx", class_name = "hand" })
+for _, d in ipairs(dets) do
+  bot.log(d.class_name .. " " .. d.confidence .. " @ " .. d.center_x)
+end
+```
+
+### 工程 `models/` 目录
+
+- 放置 `*.onnx`（APK 推理）及同名 `*.labels`（每行一个类别名）
+- PC Studio 脚本页「模型」Tab 可导入、编辑 labels、设默认模型（写入 `project.json` → `runtime.default_yolo_model`）
+- 从 `.pt` 导出：`python tools/export_yolo_onnx.py --pt best.pt --out models/ui`
 
 ## lib 模块
 

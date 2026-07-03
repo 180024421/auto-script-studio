@@ -7,6 +7,49 @@ from PySide6.QtGui import QCursor, QMouseEvent
 from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
 
 
+class SelectFrame(QFrame):
+    """只读预览：点击选中控件，无拖动排序。"""
+
+    selected = Signal(tuple)
+
+    def __init__(
+        self,
+        path: tuple[int, ...],
+        inner: QWidget,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._path = path
+        self._selected = False
+        self.setObjectName("DesignFrame")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(2, 2, 2, 2)
+        root.setSpacing(0)
+        root.addWidget(inner)
+        self._update_style()
+
+    def widget_path(self) -> tuple[int, ...]:
+        return self._path
+
+    def set_selected(self, on: bool) -> None:
+        self._selected = on
+        self._update_style()
+
+    def _update_style(self) -> None:
+        border = "#2563EB" if self._selected else "transparent"
+        width = 2 if self._selected else 0
+        self.setStyleSheet(
+            f"QFrame#DesignFrame {{ border: {width}px solid {border}; border-radius: 6px; }}"
+        )
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.selected.emit(self._path)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 class DesignFrame(QFrame):
     """包裹预览控件，设计模式下可拖动排序与调整列宽。"""
 
@@ -87,10 +130,11 @@ class DesignFrame(QFrame):
         self._resize.move(self.width() - self.RESIZE_W - 4, self._handle.height() + 6)
 
     def _update_style(self) -> None:
-        border = "#2563EB" if self._selected else "#CBD5E1"
-        width = 2 if self._selected else 1
+        border = "#2563EB" if self._selected else "transparent"
+        width = 2 if self._selected else 0
+        bg = "transparent"
         self.setStyleSheet(
-            f"QFrame#DesignFrame {{ border: {width}px dashed {border}; border-radius: 8px; background: #F8FAFC; }}"
+            f"QFrame#DesignFrame {{ border: {width}px dashed {border}; border-radius: 8px; background: {bg}; }}"
             "QLabel#DesignHandle { background: #E2E8F0; color: #475569; border-radius: 4px; font-size: 11px; }"
             "QLabel#DesignResizeGrip { background: #BFDBFE; color: #1D4ED8; border-radius: 4px; font-size: 10px; }"
         )

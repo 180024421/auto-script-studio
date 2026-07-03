@@ -30,7 +30,13 @@ def min_rect_for_type(wtype: str) -> tuple[int, int]:
         return 48, 4
     if wtype in ("text", "label"):
         return 48, 20
-    return 48, 28
+    if wtype in ("input", "textarea", "select", "radio", "multiselect"):
+        return 160, 48
+    if wtype in ("switch", "slider", "stepper", "time_range"):
+        return 160, 44
+    if wtype in ("start_script", "stop_script", "tap", "lua", "collapse"):
+        return 80, 40
+    return 120, 44
 
 
 def estimate_text_layout_width(text: str, style: str = "normal") -> int:
@@ -92,47 +98,23 @@ def ensure_layout_rects(layout: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _resolve_widget(layout: dict[str, Any], path: tuple[int, ...]) -> dict[str, Any] | None:
-    if not path:
-        return None
-    widgets = layout.setdefault("widgets", [])
-    if len(path) == 1:
-        idx = path[0]
-        return widgets[idx] if 0 <= idx < len(widgets) else None
-    if len(path) == 3:
-        tabs_idx, tab_idx, child_idx = path
-        if tabs_idx < 0 or tabs_idx >= len(widgets):
-            return None
-        tabs_w = widgets[tabs_idx]
-        if tabs_w.get("type") != "tabs":
-            return None
-        tabs = tabs_w.get("tabs") or []
-        if tab_idx < 0 or tab_idx >= len(tabs):
-            return None
-        children = tabs[tab_idx].get("widgets") or []
-        if child_idx < 0 or child_idx >= len(children):
-            return None
-        return children[child_idx]
-    return None
-
-
-def set_widget_rect(
-    layout: dict[str, Any],
-    path: tuple[int, ...],
+def clamp_widget_rect(
+    dw: int,
+    wtype: str,
     x: int,
     y: int,
     w: int,
     h: int,
-) -> dict[str, Any]:
-    out = copy.deepcopy(layout)
-    target = _resolve_widget(out, path)
-    if target is None:
-        return out
-    dw, dh = panel_design_size(out.get("panel", {}))
-    wtype = str(target.get("type", ""))
+    *,
+    max_y: int | None = None,
+) -> tuple[int, int, int, int]:
+    """将控件矩形限制在画布水平范围内；垂直方向仅保证 y>=0，可超出视口以滚动布局。"""
     min_w, min_h = min_rect_for_type(wtype)
-    target["layout_x"] = max(0, min(dw - 40, int(x)))
-    target["layout_y"] = max(0, min(dh - 24, int(y)))
-    target["layout_w"] = max(min_w, min(dw, int(w)))
-    target["layout_h"] = max(min_h, min(dh, int(h)))
-    return out
+    w = max(min_w, min(dw, int(w)))
+    h = max(min_h, int(h))
+    x = max(0, min(max(0, dw - w), int(x)))
+    y = max(0, int(y))
+    if max_y is not None:
+        y = min(y, max(0, int(max_y) - h))
+    w = min(w, dw - x)
+    return x, y, w, h

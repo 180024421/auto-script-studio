@@ -16,15 +16,10 @@ from typing import Any, Callable
 
 _listeners: list[Callable[[], None]] = []
 
-_watches: dict[str, list[Callable[[str], None]]] = {}
-
-
-
-
 
 class PanelState:
-
     _values: dict[str, str] = {}
+    _watches: dict[str, list[Callable[[str], None]]] = {}
 
 
 

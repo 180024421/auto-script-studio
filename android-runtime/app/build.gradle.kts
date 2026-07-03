@@ -76,7 +76,11 @@ android {
 
     sourceSets {
         getByName("main") {
-            res.srcDir(rootProject.file("packager/generated-res"))
+            val generatedRes = rootProject.file("packager/generated-res")
+            val defaultRes = rootProject.file("packager/default-res")
+            val packedLauncher = generatedRes.resolve("mipmap-mdpi/ic_launcher.png")
+            // 打包图标与默认 mipmap 只能二选一，避免 mergeDebugResources 重复资源
+            res.srcDir(if (packedLauncher.exists()) generatedRes else defaultRes)
         }
     }
 }

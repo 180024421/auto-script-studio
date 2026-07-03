@@ -45,7 +45,7 @@ class ScriptRunnerService : Service() {
         val backend = DeviceAutomationBackend(config)
         val runtime: ScriptRuntime = ScriptRuntimeFactory.create(assets, backend) { msg ->
             ScriptLog.i(msg)
-            MainActivity.logSink?.invoke(msg)
+            MainActivity.logSink?.invoke(msg) ?: OverlayLog.notify(msg)
         }
         job = scope.launch {
             try {
@@ -55,6 +55,7 @@ class ScriptRunnerService : Service() {
             } catch (e: Exception) {
                 ScriptStatus.write(this@ScriptRunnerService, "error", phase = "main", error = e.message ?: "unknown")
                 MainActivity.logSink?.invoke("错误: ${e.message}")
+                    ?: OverlayLog.notify("错误: ${e.message}")
             } finally {
                 runtime.release()
                 stopForeground(STOP_FOREGROUND_REMOVE)

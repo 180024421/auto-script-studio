@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from studio.runtime.panel_state import PanelState
+from studio.services.layout_clone import clone_layout
 from studio.services.layout_defaults import is_action_type, validate_widget_value
 from studio.services.widget_path import (
     container_prefix,
@@ -33,7 +34,7 @@ from studio.services.widget_path import (
     reorder_in_container,
     set_widget_width,
 )
-from studio.ui.preview_design import DesignFrame, PanelWidthHandle
+from studio.ui.preview_design import DesignFrame, PanelWidthHandle, SelectFrame
 
 
 def _panel_width_px(width_dp: int, zoom: float = 1.0) -> int:
@@ -65,10 +66,12 @@ class LayoutPreviewWidget(QScrollArea):
         self._root.setSpacing(0)
         self._layout: dict[str, Any] = {}
         self._design_mode = False
+        self._selection_mode = False
         self._zoom_auto = True
         self._preview_zoom = 2.0
         self._selected_path: tuple[int, ...] = ()
         self._frames: list[DesignFrame] = []
+        self._select_frames: list[SelectFrame] = []
         self._panel_card: QFrame | None = None
         self._panel_handle: PanelWidthHandle | None = None
         self._suppress_structure = False
@@ -125,6 +128,14 @@ class LayoutPreviewWidget(QScrollArea):
         self._selected_path = ()
         self._rebuild()
 
+    def set_selection_mode(self, on: bool) -> None:
+        """只读预览下点击选中控件（脚本页插入 Lua）。"""
+        if self._selection_mode == on:
+            return
+        self._selection_mode = on
+        self._selected_path = ()
+        self._rebuild()
+
     def set_layout(
         self,
         layout: dict[str, Any],
@@ -133,7 +144,7 @@ class LayoutPreviewWidget(QScrollArea):
         selected_path: tuple[int, ...] | None = None,
     ) -> None:
         old = PanelState.all()
-        self._layout = json.loads(json.dumps(layout or {}))
+        self._layout = clone_layout(layout or {})
         PanelState.seed_from_layout(self._layout)
         for k, v in old.items():
             if k in PanelState.all():
@@ -147,6 +158,7 @@ class LayoutPreviewWidget(QScrollArea):
 
     def _clear(self) -> None:
         self._frames = []
+        self._select_frames = []
         self._panel_card = None
         self._panel_handle = None
         while self._root.count():
@@ -161,7 +173,7 @@ class LayoutPreviewWidget(QScrollArea):
     def _emit_structure(self) -> None:
         if self._suppress_structure:
             return
-        self.structure_changed.emit(json.loads(json.dumps(self._layout)))
+        self.structure_changed.emit(clone_layout(self._layout))
         self.values_changed.emit()
 
     def _fill_grid(
@@ -205,6 +217,15 @@ class LayoutPreviewWidget(QScrollArea):
                 if wtype != "tabs":
                     _set_tree_enabled(inner, False)
                 self._frames.append(frame)
+                place(frame, span)
+            elif self._selection_mode:
+                path = container + (idx,)
+                span = max(1, min(cols, int(spec.get("width", 1))))
+                frame = SelectFrame(path, inner, grid_host)
+                frame.set_selected(path == self._selected_path)
+                frame.selected.connect(self._on_frame_selected)
+                frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+                self._select_frames.append(frame)
                 place(frame, span)
             else:
                 inner.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
@@ -259,7 +280,6 @@ class LayoutPreviewWidget(QScrollArea):
         center_row = QWidget()
         center_lay = QHBoxLayout(center_row)
         center_lay.setContentsMargins(0, 0, 0, 0)
-        center_lay.addStretch(1)
 
         panel_row = QWidget()
         panel_row_lay = QHBoxLayout(panel_row)
@@ -292,7 +312,9 @@ class LayoutPreviewWidget(QScrollArea):
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(8)
 
-        widgets = self._layout.get("widgets") or self._layout.get("buttons") or []
+        from studio.services.screen_layout import active_screen_index, active_screen_widgets
+
+        widgets = active_screen_widgets(self._layout)
         self._fill_grid(widgets, grid, cols, (), grid_host, zoom)
         card_layout.addWidget(grid_host)
 
@@ -317,12 +339,13 @@ class LayoutPreviewWidget(QScrollArea):
             panel_row_lay.addLayout(handle_col)
 
         center_lay.addWidget(panel_row, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
-        center_lay.addStretch(1)
         self._root.addWidget(center_row, 1, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
 
     def _on_frame_selected(self, path: tuple[int, ...]) -> None:
         self._selected_path = path
         for fr in self._frames:
+            fr.set_selected(fr.widget_path() == path)
+        for fr in self._select_frames:
             fr.set_selected(fr.widget_path() == path)
         self.widget_selected.emit(path)
 

@@ -73,15 +73,12 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         refreshStatus()
         scheduleAutoRun()
-        if (Settings.canDrawOverlays(this)) {
-            OverlayService.start(this)
-        }
     }
 
     private fun requestOverlayAndStart() {
         if (Settings.canDrawOverlays(this)) {
             OverlayService.start(this)
-            appendLog("浮动面板已启动")
+            appendLog("浮动面板已启动（点标题栏可拖动）")
             return
         }
         AlertDialog.Builder(this)
@@ -213,6 +210,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun appendLog(msg: String) {
         logText.append("$msg\n")
+        OverlayLog.notify(msg)
     }
 
     companion object {

@@ -38,6 +38,8 @@ class OverlayPanelBuilder(
     private val designCallbacks: OverlayDesignCallbacks? = null,
     private val widgetPathPrefix: List<Int> = emptyList(),
 ) {
+    /** 自由坐标布局：控件填满分配区域，标签与输入纵向排列。 */
+    var freeLayoutPlacement: Boolean = false
     fun buildContentGrid(
         widgets: List<WidgetConfig>,
         cols: Int,
@@ -365,30 +367,50 @@ class OverlayPanelBuilder(
                 else -> Gravity.START or Gravity.CENTER_VERTICAL
             }
             setPadding(dp(8), dp(4), dp(8), dp(4))
+            if (freeLayoutPlacement) {
+                maxLines = 3
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }
         }
 
     private fun fieldWrap(cfg: WidgetConfig, child: () -> View): LinearLayout =
         LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            orientation = if (freeLayoutPlacement) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+            gravity = if (freeLayoutPlacement) Gravity.TOP else Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT,
+            )
             setPadding(dp(4), dp(2), dp(4), dp(2))
             if (cfg.label.isNotBlank()) {
                 addView(TextView(context).apply {
                     text = cfg.label
                     textSize = 11f
                     setTextColor(theme.logText)
-                    gravity = Gravity.END or Gravity.CENTER_VERTICAL
-                    maxWidth = dp(80)
-                    minWidth = dp(40)
+                    gravity = if (freeLayoutPlacement) {
+                        Gravity.START or Gravity.CENTER_VERTICAL
+                    } else {
+                        Gravity.END or Gravity.CENTER_VERTICAL
+                    }
+                    if (!freeLayoutPlacement) {
+                        maxWidth = dp(80)
+                        minWidth = dp(40)
+                    }
                     layoutParams = LinearLayout.LayoutParams(
+                        if (freeLayoutPlacement) LinearLayout.LayoutParams.MATCH_PARENT
+                        else LinearLayout.LayoutParams.WRAP_CONTENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                    ).apply { marginEnd = dp(4) }
+                    ).apply { if (!freeLayoutPlacement) marginEnd = dp(4) }
                 })
             }
             addView(
                 child(),
-                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
+                LinearLayout.LayoutParams(
+                    if (freeLayoutPlacement) LinearLayout.LayoutParams.MATCH_PARENT
+                    else 0,
+                    if (freeLayoutPlacement) 0 else LinearLayout.LayoutParams.WRAP_CONTENT,
+                    1f,
+                ),
             )
         }
 

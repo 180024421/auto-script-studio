@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+from dataclasses import dataclass
 from typing import Any
 
 from PySide6.QtCore import QPoint, QRect, Qt, Signal
@@ -38,7 +38,8 @@ from studio.services.screen_layout import (
   screens,
   set_widget_rect,
 )
-from studio.services.free_layout import panel_design_size
+from studio.services.free_layout import DESIGN_W, panel_design_size
+from studio.services.layout_clone import clone_layout, clone_widget
 
 TITLE_DP = 48
 TAB_BAR_DP = 44
@@ -60,6 +61,20 @@ def _snap_design(v: int) -> int:
     return int(round(v / g) * g)
 
 
+def _layout_rect(spec: dict[str, Any], scale: float) -> tuple[int, int, int, int]:
+    return (
+        int(spec.get("layout_x", 24) * scale),
+        int(spec.get("layout_y", 40) * scale),
+        int(spec.get("layout_w", 200) * scale),
+        int(spec.get("layout_h", 48) * scale),
+    )
+
+
+def _widget_content_signature(spec: dict[str, Any]) -> tuple:
+    skip = {"layout_x", "layout_y", "layout_w", "layout_h"}
+    return tuple(sorted((k, repr(v)) for k, v in spec.items() if k not in skip))
+
+
 class FreeDesignItem(QFrame):
   """界面内可拖动、右下角可缩放的控件。"""
 
@@ -79,6 +94,7 @@ class FreeDesignItem(QFrame):
     *,
     interactive: bool = False,
     editable: bool = True,
+    selectable: bool = False,
     on_values_changed: Any = None,
     icon_only: bool = False,
   ) -> None:
@@ -91,11 +107,13 @@ class FreeDesignItem(QFrame):
     self._start_geom = QRect()
     self._interactive = interactive
     self._editable = editable
+    self._selectable = selectable
     self._on_values_changed = on_values_changed
-    self._spec = json.loads(json.dumps(spec))
+    self._spec = clone_widget(spec)
     wtype = spec.get("type", "")
     self._form_like = wtype in FORM_PREVIEW_TYPES
     self._label: QLabel | None = None
+    self._drag_lightweight = False
 
     self.setObjectName("FreeDesignItem")
     self.setMouseTracking(True)
@@ -125,9 +143,9 @@ class FreeDesignItem(QFrame):
     wtype = spec.get("type", "")
     preview = None
     if self._interactive and wtype in INTERACTIVE_TYPES:
-      preview = build_interactive_widget(spec, self._on_values_changed)
+      preview = build_interactive_widget(spec, self._on_values_changed, scale=self._scale)
     elif wtype == "divider" or wtype in FORM_PREVIEW_TYPES:
-      preview = build_design_preview(spec)
+      preview = build_design_preview(spec, scale=self._scale)
     if preview is not None:
       lay = self._content_host.layout()
       if lay is None:
@@ -179,7 +197,7 @@ class FreeDesignItem(QFrame):
     self._label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
   def reload_content(self, spec: dict[str, Any]) -> None:
-    self._spec = json.loads(json.dumps(spec))
+    self._spec = clone_widget(spec)
     wtype = self._spec.get("type", "")
     self._form_like = wtype in FORM_PREVIEW_TYPES
     if self._form_like:
@@ -195,7 +213,23 @@ class FreeDesignItem(QFrame):
     self._selected = on
     self._update_style()
 
+  def _set_drag_lightweight(self, on: bool) -> None:
+    if self._drag_lightweight == on:
+      return
+    self._drag_lightweight = on
+    if on:
+      self._content_host.hide()
+      self._drag_strip.setGeometry(0, 0, self.width(), self.height())
+      self._drag_strip.show()
+      self._drag_strip.raise_()
+    else:
+      self._content_host.show()
+      self._relayout_content()
+
   def _relayout_content(self) -> None:
+    if self._drag_lightweight:
+      self._drag_strip.setGeometry(0, 0, self.width(), self.height())
+      return
     strip_h = 0
     if self._interactive and not self._form_like:
       strip_h = self.DRAG_STRIP
@@ -204,6 +238,7 @@ class FreeDesignItem(QFrame):
     elif not self._form_like:
       self._drag_strip.setGeometry(0, 0, self.width(), 0)
     self._content_host.setGeometry(0, strip_h, self.width(), max(20, self.height() - strip_h))
+    self._content_host.setMaximumHeight(max(20, self.height() - strip_h))
     if self._label is not None:
       self._label.setGeometry(4, 4, max(40, self._content_host.width() - 8), max(24, self._content_host.height() - 8))
 
@@ -213,12 +248,12 @@ class FreeDesignItem(QFrame):
 
   def _update_style(self) -> None:
     if self._form_like:
-      border = "#2563EB" if self._selected else "#E2E8F0"
-      bg = "rgba(239,246,255,0.35)" if self._selected else "transparent"
+      border = "#2563EB" if self._selected else "transparent"
+      bg = "transparent"
       radius = 6
     else:
-      border = "#2563EB" if self._selected else "#94A3B8"
-      bg = "rgba(239,246,255,0.96)" if self._selected else "rgba(248,250,252,0.96)"
+      border = "#2563EB" if self._selected else "transparent"
+      bg = "transparent"
       radius = 8
     strip_bg = "rgba(37,99,235,0.12)" if self._interactive and not self._form_like else "transparent"
     self.setStyleSheet(
@@ -227,7 +262,34 @@ class FreeDesignItem(QFrame):
       "QLabel#FreeDesignTitle { color: #1E293B; font-size: 11px; background: transparent; }"
     )
 
+  def _canvas_width_px(self) -> int:
+    parent = self.parentWidget()
+    if parent is not None and parent.width() > 0:
+      return parent.width()
+    return max(48, int(DESIGN_W * self._scale) if hasattr(self, "_scale") else DESIGN_W)
+
+  def _clamp_geometry(self, g: QRect) -> QRect:
+    from studio.services.free_layout import min_rect_for_type
+
+    pw = self._canvas_width_px()
+    wtype = str(self._spec.get("type", ""))
+    min_dw, min_dh = min_rect_for_type(wtype)
+    min_sw = max(int(min_dw * self._scale), SNAP_GRID * 6)
+    min_sh = max(int(min_dh * self._scale), SNAP_GRID * 4)
+    w = max(min_sw, g.width())
+    h = max(min_sh, g.height())
+    x = max(0, min(pw - w, g.x()))
+    y = max(0, g.y())
+    if self._path and self._path[0] == CHROME_PATH_TAG:
+      max_ph = int(CHROME_DP * self._scale)
+      h = min(h, max_ph)
+      y = min(y, max(0, max_ph - h))
+    w = min(w, pw - x)
+    return QRect(x, y, w, h)
+
   def _in_grip(self, pos: QPoint) -> bool:
+    if self._interactive and self._form_like:
+      return False
     return pos.x() >= self.width() - self.GRIP and pos.y() >= self.height() - self.GRIP
 
   def _in_drag_strip(self, pos: QPoint) -> bool:
@@ -239,6 +301,13 @@ class FreeDesignItem(QFrame):
 
   def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
     if not self._editable:
+      if (
+        self._selectable
+        and event.button() == Qt.MouseButton.LeftButton
+      ):
+        self.clicked.emit(self._path)
+        event.accept()
+        return
       return super().mousePressEvent(event)
     if event.button() != Qt.MouseButton.LeftButton:
       return super().mousePressEvent(event)
@@ -268,6 +337,7 @@ class FreeDesignItem(QFrame):
         return super().mouseMoveEvent(event)
       local = event.position().toPoint()
       self._mode = "resize" if self._in_grip(local) else "move"
+      self._set_drag_lightweight(True)
       self.grabMouse()
     if not self._mode:
       return super().mouseMoveEvent(event)
@@ -276,15 +346,22 @@ class FreeDesignItem(QFrame):
     if self._mode == "move":
       g.translate(delta)
     else:
-      g.setWidth(max(48, self._start_geom.width() + delta.x()))
-      g.setHeight(max(28, self._start_geom.height() + delta.y()))
-    self.setGeometry(g)
+      from studio.services.free_layout import min_rect_for_type
+
+      wtype = str(self._spec.get("type", ""))
+      min_dw, min_dh = min_rect_for_type(wtype)
+      min_sw = max(int(min_dw * self._scale), SNAP_GRID * 6)
+      min_sh = max(int(min_dh * self._scale), SNAP_GRID * 4)
+      g.setWidth(max(min_sw, self._start_geom.width() + delta.x()))
+      g.setHeight(max(min_sh, self._start_geom.height() + delta.y()))
+    self.setGeometry(self._clamp_geometry(g))
     event.accept()
 
   def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
     if self._mode and event.button() == Qt.MouseButton.LeftButton:
       if self.mouseGrabber() is self:
         self.releaseMouse()
+      self._set_drag_lightweight(False)
       geom = self.geometry()
       if geom != self._start_geom:
         x = int(round(geom.x() / self._scale))
@@ -321,6 +398,25 @@ class InterfaceCanvas(QWidget):
     self._items.append(item)
 
 
+@dataclass
+class _PhoneShell:
+    wrap: QWidget
+    phone: QFrame
+    inner: QWidget
+    title: QLabel
+    tab_bar: QWidget
+    tab_buttons: list[QPushButton]
+    scroll: QScrollArea
+    canvas: InterfaceCanvas
+    chrome_host: QWidget
+    hint: QLabel | None
+    design_wh: tuple[int, int]
+    scale: float
+    screen_count: int
+    compact_preview: bool
+    interactive_preview: bool
+
+
 class PhoneCanvasWidget(QScrollArea):
   layout_changed = Signal(dict)
   widget_selected = Signal(tuple)
@@ -336,6 +432,8 @@ class PhoneCanvasWidget(QScrollArea):
     self.setObjectName("PhoneCanvas")
     self.setWidgetResizable(True)
     self._viewport = QWidget()
+    self._viewport.setObjectName("PreviewViewport")
+    self._viewport.setStyleSheet("background: #FFFFFF;")
     self.setWidget(self._viewport)
     self._root = QVBoxLayout(self._viewport)
     self._root.setContentsMargins(8, 8, 8, 8)
@@ -346,12 +444,15 @@ class PhoneCanvasWidget(QScrollArea):
     self._last_scale = 0.0
     self._interface_canvas: InterfaceCanvas | None = None
     self._chrome_host: QWidget | None = None
+    self._shell: _PhoneShell | None = None
     self._suppress_rebuild = False
     self._rebuilding = False
     self._suppress_layout_emit = False
     self._interactive_preview = False
     self._editable = True
+    self._selectable = False
     self._compact_preview = False
+    self._fit_viewport = False
     self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
     self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
     self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -372,20 +473,43 @@ class PhoneCanvasWidget(QScrollArea):
     self._editable = enabled
     self._rebuild(full=True)
 
+  def set_selectable(self, enabled: bool) -> None:
+    """只读预览下允许点击选中控件（脚本页插入 Lua）。"""
+    if self._selectable == enabled:
+      return
+    self._selectable = enabled
+    self._rebuild(full=True)
+
   def set_compact_preview(self, enabled: bool) -> None:
     if self._compact_preview == enabled:
       return
     self._compact_preview = enabled
     self._rebuild(full=True)
 
+  def set_fit_viewport(self, enabled: bool) -> None:
+    """缩放到当前视口内完整显示手机框（脚本页等窄栏预览）。"""
+    if self._fit_viewport == enabled:
+      return
+    self._fit_viewport = enabled
+    self.setVerticalScrollBarPolicy(
+      Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+      if enabled
+      else Qt.ScrollBarPolicy.ScrollBarAlwaysOn
+    )
+    self._rebuild(full=True)
+
+  def refresh_viewport(self) -> None:
+    if self._layout:
+      self._rebuild(full=True)
+
   def interactive_preview(self) -> bool:
     return self._interactive_preview
 
-  def set_layout(self, layout: dict[str, Any], *, selected_path: tuple[int, ...] | None = None) -> None:
+  def set_layout(self, layout: dict[str, Any], *, selected_path: tuple[int, ...] | None = None, full: bool = False) -> None:
     old = PanelState.all()
     self._suppress_layout_emit = True
     try:
-      self._layout = migrate_layout(json.loads(json.dumps(layout or {})))
+      self._layout = migrate_layout(clone_layout(layout or {}))
       PanelState.seed_from_layout(self._layout)
       if old:
         merged = dict(PanelState.all())
@@ -393,7 +517,7 @@ class PhoneCanvasWidget(QScrollArea):
         PanelState.reset(merged)
       if selected_path is not None:
         self._selected_path = selected_path
-      self._rebuild(full=True)
+      self._rebuild(full=full or self._needs_full_rebuild())
       self.values_changed.emit()
     finally:
       self._suppress_layout_emit = False
@@ -417,22 +541,48 @@ class PhoneCanvasWidget(QScrollArea):
 
   def set_active_screen(self, idx: int) -> None:
     self._layout.setdefault("panel", {})["active_screen"] = idx
-    self._rebuild(full=True)
+    self._selected_path = ()
+    self._rebuild(full=False)
     self.screen_changed.emit(idx)
 
-  def _effective_scale(self, design_w: int) -> float:
-    # 预留滚动条槽位，避免滚动条显隐导致 viewport 宽度来回变化
+  def _needs_full_rebuild(self) -> bool:
+    if self._shell is None:
+      return True
+    panel = self._layout.get("panel", {})
+    dw, dh = panel_design_size(panel)
+    if (dw, dh) != self._shell.design_wh:
+      return True
+    if len(screens(self._layout)) != self._shell.screen_count:
+      return True
+    if self._compact_preview != self._shell.compact_preview:
+      return True
+    if self._interactive_preview != self._shell.interactive_preview:
+      return True
+    new_scale = self._effective_scale(dw, dh)
+    if abs(new_scale - self._shell.scale) >= 0.01:
+      return True
+    return False
+
+  def _hint_reserve_px(self) -> int:
+    return 0 if self._compact_preview else 56
+
+  def _effective_scale(self, design_w: int, design_h: int) -> float:
     gutter = 20
-    available = max(280, self.viewport().width() - 48 - gutter)
-    return max(0.35, min(1.0, available / max(1, design_w)))
+    vw = max(200, self.viewport().width() - 48 - gutter)
+    scale_w = vw / max(1, design_w)
+    if not self._fit_viewport:
+      return max(0.35, min(1.0, scale_w))
+    vh = max(160, self.viewport().height() - self._hint_reserve_px() - 20)
+    scale_h = vh / max(1, design_h)
+    return max(0.2, min(1.0, scale_w, scale_h))
 
   def resizeEvent(self, event) -> None:  # noqa: N802
     super().resizeEvent(event)
     if not self._layout or self._suppress_rebuild or self._rebuilding:
       return
     panel = self._layout.get("panel", {})
-    dw, _ = panel_design_size(panel)
-    new_scale = self._effective_scale(dw)
+    dw, dh = panel_design_size(panel)
+    new_scale = self._effective_scale(dw, dh)
     if self._last_scale > 0 and abs(new_scale - self._last_scale) < 0.01:
       return
     self._rebuild(full=True)
@@ -440,173 +590,291 @@ class PhoneCanvasWidget(QScrollArea):
   def _rebuild(self, *, full: bool = True) -> None:
     if self._suppress_rebuild or self._rebuilding:
       return
+    if not full and self._shell is not None and not self._needs_full_rebuild():
+      self._rebuilding = True
+      self._viewport.setUpdatesEnabled(False)
+      try:
+        self._sync_shell_content()
+      finally:
+        self._viewport.setUpdatesEnabled(True)
+        self._rebuilding = False
+      return
     self._rebuilding = True
     self._viewport.setUpdatesEnabled(False)
     try:
-      while self._root.count():
-        item = self._root.takeAt(0)
-        w = item.widget()
-        if w is not None:
-          w.setParent(None)
-          w.deleteLater()
-      self._items = []
-      self._interface_canvas = None
-      self._chrome_host = None
-
-      panel = self._layout.get("panel", {})
-      dw, dh = panel_design_size(panel)
-      self._scale = self._effective_scale(dw)
-      self._last_scale = self._scale
-      sw = int(dw * self._scale)
-      active = active_screen_index(self._layout)
-      sc_list = screens(self._layout)
-
-      row = QHBoxLayout()
-      row.setContentsMargins(0, 0, 0, 0)
-      row.addStretch(1)
-
-      phone = QFrame()
-      phone.setObjectName("PhoneFrame")
-      phone.setFixedWidth(sw + 16)
-      phone_lay = QVBoxLayout(phone)
-      phone_lay.setContentsMargins(8, 8, 8, 8)
-      phone_lay.setSpacing(0)
-
-      inner = QWidget()
-      inner.setObjectName("PhoneScreen")
-      inner.setFixedWidth(sw)
-      inner_lay = QVBoxLayout(inner)
-      inner_lay.setContentsMargins(0, 0, 0, 0)
-      inner_lay.setSpacing(0)
-
-      title_h = int(TITLE_DP * self._scale)
-      title = QLabel(panel.get("title", "脚本助手"))
-      title.setFixedHeight(title_h)
-      title.setStyleSheet(
-        "background:#2563EB;color:white;padding-left:10px;font-weight:600;font-size:13px;"
-      )
-      title.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-      inner_lay.addWidget(title)
-
-      tab_h = int(TAB_BAR_DP * self._scale)
-      tab_bar = QWidget()
-      tab_bar.setFixedHeight(tab_h)
-      tab_bar.setStyleSheet("background:#F1F5F9;border-bottom:1px solid #CBD5E1;")
-      tab_lay = QHBoxLayout(tab_bar)
-      tab_lay.setContentsMargins(4, 4, 4, 4)
-      tab_lay.setSpacing(4)
-      for i, sc in enumerate(sc_list):
-        tb = QPushButton(sc.get("title", f"界面{i + 1}"))
-        tb.setCheckable(True)
-        tb.blockSignals(True)
-        tb.setChecked(i == active)
-        tb.blockSignals(False)
-        tb.setMinimumHeight(int(32 * self._scale))
-        tb.clicked.connect(lambda _c=False, idx=i: self._on_tab_clicked(idx))
-        tab_lay.addWidget(tb)
-      tab_lay.addStretch()
-      inner_lay.addWidget(tab_bar)
-
-      content_h_design = content_height(self._layout, active)
-      view_h = int((dh - TITLE_DP - TAB_BAR_DP - CHROME_DP) * self._scale)
-      scroll = QScrollArea()
-      scroll.setWidgetResizable(True)
-      scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-      scroll.setFixedHeight(max(200, view_h))
-      scroll.setStyleSheet("QScrollArea { border: none; background: #FFFFFF; }")
-
-      canvas = InterfaceCanvas()
-      canvas_h = int(content_h_design * self._scale)
-      canvas.setFixedSize(sw, max(canvas_h, view_h))
-      self._interface_canvas = canvas
-      canvas.context_menu_requested.connect(self.context_menu_requested.emit)
-      scroll.setWidget(canvas)
-      inner_lay.addWidget(scroll, 1)
-
-      chrome_h = int(CHROME_DP * self._scale)
-      chrome_host = QWidget()
-      chrome_host.setFixedHeight(chrome_h)
-      chrome_host.setStyleSheet("background:#F8FAFC;border-top:1px solid #E2E8F0;")
-      chrome_host.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-      chrome_host.customContextMenuRequested.connect(
-        lambda pos, host=chrome_host: self.context_menu_requested.emit(host.mapToGlobal(pos))
-      )
-      self._chrome_host = chrome_host
-      inner_lay.addWidget(chrome_host)
-
-      phone_h = title_h + tab_h + scroll.height() + chrome_h
-      inner.setFixedHeight(phone_h)
-      phone.setFixedHeight(phone_h + 16)
-
-      self._place_widgets(
-        canvas,
-        sc_list[active].get("widgets") or [] if sc_list else [],
-        active,
-        self._scale,
-      )
-      self._place_widgets(chrome_host, chrome_widgets(self._layout), CHROME_PATH_TAG, self._scale)
-
-      phone_lay.addWidget(inner)
-      row.addWidget(phone)
-      row.addStretch(1)
-      wrap = QWidget()
-      wrap.setLayout(row)
-      wrap.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-      self._root.addWidget(wrap, 0, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
-
-      hint_text = (
-        f"设计 {dw}×{dh}  ·  点击标签切换界面  ·  拖动移动控件  ·  右下角缩放  ·  界面可上下滚动"
-      )
-      if self._interactive_preview:
-        hint_text += "  ·  交互预览：顶部色条拖动，控件区内可操作"
-      if not self._compact_preview:
-        hint = QLabel(hint_text)
-        hint.setObjectName("HintLabel")
-        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint.setWordWrap(True)
-        self._root.addWidget(hint, 0, Qt.AlignmentFlag.AlignHCenter)
-      self._root.addStretch(1)
-
-      hint_h = 0 if self._compact_preview else hint.sizeHint().height() + 24
-      total_h = phone_h + 16 + hint_h
-      self._viewport.setMinimumHeight(total_h)
+      self._destroy_shell()
+      self._shell = self._build_shell()
+      self._interface_canvas = self._shell.canvas
+      self._chrome_host = self._shell.chrome_host
+      self._sync_shell_content()
+      self._attach_shell_to_root()
     finally:
       self._viewport.setUpdatesEnabled(True)
       self._rebuilding = False
 
-  def _place_widgets(
+  def _destroy_shell(self) -> None:
+    while self._root.count():
+      item = self._root.takeAt(0)
+      w = item.widget()
+      if w is not None:
+        w.setParent(None)
+        w.deleteLater()
+    self._items = []
+    self._interface_canvas = None
+    self._chrome_host = None
+    self._shell = None
+
+  def _build_shell(self) -> _PhoneShell:
+    panel = self._layout.get("panel", {})
+    dw, dh = panel_design_size(panel)
+    self._scale = self._effective_scale(dw, dh)
+    self._last_scale = self._scale
+    sw = int(dw * self._scale)
+    active = active_screen_index(self._layout)
+    sc_list = screens(self._layout)
+
+    row = QHBoxLayout()
+    row.setContentsMargins(0, 0, 0, 0)
+
+    phone = QFrame()
+    phone.setObjectName("PhoneFrame")
+    phone.setFixedWidth(sw + 4)
+    phone_lay = QVBoxLayout(phone)
+    phone_lay.setContentsMargins(2, 2, 2, 2)
+    phone_lay.setSpacing(0)
+
+    inner = QWidget()
+    inner.setObjectName("PhoneScreen")
+    inner.setFixedWidth(sw)
+    inner_lay = QVBoxLayout(inner)
+    inner_lay.setContentsMargins(0, 0, 0, 0)
+    inner_lay.setSpacing(0)
+
+    title_h = int(TITLE_DP * self._scale)
+    title = QLabel(panel.get("title", "脚本助手"))
+    title.setFixedHeight(title_h)
+    title.setStyleSheet(
+      "background:#2563EB;color:white;padding-left:10px;font-weight:600;font-size:13px;"
+    )
+    title.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+    inner_lay.addWidget(title)
+
+    tab_h = int(TAB_BAR_DP * self._scale)
+    tab_bar = QWidget()
+    tab_bar.setFixedHeight(tab_h)
+    tab_bar.setStyleSheet("background:#F1F5F9;border-bottom:1px solid #CBD5E1;")
+    tab_lay = QHBoxLayout(tab_bar)
+    tab_lay.setContentsMargins(4, 4, 4, 4)
+    tab_lay.setSpacing(4)
+    tab_buttons: list[QPushButton] = []
+    for i, sc in enumerate(sc_list):
+      tb = QPushButton(sc.get("title", f"界面{i + 1}"))
+      tb.setCheckable(True)
+      tb.blockSignals(True)
+      tb.setChecked(i == active)
+      tb.blockSignals(False)
+      tb.setMinimumHeight(int(32 * self._scale))
+      tb.clicked.connect(lambda _c=False, idx=i: self._on_tab_clicked(idx))
+      tab_lay.addWidget(tb)
+      tab_buttons.append(tb)
+    tab_lay.addStretch()
+    inner_lay.addWidget(tab_bar)
+
+    view_h = int((dh - TITLE_DP - TAB_BAR_DP - CHROME_DP) * self._scale)
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    scroll.setFixedHeight(max(200, view_h))
+    scroll.setStyleSheet("QScrollArea { border: none; background: #FFFFFF; }")
+
+    canvas = InterfaceCanvas()
+    canvas.context_menu_requested.connect(self.context_menu_requested.emit)
+    scroll.setWidget(canvas)
+    inner_lay.addWidget(scroll, 1)
+
+    chrome_h = int(CHROME_DP * self._scale)
+    chrome_host = QWidget()
+    chrome_host.setFixedHeight(chrome_h)
+    chrome_host.setStyleSheet("background:#F8FAFC;border-top:1px solid #E2E8F0;")
+    chrome_host.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+    chrome_host.customContextMenuRequested.connect(
+      lambda pos, host=chrome_host: self.context_menu_requested.emit(host.mapToGlobal(pos))
+    )
+    inner_lay.addWidget(chrome_host)
+
+    phone_lay.addWidget(inner)
+    row.addWidget(phone)
+    wrap = QWidget()
+    wrap.setLayout(row)
+    wrap.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+    hint: QLabel | None = None
+    if not self._compact_preview:
+      hint = QLabel()
+      hint.setObjectName("HintLabel")
+      hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+      hint.setWordWrap(True)
+
+    return _PhoneShell(
+      wrap=wrap,
+      phone=phone,
+      inner=inner,
+      title=title,
+      tab_bar=tab_bar,
+      tab_buttons=tab_buttons,
+      scroll=scroll,
+      canvas=canvas,
+      chrome_host=chrome_host,
+      hint=hint,
+      design_wh=(dw, dh),
+      scale=self._scale,
+      screen_count=len(sc_list),
+      compact_preview=self._compact_preview,
+      interactive_preview=self._interactive_preview,
+    )
+
+  def _hint_text(self, dw: int, dh: int) -> str:
+    hint_text = (
+      f"设计 {dw}×{dh}  ·  点击标签切换界面  ·  拖动移动控件  ·  右下角缩放  ·  界面可上下滚动"
+    )
+    if self._interactive_preview:
+      hint_text += "  ·  交互预览：顶部色条拖动，控件区内可操作"
+    return hint_text
+
+  def _sync_shell_content(self) -> None:
+    if self._shell is None:
+      return
+    shell = self._shell
+    panel = self._layout.get("panel", {})
+    dw, dh = shell.design_wh
+    self._scale = shell.scale
+    sw = int(dw * self._scale)
+    active = active_screen_index(self._layout)
+    sc_list = screens(self._layout)
+
+    shell.title.setText(panel.get("title", "脚本助手"))
+    title_h = int(TITLE_DP * self._scale)
+    shell.title.setFixedHeight(title_h)
+    tab_h = int(TAB_BAR_DP * self._scale)
+    shell.tab_bar.setFixedHeight(tab_h)
+    for i, tb in enumerate(shell.tab_buttons):
+      if i < len(sc_list):
+        tb.setText(sc_list[i].get("title", f"界面{i + 1}"))
+      tb.blockSignals(True)
+      tb.setChecked(i == active)
+      tb.blockSignals(False)
+      tb.setMinimumHeight(int(32 * self._scale))
+
+    content_h_design = content_height(
+      self._layout,
+      active,
+      min_canvas=0 if self._fit_viewport else 800,
+    )
+    view_h = int((dh - TITLE_DP - TAB_BAR_DP - CHROME_DP) * self._scale)
+    shell.scroll.setFixedHeight(max(200, view_h))
+    canvas_h = int(content_h_design * self._scale)
+    shell.canvas.setFixedSize(sw, max(canvas_h, view_h))
+
+    chrome_h = int(CHROME_DP * self._scale)
+    shell.chrome_host.setFixedHeight(chrome_h)
+    phone_h = title_h + tab_h + shell.scroll.height() + chrome_h
+    shell.inner.setFixedWidth(sw)
+    shell.inner.setFixedHeight(phone_h)
+    shell.phone.setFixedWidth(sw + 4)
+    shell.phone.setFixedHeight(phone_h + 4)
+
+    screen_widgets = sc_list[active].get("widgets") or [] if sc_list else []
+    self._sync_widget_layer(shell.canvas, screen_widgets, active)
+    self._sync_widget_layer(shell.chrome_host, chrome_widgets(self._layout), CHROME_PATH_TAG)
+
+    if shell.hint is not None:
+      shell.hint.setText(self._hint_text(dw, dh))
+    hint_h = 0 if shell.hint is None else shell.hint.sizeHint().height() + 24
+    total_h = phone_h + 4 + hint_h
+    if self._fit_viewport:
+      self._viewport.setMinimumHeight(0)
+    else:
+      self._viewport.setMinimumHeight(total_h)
+
+  def _attach_shell_to_root(self) -> None:
+    if self._shell is None:
+      return
+    shell = self._shell
+    if self._fit_viewport:
+      self._root.addWidget(shell.wrap, 0, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+      if shell.hint is not None:
+        self._root.addWidget(shell.hint, 0, Qt.AlignmentFlag.AlignHCenter)
+    else:
+      self._root.addWidget(shell.wrap, 0, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+      if shell.hint is not None:
+        self._root.addWidget(shell.hint, 0, Qt.AlignmentFlag.AlignHCenter)
+
+  def _make_design_item(
+    self,
+    path: tuple[int, ...],
+    spec: dict[str, Any],
+    scale: float,
+    parent: QWidget,
+    screen_idx: int,
+  ) -> FreeDesignItem:
+    item = FreeDesignItem(
+      path,
+      spec,
+      scale,
+      parent,
+      interactive=self._interactive_preview,
+      editable=self._editable,
+      selectable=self._selectable,
+      on_values_changed=self.values_changed.emit,
+      icon_only=screen_idx == CHROME_PATH_TAG and spec.get("type") in CHROME_ICONS,
+    )
+    item.rect_changed.connect(self._on_rect_changed)
+    item.clicked.connect(self._on_item_clicked)
+    item.set_selected(path == self._selected_path)
+    item.show()
+    item.raise_()
+    self._items.append(item)
+    return item
+
+  def _sync_widget_layer(
     self,
     parent: QWidget,
     widgets: list,
     screen_idx: int,
-    scale: float,
   ) -> None:
+    scale = self._scale
+    existing = {it.path(): it for it in self._items if it.parent() is parent}
+    seen: set[tuple[int, ...]] = set()
+    kept: list[FreeDesignItem] = []
+
     for idx, spec in enumerate(widgets):
       if screen_idx == CHROME_PATH_TAG:
         path = path_for_chrome(idx)
       else:
         path = path_for_screen(screen_idx, idx)
-      x = int(spec.get("layout_x", 24) * scale)
-      y = int(spec.get("layout_y", 40) * scale)
-      w = int(spec.get("layout_w", 200) * scale)
-      h = int(spec.get("layout_h", 48) * scale)
-      item = FreeDesignItem(
-        path,
-        spec,
-        scale,
-        parent,
-        interactive=self._interactive_preview,
-        editable=self._editable,
-        on_values_changed=self.values_changed.emit,
-        icon_only=screen_idx == CHROME_PATH_TAG and spec.get("type") in CHROME_ICONS,
-      )
-      item.setGeometry(x, y, w, h)
-      item.rect_changed.connect(self._on_rect_changed)
-      item.clicked.connect(self._on_item_clicked)
-      item.set_selected(path == self._selected_path)
-      item.show()
-      item.raise_()
-      self._items.append(item)
+      seen.add(path)
+      x, y, w, h = _layout_rect(spec, scale)
+      geom = QRect(x, y, w, h)
+      if path in existing:
+        item = existing[path]
+        item._scale = scale
+        if _widget_content_signature(item._spec) != _widget_content_signature(spec):
+          item.reload_content(spec)
+        if item.geometry() != geom:
+          item.setGeometry(geom)
+        item.set_selected(path == self._selected_path)
+        kept.append(item)
+      else:
+        kept.append(self._make_design_item(path, spec, scale, parent, screen_idx))
+        kept[-1].setGeometry(geom)
+
+    for path, item in existing.items():
+      if path not in seen:
+        if item in self._items:
+          self._items.remove(item)
+        item.deleteLater()
+
+    self._items = [it for it in self._items if it.parent() is not parent] + kept
 
   def _on_tab_clicked(self, idx: int) -> None:
     if self._rebuilding or self._suppress_layout_emit:
@@ -616,7 +884,7 @@ class PhoneCanvasWidget(QScrollArea):
       return
     self._layout.setdefault("panel", {})["active_screen"] = idx
     self._selected_path = ()
-    self._rebuild(full=True)
+    self._rebuild(full=False)
     self.screen_changed.emit(idx)
 
   def _on_item_clicked(self, path: tuple[int, ...]) -> None:
@@ -658,9 +926,9 @@ class PhoneCanvasWidget(QScrollArea):
       path,
       _snap_design(x),
       _snap_design(y),
-      max(SNAP_GRID * 6, _snap_design(w)),
-      max(SNAP_GRID * 4, _snap_design(h)),
+      _snap_design(w),
+      _snap_design(h),
     )
     self._suppress_rebuild = False
-    self.layout_changed.emit(json.loads(json.dumps(self._layout)))
+    self.layout_changed.emit(clone_layout(self._layout))
     self.values_changed.emit()

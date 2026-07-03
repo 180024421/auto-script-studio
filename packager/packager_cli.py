@@ -16,7 +16,8 @@ PROPS = RUNTIME / "packager" / "project.properties"
 GRADLEW = RUNTIME / "gradlew.bat"
 
 
-from packager.compile_project import cleanup_staging, prepare_staging_dir, resolve_runtime_entry
+from packager.compile_project import cleanup_staging, prepare_staging_dir
+from packager.pack_metadata import read_project_cfg, write_gradle_props
 from packager.validate_project import validate_project_full
 
 
@@ -28,34 +29,18 @@ def validate_project(project_dir: Path) -> dict:
 
 
 def sync_assets(project_dir: Path) -> None:
-    staging, cfg = prepare_staging_dir(project_dir)
+    staging, _cfg = prepare_staging_dir(project_dir)
+    cfg = read_project_cfg(project_dir)
     try:
         from packager.icon_processor import prepare_pack_icons
 
         icon_src = prepare_pack_icons(project_dir, cfg, RUNTIME, staging)
-        print(f"图标: {icon_src.name} → mipmap + ui/ball.png")
+        print(f"图标: {icon_src} → mipmap + ui/ball.png")
         if ASSETS.exists():
             shutil.rmtree(ASSETS)
         shutil.copytree(staging, ASSETS)
     finally:
         cleanup_staging(staging)
-
-
-def write_gradle_props(cfg: dict, signing: dict | None = None) -> None:
-    lines = [
-        f"applicationId={cfg['package_id']}",
-        f"versionCode={cfg.get('version_code', 1)}",
-        f"versionName={cfg.get('version_name', '1.0.0')}",
-        f"appName={cfg.get('name', 'Auto Script')}",
-    ]
-    if signing:
-        ks = signing.get("keystore")
-        if ks:
-            lines.append(f"signingStoreFile={Path(ks).resolve()}")
-            lines.append(f"signingStorePassword={signing.get('ks_pass', '')}")
-            lines.append(f"signingKeyAlias={signing.get('key_alias', '')}")
-            lines.append(f"signingKeyPassword={signing.get('key_pass', signing.get('ks_pass', ''))}")
-    PROPS.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def run_gradle(release: bool) -> Path:
@@ -80,9 +65,10 @@ def build(
     release: bool = False,
     signing: dict | None = None,
 ) -> Path:
-    cfg = validate_project(project_dir)
+    validate_project(project_dir)
     sync_assets(project_dir)
-    write_gradle_props(cfg, signing if release else None)
+    cfg = read_project_cfg(project_dir)
+    write_gradle_props(cfg, PROPS, signing if release else None)
     apk = run_gradle(release)
     output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)

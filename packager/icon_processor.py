@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ICON = ROOT / "images" / "jimeng.png"
 GENERATED_RES = ROOT / "android-runtime" / "packager" / "generated-res"
+DEFAULT_RES = ROOT / "android-runtime" / "packager" / "default-res"
 
 # Android mipmap 尺寸
 MIPMAP_SIZES: dict[str, int] = {
@@ -36,6 +37,13 @@ def resolve_icon_source(project_dir: Path, cfg: dict) -> Path:
     raise FileNotFoundError(
         f"未找到应用图标：工程内 icon 无效，且默认图不存在 {DEFAULT_ICON}"
     )
+
+
+def is_default_icon(src: Path) -> bool:
+    try:
+        return src.resolve() == DEFAULT_ICON.resolve()
+    except OSError:
+        return False
 
 
 def flood_remove_outer_white(img: Image.Image, *, threshold: int = 245) -> Image.Image:
@@ -107,8 +115,13 @@ def _fit_inside(canvas: int, img: Image.Image, padding: float = 0.12) -> Image.I
     return out
 
 
-def make_launcher_icon(img: Image.Image, size: int) -> Image.Image:
-    """桌面图标：圆角蓝底 + 居中猫咪。"""
+def make_launcher_icon(img: Image.Image, size: int, *, stylize: bool = True) -> Image.Image:
+    """桌面图标。默认猫咪走蓝底圆角；用户自定义图仅居中缩放。"""
+    if not stylize:
+        canvas = Image.new("RGBA", (size, size), (255, 255, 255, 255))
+        fitted = _fit_inside(size, img.convert("RGBA"), padding=0.06)
+        canvas.alpha_composite(fitted)
+        return canvas
     cut = flood_remove_outer_white(img)
     canvas = Image.new("RGBA", (size, size), LAUNCHER_BG + (255,))
     draw = ImageDraw.Draw(canvas)
@@ -117,6 +130,29 @@ def make_launcher_icon(img: Image.Image, size: int) -> Image.Image:
     mascot = _fit_inside(size, cut, padding=0.14)
     canvas.alpha_composite(mascot)
     return canvas
+
+
+def write_launcher_mipmaps(target_root: Path, img: Image.Image, *, stylize: bool) -> None:
+    if target_root.exists():
+        shutil.rmtree(target_root)
+    for density, px in MIPMAP_SIZES.items():
+        folder = target_root / f"mipmap-{density}"
+        folder.mkdir(parents=True, exist_ok=True)
+        make_launcher_icon(img, px, stylize=stylize).save(folder / "ic_launcher.png", optimize=True)
+
+
+def ensure_default_launcher_res(runtime_root: Path | None = None) -> Path:
+    """开发构建用的默认 mipmap（无打包自定义图标时）。"""
+    runtime_root = runtime_root or (ROOT / "android-runtime")
+    default_res = runtime_root / "packager" / "default-res"
+    marker = default_res / "mipmap-mdpi" / "ic_launcher.png"
+    if marker.is_file():
+        return default_res
+    if not DEFAULT_ICON.is_file():
+        raise FileNotFoundError(f"默认图标不存在: {DEFAULT_ICON}")
+    base = Image.open(DEFAULT_ICON)
+    write_launcher_mipmaps(default_res, base, stylize=True)
+    return default_res
 
 
 def prepare_pack_icons(
@@ -131,18 +167,17 @@ def prepare_pack_icons(
     """
     src = resolve_icon_source(project_dir, cfg)
     base = Image.open(src)
+    stylize = is_default_icon(src)
 
     gen_res = runtime_root / "packager" / "generated-res"
-    if gen_res.exists():
-        shutil.rmtree(gen_res)
-    for density, px in MIPMAP_SIZES.items():
-        folder = gen_res / f"mipmap-{density}"
-        folder.mkdir(parents=True, exist_ok=True)
-        make_launcher_icon(base, px).save(folder / "ic_launcher.png", optimize=True)
+    write_launcher_mipmaps(gen_res, base, stylize=stylize)
 
     ui_dir = staging_dir / "ui"
     ui_dir.mkdir(parents=True, exist_ok=True)
-    ball = style_ball_icon(base)
+    if stylize:
+        ball = style_ball_icon(base)
+    else:
+        ball = base.convert("RGBA")
     ball_side = 256
     ball_fitted = _fit_inside(ball_side, ball, padding=0.06)
     ball_fitted.save(ui_dir / "ball.png", optimize=True)

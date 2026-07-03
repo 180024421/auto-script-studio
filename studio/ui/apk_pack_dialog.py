@@ -1,10 +1,7 @@
-"""打包 APK 前填写应用名、包名与图标。"""
+"""打包 APK 前填写应用名、包名与图标（可选弹窗，逻辑与工程页共用）。"""
 
 from __future__ import annotations
 
-import json
-import re
-import shutil
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -23,8 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from packager.icon_processor import default_icon_path, resolve_icon_source
-
-_PKG_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
+from packager.pack_metadata import read_project_cfg, save_pack_metadata, validate_pack_fields
 
 
 class ApkPackDialog(QDialog):
@@ -33,22 +29,22 @@ class ApkPackDialog(QDialog):
         self.project_dir = project_dir.resolve()
         self.setWindowTitle("打包 APK — 应用信息")
         self.setMinimumWidth(480)
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
 
-        cfg_path = self.project_dir / "project.json"
-        self._cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        cfg = read_project_cfg(self.project_dir)
 
         root = QVBoxLayout(self)
         form = QFormLayout()
-        self.name_edit = QLineEdit(self._cfg.get("name", ""))
+        self.name_edit = QLineEdit(cfg.get("name", ""))
         self.name_edit.setPlaceholderText("例如：我的挂机脚本")
         form.addRow("软件名称", self.name_edit)
 
-        self.pkg_edit = QLineEdit(self._cfg.get("package_id", ""))
+        self.pkg_edit = QLineEdit(cfg.get("package_id", ""))
         self.pkg_edit.setPlaceholderText("com.example.myscript")
         form.addRow("包名", self.pkg_edit)
 
         icon_row = QHBoxLayout()
-        self.icon_edit = QLineEdit((self._cfg.get("icon") or "").strip())
+        self.icon_edit = QLineEdit((cfg.get("icon") or "").strip())
         self.icon_edit.setPlaceholderText("留空则使用默认猫咪图标")
         browse = QPushButton("选择图标…")
         browse.clicked.connect(self._pick_icon)
@@ -66,7 +62,7 @@ class ApkPackDialog(QDialog):
         self.preview.setStyleSheet(
             "border:1px solid #CBD5E1;border-radius:12px;background:#F8FAFC;"
         )
-        hint = QLabel("悬浮球将使用同款猫咪图（透明抠图 + 半透明蓝调），尽量不影响脚本画面。")
+        hint = QLabel("自定义图标会写入工程 icon.png，并用于桌面图标与悬浮球。")
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#64748B;font-size:12px;")
         preview_row = QHBoxLayout()
@@ -87,10 +83,12 @@ class ApkPackDialog(QDialog):
     def _resolved_icon_path(self) -> Path:
         icon_text = self.icon_edit.text().strip()
         if icon_text:
-            for candidate in (Path(icon_text), self.project_dir / icon_text):
-                if candidate.is_file():
-                    return candidate.resolve()
-        cfg = dict(self._cfg)
+            from packager.pack_metadata import resolve_icon_file
+
+            path = resolve_icon_file(self.project_dir, icon_text)
+            if path is not None:
+                return path
+        cfg = read_project_cfg(self.project_dir)
         cfg.pop("icon", None)
         return resolve_icon_source(self.project_dir, cfg)
 
@@ -100,7 +98,12 @@ class ApkPackDialog(QDialog):
             pix = QPixmap(str(path))
             if not pix.isNull():
                 self.preview.setPixmap(
-                    pix.scaled(88, 88, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    pix.scaled(
+                        88,
+                        88,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
                 )
                 self.preview.setToolTip(str(path))
             else:
@@ -123,18 +126,14 @@ class ApkPackDialog(QDialog):
         self.icon_edit.clear()
 
     def _on_accept(self) -> None:
-        name = self.name_edit.text().strip()
-        pkg = self.pkg_edit.text().strip()
-        if not name:
-            QMessageBox.warning(self, "提示", "请填写软件名称")
-            return
-        if not _PKG_RE.match(pkg):
-            QMessageBox.warning(
-                self,
-                "提示",
-                "包名格式不正确，示例：com.example.myscript\n"
-                "须为小写字母、数字、下划线，并以点分段。",
-            )
+        err = validate_pack_fields(
+            self.name_edit.text(),
+            self.pkg_edit.text(),
+            self.project_dir,
+            self.icon_edit.text(),
+        )
+        if err:
+            QMessageBox.warning(self, "提示", err)
             return
         try:
             self._resolved_icon_path()
@@ -144,21 +143,17 @@ class ApkPackDialog(QDialog):
         self.accept()
 
     def save_to_project(self) -> None:
-        cfg = dict(self._cfg)
-        cfg["name"] = self.name_edit.text().strip()
-        cfg["package_id"] = self.pkg_edit.text().strip()
-        icon_text = self.icon_edit.text().strip()
-        if icon_text:
-            src = Path(icon_text)
-            if not src.is_file():
-                src = self.project_dir / icon_text
-            if src.is_file():
-                dest = self.project_dir / "icon.png"
-                if src.resolve() != dest.resolve():
-                    shutil.copy2(src, dest)
-                cfg["icon"] = "icon.png"
-        else:
-            cfg.pop("icon", None)
-        cfg_path = self.project_dir / "project.json"
-        cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        self._cfg = cfg
+        save_pack_metadata(
+            self.project_dir,
+            name=self.name_edit.text(),
+            package_id=self.pkg_edit.text(),
+            icon_text=self.icon_edit.text(),
+        )
+
+    @staticmethod
+    def load_fields(project_dir: Path) -> tuple[str, str, str]:
+        cfg = read_project_cfg(project_dir)
+        icon = (cfg.get("icon") or "").strip()
+        if icon and (project_dir / icon).is_file():
+            icon = str((project_dir / icon).resolve())
+        return str(cfg.get("name", "")), str(cfg.get("package_id", "")), icon

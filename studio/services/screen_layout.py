@@ -5,7 +5,14 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from studio.services.free_layout import ensure_widget_rect, estimate_text_layout_width, min_rect_for_type, panel_design_size
+from studio.services.free_layout import (
+    DESIGN_W,
+    clamp_widget_rect,
+    ensure_widget_rect,
+    estimate_text_layout_width,
+    min_rect_for_type,
+    panel_design_size,
+)
 
 CHROME_PATH_TAG = -1
 
@@ -14,7 +21,7 @@ def ensure_migrated(layout: dict[str, Any]) -> None:
     """旧 widgets + 嵌套 tabs → screens[]，就地迁移（不拷贝）。"""
     if layout.get("screens"):
         layout.setdefault("panel", {}).setdefault("active_screen", 0)
-        layout["widgets"] = normalize_chrome_widgets(layout.get("widgets") or [])
+        layout["widgets"] = normalize_chrome_widgets(layout.get("widgets") or [], layout.get("panel"))
         return
     screens_list: list[dict[str, Any]] = []
     chrome: list[dict[str, Any]] = []
@@ -53,7 +60,7 @@ def ensure_migrated(layout: dict[str, Any]) -> None:
             },
         ]
     layout["screens"] = screens_list
-    layout["widgets"] = normalize_chrome_widgets(chrome)
+    layout["widgets"] = normalize_chrome_widgets(chrome, layout.get("panel"))
     layout["version"] = max(3, int(layout.get("version", 2)))
     layout.setdefault("panel", {}).setdefault("active_screen", 0)
 
@@ -72,14 +79,21 @@ def screens(layout: dict[str, Any]) -> list[dict[str, Any]]:
 
 def chrome_widgets(layout: dict[str, Any]) -> list[dict[str, Any]]:
     ensure_migrated(layout)
-    normalized = normalize_chrome_widgets(layout.setdefault("widgets", []))
+    normalized = normalize_chrome_widgets(layout.setdefault("widgets", []), layout.get("panel"))
     layout["widgets"] = normalized
     return normalized
 
 
-def normalize_chrome_widgets(widgets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """底部 chrome：去掉 stop_script，保留开始等动作按钮。"""
-    out = [w for w in widgets if w.get("type") != "stop_script"]
+def normalize_chrome_widgets(
+    widgets: list[dict[str, Any]],
+    panel: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """底部 chrome：自由布局预览去掉 stop；minimal 悬浮窗保留开始+停止。"""
+    minimal = (panel or {}).get("display_mode") == "minimal"
+    if minimal:
+        out = [copy.deepcopy(w) for w in widgets]
+    else:
+        out = [w for w in widgets if w.get("type") != "stop_script"]
     has_start = any(w.get("type") == "start_script" for w in out)
     if not has_start:
         out.insert(
@@ -89,18 +103,42 @@ def normalize_chrome_widgets(widgets: list[dict[str, Any]]) -> list[dict[str, An
                 "type": "start_script",
                 "label": "开始",
                 "color": "#2563EB",
-                "layout_x": 24,
-                "layout_y": 4,
-                "layout_w": 672,
-                "layout_h": 52,
+                "layout_x": 0 if minimal else 24,
+                "layout_y": 8 if minimal else 4,
+                "layout_w": 32 if minimal else 672,
+                "layout_h": 32 if minimal else 52,
+            },
+        )
+    if minimal and not any(w.get("type") == "stop_script" for w in out):
+        out.append(
+            {
+                "id": "stop",
+                "type": "stop_script",
+                "label": "结束",
+                "color": "#DC2626",
+                "layout_x": 34,
+                "layout_y": 8,
+                "layout_w": 32,
+                "layout_h": 32,
             },
         )
     for w in out:
         if w.get("type") == "start_script":
-            w.setdefault("layout_x", 24)
-            w.setdefault("layout_y", 4)
-            w.setdefault("layout_w", 672)
-            w.setdefault("layout_h", 52)
+            if minimal:
+                w.setdefault("layout_x", 0)
+                w.setdefault("layout_y", 8)
+                w.setdefault("layout_w", 32)
+                w.setdefault("layout_h", 32)
+            else:
+                w.setdefault("layout_x", 24)
+                w.setdefault("layout_y", 4)
+                w.setdefault("layout_w", 672)
+                w.setdefault("layout_h", 52)
+        if minimal and w.get("type") == "stop_script":
+            w.setdefault("layout_x", 34)
+            w.setdefault("layout_y", 8)
+            w.setdefault("layout_w", 32)
+            w.setdefault("layout_h", 32)
     return out
 
 
@@ -119,6 +157,14 @@ def active_screen_widgets(layout: dict[str, Any]) -> list[dict[str, Any]]:
     if not sc:
         return []
     return sc[idx].setdefault("widgets", [])
+
+
+def editor_widget_list(layout: dict[str, Any]) -> list[dict[str, Any]]:
+    """布局编辑器「当前界面控件」列表（自由/网格均读 screens[active]）。"""
+    ensure_migrated(layout)
+    if screens(layout):
+        return active_screen_widgets(layout)
+    return layout.setdefault("widgets", [])
 
 
 def flatten_all_widgets(layout: dict[str, Any]) -> list[dict[str, Any]]:
@@ -170,24 +216,25 @@ def set_widget_rect(
         return layout
     dw, _ = panel_design_size(layout.get("panel", {}))
     wtype = str(target.get("type", ""))
-    min_w, min_h = min_rect_for_type(wtype)
-    target["layout_x"] = max(0, min(dw - 24, int(x)))
-    target["layout_y"] = max(0, int(y))
-    target["layout_w"] = max(min_w, min(dw, int(w)))
-    target["layout_h"] = max(min_h, int(h))
+    max_y = 64 if len(path) == 2 and path[0] == CHROME_PATH_TAG else None
+    cx, cy, cw, ch = clamp_widget_rect(dw, wtype, x, y, w, h, max_y=max_y)
+    target["layout_x"] = cx
+    target["layout_y"] = cy
+    target["layout_w"] = cw
+    target["layout_h"] = ch
     return layout
 
 
-def content_height(layout: dict[str, Any], screen_idx: int) -> int:
+def content_height(layout: dict[str, Any], screen_idx: int, *, min_canvas: int = 800) -> int:
     """界面可滚动内容高度（设计像素）。"""
     sc = screens(layout)
     if screen_idx < 0 or screen_idx >= len(sc):
-        return 800
+        return max(min_canvas, 400)
     ws = sc[screen_idx].get("widgets") or []
     if not ws:
-        return 800
+        return max(min_canvas, 400)
     bottom = max(int(w.get("layout_y", 0) + w.get("layout_h", 56)) for w in ws)
-    return max(800, bottom + 80)
+    return max(min_canvas, bottom + 80)
 
 
 def repair_screen_widgets(widgets: list[dict[str, Any]]) -> None:
@@ -211,12 +258,18 @@ def repair_screen_widgets(widgets: list[dict[str, Any]]) -> None:
         raw_w = int(w.get("layout_w", 0))
         raw_h = int(w.get("layout_h", 0))
         raw_y = int(w.get("layout_y", y))
+        raw_x = int(w.get("layout_x", 24))
         min_w, min_h = min_rect_for_type(wtype)
-        broken = raw_w < min_w or raw_h < min_h or raw_y < 16
+        broken = (
+            raw_w < min_w
+            or raw_h < min_h
+            or raw_y < 16
+            or raw_x + raw_w > DESIGN_W
+            or raw_x > DESIGN_W - min_w
+        )
         dup = i > 0 and abs(raw_y - prev_y) < 8
         if broken or dup:
             raw_y = y
-        w["layout_x"] = max(24, int(w.get("layout_x", 24)))
         w["layout_y"] = raw_y
         w["layout_w"] = max(min_w, min(672, raw_w if raw_w >= min_w else 672))
         if wtype == "divider":
@@ -225,6 +278,7 @@ def repair_screen_widgets(widgets: list[dict[str, Any]]) -> None:
             w["layout_h"] = max(min_h, raw_h if raw_h >= min_h else 36)
         else:
             w["layout_h"] = max(40, raw_h if raw_h >= 32 else 56)
+        w["layout_x"] = max(24, min(DESIGN_W - int(w["layout_w"]), int(w.get("layout_x", 24))))
         prev_y = raw_y
         y = raw_y + int(w["layout_h"]) + 16
 

@@ -52,36 +52,43 @@ def _paint_free_layout_overlay(
     panel_w = dp_to_px(width_dp, image_w)
     panel_h = int(panel_w * design_h / max(1, dw))
 
+    panel_h = min(int(panel_h), max(1, image_h - start_y))
+    panel_w = min(int(panel_w), max(1, image_w - start_x))
+
     sx = start_x * scale
     sy = start_y * scale
     pw = panel_w * scale
     ph = panel_h * scale
     pad = max(4, int(8 * scale))
 
-    bg_alpha = int(245 * opacity) if not is_dark else int(235 * opacity)
-    panel_bg = "#282830" if is_dark else "#ffffff"
     border_color = "#4caf50" if is_dark else "#2563eb"
-    painter.setBrush(_parse_color(panel_bg, bg_alpha))
-    painter.setPen(QPen(_parse_color(border_color, int(220 * opacity)), max(1, int(2 * scale))))
+    # 仅虚线边框 + 标题，避免大面积半透明填充盖住截图
+    painter.setBrush(Qt.NoBrush)
+    pen = QPen(_parse_color(border_color, 210), max(1, int(2 * scale)), Qt.PenStyle.DashLine)
+    painter.setPen(pen)
     painter.drawRoundedRect(QRectF(sx, sy, pw, ph), 10 * scale, 10 * scale)
 
-    title_color = QColor(232, 238, 246, int(255 * opacity)) if is_dark else QColor(26, 35, 50, int(255 * opacity))
+    title_color = QColor(37, 99, 235, 220) if not is_dark else QColor(76, 175, 80, 220)
     painter.setPen(title_color)
     font = QFont()
     font.setPointSizeF(max(7.0, 9 * scale))
     font.setBold(True)
     painter.setFont(font)
-    painter.drawText(QRectF(sx + pad, sy + pad, pw - pad * 2, 20 * scale), Qt.AlignLeft | Qt.AlignVCenter, title)
+    painter.drawText(
+        QRectF(sx + pad, sy + pad, pw - pad * 2, 20 * scale),
+        Qt.AlignLeft | Qt.AlignVCenter,
+        f"{title}（预览框）",
+    )
 
     font.setBold(False)
     font.setPointSizeF(max(6.0, 7.5 * scale))
     painter.setFont(font)
-    hint_color = QColor(100, 116, 139, int(200 * opacity))
+    hint_color = QColor(100, 116, 139, 180)
     painter.setPen(hint_color)
     painter.drawText(
-        QRectF(sx + pad, sy + ph - 28 * scale, pw - pad * 2, 20 * scale),
+        QRectF(sx + pad, sy + ph - 24 * scale, pw - pad * 2, 18 * scale),
         Qt.AlignCenter,
-        "自由布局 · 右侧预览与打包一致",
+        "自由布局 · 不影响保存的截图",
     )
 
 

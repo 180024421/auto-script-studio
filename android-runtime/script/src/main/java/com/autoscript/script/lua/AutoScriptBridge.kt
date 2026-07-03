@@ -196,6 +196,9 @@ class AutoScriptBridge(
         val click = LuaOpts.bool(opts, "click", false)
         val roi = LuaOpts.roi(opts)
         val frac = LuaOpts.frac(opts)
+        val tapDx = LuaOpts.int(opts, "tap_dx", 0)
+        val tapDy = LuaOpts.int(opts, "tap_dy", 0)
+        val delayBefore = LuaOpts.float(opts, "delay_before_click", 0f)
         val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
         while (System.currentTimeMillis() < deadline) {
             ScriptCancelToken.check()
@@ -205,8 +208,13 @@ class AutoScriptBridge(
             if (det != null) {
                 onLog("YOLO 命中 ${det.className} conf=${det.confidence}")
                 val pt = vision.yoloClickPoint(det, frac)
-                if (click) backend.tap(pt.first, pt.second)
-                return pt
+                val x = pt.first + tapDx
+                val y = pt.second + tapDy
+                if (click) {
+                    if (delayBefore > 0f) delay((delayBefore * 1000).toLong())
+                    backend.tap(x, y)
+                }
+                return x to y
             }
             delay(config.defaultIntervalMs.toLong())
         }

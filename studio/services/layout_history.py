@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
+
+from studio.services.layout_clone import clone_layout
 
 
 class LayoutHistory:
@@ -17,7 +18,7 @@ class LayoutHistory:
         self._redo.clear()
 
     def push(self, layout: dict[str, Any]) -> None:
-        snap = json.loads(json.dumps(layout))
+        snap = clone_layout(layout)
         if self._undo and self._undo[-1] == snap:
             return
         self._undo.append(snap)
@@ -34,14 +35,13 @@ class LayoutHistory:
     def undo(self, current: dict[str, Any]) -> dict[str, Any] | None:
         if len(self._undo) < 2:
             return None
-        cur = json.loads(json.dumps(current))
-        self._redo.append(cur)
+        self._redo.append(clone_layout(current))
         self._undo.pop()
-        return json.loads(json.dumps(self._undo[-1]))
+        return clone_layout(self._undo[-1])
 
     def redo(self) -> dict[str, Any] | None:
         if not self._redo:
             return None
         snap = self._redo.pop()
-        self._undo.append(json.loads(json.dumps(snap)))
-        return json.loads(json.dumps(snap))
+        self._undo.append(clone_layout(snap))
+        return clone_layout(snap)

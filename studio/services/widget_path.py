@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from studio.services.layout_clone import clone_layout
+
 # 根控件: (i,)
 # 标签页内: (tabs_widget_idx, tab_idx, child_idx)
 
@@ -64,7 +66,7 @@ def reorder_in_container(
 ) -> dict[str, Any]:
     import json
 
-    out = json.loads(json.dumps(layout))
+    out = clone_layout(layout)
     lst = get_widget_list(out, container)
     if lst is None or from_idx == to_idx:
         return out
@@ -79,7 +81,7 @@ def reorder_in_container(
 def set_widget_width(layout: dict[str, Any], path: tuple[int, ...], width: int) -> dict[str, Any]:
     import json
 
-    out = json.loads(json.dumps(layout))
+    out = clone_layout(layout)
     spec = get_widget_spec(out, path)
     if spec is not None:
         spec["width"] = max(1, min(3, int(width)))

@@ -28,8 +28,10 @@ import com.autoscript.core.log.ScriptStatus
 import com.autoscript.core.overlay.LayoutConfig
 import com.autoscript.core.overlay.LayoutEditorOps
 import com.autoscript.core.overlay.LayoutOverrideStore
-import com.autoscript.core.overlay.OverlayTheme
 import com.autoscript.core.overlay.OverlayWidgetStore
+import com.autoscript.core.overlay.OverlayTheme
+import com.autoscript.core.overlay.PanelHeightResolver
+import com.autoscript.core.overlay.PanelWidthResolver
 import com.autoscript.core.overlay.WidgetConfig
 import com.autoscript.core.project.ProjectAssets
 import android.graphics.BitmapFactory
@@ -63,12 +65,25 @@ class OverlayService : Service() {
     private var ballFallbackView: TextView? = null
     private var ballBadgeView: TextView? = null
     private var ballUsesImage = false
+    private var unifiedMinimalBar = false
+    private var minimalControlsWrap: View? = null
+    private var minimalControlsFrame: FrameLayout? = null
+    private var minimalLogWrap: View? = null
+    private var minimalLogToggle: View? = null
+    private var minimalToolbarRow: LinearLayout? = null
+    private var minimalLogExpanded = false
+    private var minimalBallHost: View? = null
+    private var restoreCollapsedAfterBuild = false
     private var layoutConfig: LayoutConfig = LayoutConfig.DEFAULT
+    private var panelWidthPx: Int = 0
+    private var panelHeightPx: Int? = null
     private var designMode = false
     private var selectedWidgetPath: List<Int>? = null
     private val scope = CoroutineScope(Dispatchers.Main)
     private var snippetJob: Job? = null
     private val handler = Handler(Looper.getMainLooper())
+    private var statusPollActive = false
+    private val idleCollapseRunnable = Runnable { onIdleCollapse() }
     private val statusPollRunnable = object : Runnable {
         override fun run() {
             val running = ScriptStatus.isRunning(this@OverlayService)
@@ -104,8 +119,9 @@ class OverlayService : Service() {
         layoutConfig = loadLayout()
         OverlayWidgetStore.seedFromLayout(layoutConfig)
         startForeground(NOTIFICATION_ID, buildNotification("浮动面板运行中"))
-        if (layoutConfig.enabled) {
+        if (layoutConfig.enabled && layoutConfig.panel.showOnLaunch) {
             showOverlay()
+            statusPollActive = true
             handler.post(statusPollRunnable)
         }
     }
@@ -118,11 +134,22 @@ class OverlayService : Service() {
                 layoutModeReset()
                 layoutConfig = loadLayout()
                 OverlayWidgetStore.seedFromLayout(layoutConfig)
-                if (layoutConfig.enabled) showOverlay()
+                if (layoutConfig.enabled) {
+                    showOverlay()
+                    statusPollActive = true
+                    handler.post(statusPollRunnable)
+                }
             }
             ACTION_STOP -> {
                 removeOverlay()
                 stopSelf()
+            }
+            else -> if (layoutConfig.enabled && panelView == null) {
+                showOverlay()
+                if (!statusPollActive) {
+                    statusPollActive = true
+                    handler.post(statusPollRunnable)
+                }
             }
         }
         return START_STICKY
@@ -130,6 +157,8 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacks(statusPollRunnable)
+        cancelIdleCollapse()
+        statusPollActive = false
         removeOverlay()
         snippetJob?.cancel()
         super.onDestroy()
@@ -149,16 +178,95 @@ class OverlayService : Service() {
         }
     }
 
+    private fun screenWidthPx(): Int {
+        val dm = resources.displayMetrics
+        return dm.widthPixels.coerceAtLeast(1)
+    }
+
+    private fun screenHeightPx(): Int {
+        val dm = resources.displayMetrics
+        return dm.heightPixels.coerceAtLeast(1)
+    }
+
+    private fun applyPanelPosition(lp: WindowManager.LayoutParams, widthPx: Int, heightPx: Int) {
+        val margin = dp(12)
+        val screenW = screenWidthPx()
+        val screenH = screenHeightPx()
+        val h = heightPx.coerceAtLeast(dp(48))
+        lp.gravity = Gravity.TOP or Gravity.START
+        when (layoutConfig.panel.position.lowercase()) {
+            "right_center", "right" -> {
+                lp.x = (screenW - widthPx - margin - layoutConfig.panel.startX).coerceAtLeast(margin)
+                lp.y = ((screenH - h) / 2f).toInt().coerceAtLeast(margin) + layoutConfig.panel.startY
+            }
+            "left_center", "left" -> {
+                lp.x = (layoutConfig.panel.startX + margin).coerceAtLeast(margin)
+                lp.y = ((screenH - h) / 2f).toInt().coerceAtLeast(margin) + layoutConfig.panel.startY
+            }
+            else -> {
+                lp.x = layoutConfig.panel.startX
+                lp.y = layoutConfig.panel.startY
+            }
+        }
+    }
+
+    private fun isMinimalDisplay(): Boolean =
+        layoutConfig.panel.displayMode.equals("minimal", ignoreCase = true)
+
+    private fun scheduleIdleCollapse() {
+        handler.removeCallbacks(idleCollapseRunnable)
+        val idleMs = layoutConfig.panel.autoCollapseIdleMs
+        if (idleMs <= 0 || collapsed || designMode || scriptRunning) return
+        handler.postDelayed(idleCollapseRunnable, idleMs.toLong())
+    }
+
+    private fun bumpIdleTimer() {
+        if (layoutConfig.panel.autoCollapseIdleMs <= 0 || collapsed || designMode) return
+        scheduleIdleCollapse()
+    }
+
+    private fun cancelIdleCollapse() {
+        handler.removeCallbacks(idleCollapseRunnable)
+    }
+
+    private fun onIdleCollapse() {
+        if (collapsed || designMode || scriptRunning) return
+        if (!layoutConfig.panel.collapsible) return
+        forceCollapse()
+        appendLog("无操作已自动收起到悬浮球")
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     private fun showOverlay() {
         if (panelView != null) return
+        unifiedMinimalBar = isMinimalDisplay()
+        if (unifiedMinimalBar && !restoreCollapsedAfterBuild) {
+            collapsed = true
+        }
+        restoreCollapsedAfterBuild = false
+        if (unifiedMinimalBar) {
+            val ballSize = dp(layoutConfig.panel.ballSizeDp)
+            panelWidthPx = ballSize
+            panelHeightPx = ballSize
+        } else {
+            panelWidthPx = PanelWidthResolver.resolveWidthPx(
+                layoutConfig.panel,
+                screenWidthPx(),
+                ::dp,
+            )
+            panelHeightPx = PanelHeightResolver.resolveHeightPx(
+                layoutConfig.panel,
+                screenHeightPx(),
+                ::dp,
+            )
+        }
         val panel = buildPanel()
-        val ball = buildBall()
         val type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        val focusable = layoutConfig.needsFocusablePanel() && !designMode
+        val focusable = layoutConfig.needsFocusablePanel() && !designMode && !unifiedMinimalBar
         val panelLp = WindowManager.LayoutParams(
-            dp(layoutConfig.panel.widthDp),
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            if (unifiedMinimalBar) panelWidthPx else panelWidthPx,
+            if (unifiedMinimalBar) panelHeightPx ?: panelWidthPx
+            else panelHeightPx ?: WindowManager.LayoutParams.WRAP_CONTENT,
             type,
             if (focusable) {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
@@ -171,44 +279,67 @@ class OverlayService : Service() {
             gravity = Gravity.TOP or Gravity.START
             x = layoutConfig.panel.startX
             y = layoutConfig.panel.startY
-            alpha = layoutConfig.panel.opacity.coerceIn(0.2f, 1.0f)
+            alpha = if (unifiedMinimalBar) 1f else layoutConfig.panel.opacity.coerceIn(0.2f, 1.0f)
         }
-        val ballLp = WindowManager.LayoutParams(
-            dp(layoutConfig.panel.ballSizeDp),
-            dp(layoutConfig.panel.ballSizeDp),
-            type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT,
-        ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = 24
-            y = layoutConfig.panel.startY
+        val estH = panelHeightPx ?: if (unifiedMinimalBar) panelWidthPx else dp(200)
+        applyPanelPosition(panelLp, panelWidthPx, estH)
+        val ballLp = if (!unifiedMinimalBar) {
+            WindowManager.LayoutParams(
+                dp(layoutConfig.panel.ballSizeDp),
+                dp(layoutConfig.panel.ballSizeDp),
+                type,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT,
+            ).apply {
+                gravity = Gravity.TOP or Gravity.END
+                x = 24
+                y = layoutConfig.panel.startY
+            }
+        } else {
+            null
         }
         if (layoutConfig.panel.draggable && !designMode) {
             val dragTarget = if (focusable) titleDragHandle ?: panel else panel
-            val onLongPress = if (layoutConfig.panel.allowDesign && dragTarget === titleDragHandle) {
+            val onLongPress = if (
+                layoutConfig.panel.allowDesign && dragTarget === titleDragHandle && !unifiedMinimalBar
+            ) {
                 ::toggleDesignMode
             } else {
                 null
             }
-            attachDrag(dragTarget, panelLp, onLongPress = onLongPress)
-            attachDrag(ball, ballLp) { onBallClicked() }
+            attachDrag(dragTarget, panelLp, onLongPress = onLongPress) { onMinimalDragTap() }
+            if (!unifiedMinimalBar && ballLp != null) {
+                val ball = buildBall()
+                attachDrag(ball, ballLp) { onBallClicked() }
+                wm.addView(ball, ballLp)
+                ball.visibility = View.GONE
+                ballView = ball
+                ballParams = ballLp
+            }
+        } else if (!unifiedMinimalBar) {
+            val ball = buildBall()
+            wm.addView(ball, ballLp!!)
+            ball.visibility = View.GONE
+            ballView = ball
+            ballParams = ballLp
         }
         wm.addView(panel, panelLp)
-        wm.addView(ball, ballLp)
-        ball.visibility = View.GONE
         panelView = panel
-        ballView = ball
         layoutParams = panelLp
-        ballParams = ballLp
-        if (collapsed) {
-            panel.visibility = View.GONE
-            ball.visibility = View.VISIBLE
+        if (!unifiedMinimalBar && ballView != null) {
+            if (collapsed) {
+                panel.visibility = View.GONE
+                ballView?.visibility = View.VISIBLE
+            }
+        } else if (unifiedMinimalBar) {
+            applyMinimalCollapseUi()
         }
         updateBallAppearance()
+        if (!collapsed) scheduleIdleCollapse()
     }
 
     private fun buildPanel(): View {
+        if (isMinimalDisplay()) return buildMinimalFloatingBar()
         val theme = OverlayTheme.from(layoutConfig.panel.theme)
         val corner = dp(12).toFloat()
         val builder = OverlayPanelBuilder(
@@ -259,6 +390,7 @@ class OverlayService : Service() {
                 layoutConfig = layoutConfig,
                 widgetBuilder = builder,
                 dp = ::dp,
+                panelWidthPx = panelWidthPx,
                 onActiveScreenChange = { idx ->
                     layoutConfig = layoutConfig.copy(
                         panel = layoutConfig.panel.copy(activeScreen = idx),
@@ -293,8 +425,282 @@ class OverlayService : Service() {
             scroll.addView(logView)
             root.addView(scroll)
         }
-        OverlayLog.sink = { msg -> handler.post { appendLog(msg) } }
+        OverlayLog.sink = { msg -> handler.post { logView?.append("$msg\n") } }
         return root
+    }
+
+    private fun buildMinimalFloatingBar(): View {
+        val theme = OverlayTheme.from(layoutConfig.panel.theme)
+        val ballSize = dp(layoutConfig.panel.ballSizeDp)
+        val gap = dp(4)
+        val showLog = layoutConfig.panel.showLog
+
+        val outer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding(0, 0, 0, 0)
+        }
+        titleDragHandle = outer
+
+        val toolbar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+        minimalToolbarRow = toolbar
+
+        val ballHost = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ballSize, ballSize)
+            isClickable = false
+            isFocusable = false
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+        minimalBallHost = ballHost
+        val iv = ImageView(this).apply {
+            ballImageView = this
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = true
+            isClickable = false
+            isFocusable = false
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+        ballHost.addView(
+            iv,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+        val fallback = TextView(this).apply {
+            ballFallbackView = this
+            gravity = Gravity.CENTER
+            textSize = 18f
+            visibility = View.GONE
+            setBackgroundColor(Color.TRANSPARENT)
+            setTextColor(Color.WHITE)
+            setShadowLayer(6f, 0f, 1f, Color.BLACK)
+        }
+        ballHost.addView(
+            fallback,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+        val badge = TextView(this).apply {
+            ballBadgeView = this
+            gravity = Gravity.CENTER
+            textSize = 10f
+            setTextColor(Color.WHITE)
+            visibility = View.GONE
+        }
+        ballHost.addView(
+            badge,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.END,
+            ).apply { setMargins(0, 0, dp(2), dp(2)) },
+        )
+        loadBallImage()
+
+        val chrome = minimalChromeControls()
+        val frameW = chrome.maxOf { it.layoutX + it.layoutW }.coerceAtLeast(48)
+        val frameH = chrome.maxOf { it.layoutY + it.layoutH }.coerceAtLeast(32)
+        val controlsFrame = FrameLayout(this).apply {
+            visibility = View.GONE
+            setBackgroundColor(Color.TRANSPARENT)
+            layoutParams = LinearLayout.LayoutParams(dp(frameW), dp(frameH))
+        }
+        minimalControlsFrame = controlsFrame
+        chrome.forEach { cfg ->
+            val (icon, color, action) = when (cfg.type) {
+                "stop_script" -> Triple("■", Color.parseColor("#EF4444")) { stopMainScript() }
+                else -> Triple("▶", Color.parseColor("#22C55E")) { onStartButtonPressed() }
+            }
+            placeMinimalControl(controlsFrame, cfg, icon, color, action)
+        }
+        toolbar.addView(controlsFrame)
+        minimalControlsWrap = controlsFrame
+
+        if (showLog) {
+            val logBtnSize = dp(28)
+            val logToggle = minimalIconButton("▤", Color.parseColor("#94A3B8")) { toggleMinimalLog() }.apply {
+                textSize = 14f
+                visibility = View.GONE
+            }
+            minimalLogToggle = logToggle
+            toolbar.addView(
+                logToggle,
+                LinearLayout.LayoutParams(logBtnSize, logBtnSize).apply { marginStart = gap },
+            )
+        }
+
+        toolbar.addView(
+            ballHost,
+            LinearLayout.LayoutParams(ballSize, ballSize).apply { marginStart = gap },
+        )
+
+        outer.addView(toolbar)
+
+        if (showLog) {
+            val logH = dp(layoutConfig.panel.logHeightDp.coerceIn(48, 200))
+            val logWrap = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = View.GONE
+                setPadding(dp(2), dp(4), dp(2), dp(2))
+                background = theme.logDrawable(dp(8).toFloat()).apply {
+                    alpha = 220
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    logH,
+                ).apply { topMargin = dp(4) }
+                minimumWidth = dp(160)
+            }
+            minimalLogWrap = logWrap
+            val scroll = ScrollView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                )
+                isVerticalScrollBarEnabled = true
+            }
+            logView = TextView(this).apply {
+                setTextColor(theme.logText)
+                textSize = 9f
+                setLineSpacing(1f, 1f)
+                text = ""
+            }
+            scroll.addView(logView)
+            logWrap.addView(scroll)
+            outer.addView(logWrap)
+            OverlayLog.replay { line -> logView?.append("$line\n") }
+        }
+
+        OverlayLog.sink = { msg -> handler.post { logView?.append("$msg\n") } }
+        return outer
+    }
+
+    private fun minimalChromeControls(): List<WidgetConfig> {
+        val chrome = layoutConfig.chromeWidgets().filter {
+            it.type == "start_script" || it.type == "stop_script"
+        }
+        val start = chrome.firstOrNull { it.type == "start_script" }
+            ?: WidgetConfig(
+                id = "start",
+                type = "start_script",
+                layoutX = 0,
+                layoutY = 8,
+                layoutW = 32,
+                layoutH = 32,
+            )
+        val stop = chrome.firstOrNull { it.type == "stop_script" }
+            ?: WidgetConfig(
+                id = "stop",
+                type = "stop_script",
+                layoutX = 34,
+                layoutY = 8,
+                layoutW = 32,
+                layoutH = 32,
+            )
+        return listOf(start, stop)
+    }
+
+    private fun placeMinimalControl(
+        host: FrameLayout,
+        cfg: WidgetConfig,
+        icon: String,
+        color: Int,
+        onClick: () -> Unit,
+    ) {
+        val w = dp(cfg.layoutW.coerceIn(24, 44))
+        val h = dp(cfg.layoutH.coerceIn(24, 44))
+        val btn = minimalIconButton(icon, color, onClick).apply {
+            textSize = cfg.layoutH.coerceIn(24, 44) * 0.38f
+        }
+        host.addView(
+            btn,
+            FrameLayout.LayoutParams(w, h).apply {
+                leftMargin = dp(cfg.layoutX)
+                topMargin = dp(cfg.layoutY)
+            },
+        )
+    }
+
+    private fun toggleMinimalLog() {
+        if (!layoutConfig.panel.showLog || collapsed) return
+        minimalLogExpanded = !minimalLogExpanded
+        minimalLogWrap?.visibility = if (minimalLogExpanded) View.VISIBLE else View.GONE
+        updateMinimalWindowSize()
+        bumpIdleTimer()
+    }
+
+    private fun minimalIconButton(
+        icon: String,
+        color: Int,
+        onClick: () -> Unit,
+    ): TextView = TextView(this).apply {
+        text = icon
+        gravity = Gravity.CENTER
+        textSize = 18f
+        setTextColor(color)
+        setBackgroundColor(Color.TRANSPARENT)
+        setShadowLayer(6f, 0f, 1f, Color.BLACK)
+        isClickable = true
+        isFocusable = true
+        setOnClickListener {
+            bumpIdleTimer()
+            onClick()
+        }
+    }
+
+    /** 轻点悬浮条（非拖动）时切换展开/收起。 */
+    private fun onMinimalDragTap() {
+        if (!unifiedMinimalBar) return
+        onMinimalBallClick()
+    }
+
+    private fun onMinimalBallClick() {
+        bumpIdleTimer()
+        if (collapsed) {
+            collapsed = false
+            applyMinimalCollapseUi()
+            scheduleIdleCollapse()
+        } else {
+            forceCollapse()
+        }
+    }
+
+    private fun applyMinimalCollapseUi() {
+        if (!unifiedMinimalBar) return
+        val showControls = !collapsed
+        minimalControlsFrame?.visibility = if (showControls) View.VISIBLE else View.GONE
+        minimalControlsWrap?.visibility = if (showControls) View.VISIBLE else View.GONE
+        val showLogBtn = showControls && layoutConfig.panel.showLog
+        minimalLogToggle?.visibility = if (showLogBtn) View.VISIBLE else View.GONE
+        if (!showControls) {
+            minimalLogWrap?.visibility = View.GONE
+        } else {
+            minimalLogWrap?.visibility =
+                if (minimalLogExpanded && layoutConfig.panel.showLog) View.VISIBLE else View.GONE
+        }
+        updateMinimalWindowSize()
+        updateBallAppearance()
+    }
+
+    private fun updateMinimalWindowSize() {
+        if (!unifiedMinimalBar || panelView == null || layoutParams == null) return
+        val lp = layoutParams ?: return
+        val ballSize = dp(layoutConfig.panel.ballSizeDp)
+        if (collapsed) {
+            lp.width = ballSize
+            lp.height = ballSize
+        } else {
+            lp.width = WindowManager.LayoutParams.WRAP_CONTENT
+            lp.height = WindowManager.LayoutParams.WRAP_CONTENT
+        }
+        runCatching { wm.updateViewLayout(panelView, lp) }
     }
 
     private fun buildDesignToolbar(theme: OverlayTheme): LinearLayout =
@@ -342,8 +748,8 @@ class OverlayService : Service() {
     private fun attachDrag(
         view: View,
         lp: WindowManager.LayoutParams,
-        onClick: (() -> Unit)? = null,
         onLongPress: (() -> Unit)? = null,
+        onClick: (() -> Unit)? = null,
     ) {
         var downX = 0f
         var downY = 0f
@@ -366,6 +772,7 @@ class OverlayService : Service() {
                     startY = lp.y
                     moved = false
                     longPressFired = false
+                    bumpIdleTimer()
                     if (onLongPress != null) handler.postDelayed(longPressRunnable, 1200)
                     true
                 }
@@ -379,7 +786,8 @@ class OverlayService : Service() {
                     if (moved && !longPressFired) {
                         lp.x = startX + dx
                         lp.y = startY + dy
-                        wm.updateViewLayout(view, lp)
+                        val anchor = panelView ?: view
+                        wm.updateViewLayout(anchor, lp)
                     }
                     true
                 }
@@ -425,15 +833,12 @@ class OverlayService : Service() {
         val savedX = lp?.x ?: layoutConfig.panel.startX
         val savedY = lp?.y ?: layoutConfig.panel.startY
         removeOverlay()
+        collapsed = wasCollapsed
+        restoreCollapsedAfterBuild = true
         layoutConfig = layoutConfig.copy(
             panel = layoutConfig.panel.copy(startX = savedX, startY = savedY),
         )
         showOverlay()
-        collapsed = wasCollapsed
-        if (wasCollapsed) {
-            panelView?.visibility = View.GONE
-            ballView?.visibility = View.VISIBLE
-        }
     }
 
     private fun buildBall(): View {
@@ -513,6 +918,12 @@ class OverlayService : Service() {
             val iv = ballImageView ?: return
             ballFallbackView?.visibility = View.GONE
             iv.visibility = View.VISIBLE
+            if (unifiedMinimalBar) {
+                iv.clearColorFilter()
+                iv.imageAlpha = 255
+                badge?.visibility = View.GONE
+                return
+            }
             when {
                 scriptRunning -> {
                     iv.setColorFilter(Color.parseColor("#EF4444"), PorterDuff.Mode.SRC_ATOP)
@@ -546,23 +957,22 @@ class OverlayService : Service() {
         ballImageView?.visibility = View.GONE
         tv.visibility = View.VISIBLE
         ballBadgeView?.visibility = View.GONE
+        tv.background = null
         when {
             scriptRunning -> {
                 tv.text = "■"
-                tv.setTextColor(Color.WHITE)
-                tv.background = theme.ballStopDrawable()
+                tv.setTextColor(Color.parseColor("#EF4444"))
             }
             startArmed -> {
                 tv.text = "▶"
-                tv.setTextColor(Color.WHITE)
-                tv.background = theme.ballArmedDrawable()
+                tv.setTextColor(Color.parseColor("#22C55E"))
             }
             else -> {
                 tv.text = "▶"
-                tv.setTextColor(theme.ballText)
-                tv.background = theme.ballDrawable()
+                tv.setTextColor(Color.WHITE)
             }
         }
+        tv.setShadowLayer(6f, 0f, 1f, Color.BLACK)
     }
 
     private fun onBallClicked() {
@@ -581,6 +991,12 @@ class OverlayService : Service() {
 
     private fun onStartButtonPressed() {
         if (designMode) return
+        if (isMinimalDisplay()) {
+            startArmed = false
+            updateBallAppearance()
+            startMainScript()
+            return
+        }
         if (layoutConfig.panel.startConfirmCollapse && !collapsed) {
             startArmed = true
             forceCollapse()
@@ -596,11 +1012,17 @@ class OverlayService : Service() {
     private fun forceCollapse() {
         if (!layoutConfig.panel.collapsible || collapsed) return
         collapsed = true
+        cancelIdleCollapse()
+        if (unifiedMinimalBar) {
+            applyMinimalCollapseUi()
+            return
+        }
         panelView?.visibility = View.GONE
         ballView?.visibility = View.VISIBLE
     }
 
     private fun onWidgetAction(cfg: WidgetConfig) {
+        bumpIdleTimer()
         appendLog("点击: ${cfg.label}")
         when (cfg.effectiveAction().lowercase()) {
             "start_script" -> onStartButtonPressed()
@@ -651,7 +1073,7 @@ class OverlayService : Service() {
         }
         startService(intent)
         appendLog("已请求停止脚本")
-        if (collapsed && layoutConfig.panel.collapsible) {
+        if (collapsed && layoutConfig.panel.collapsible && !unifiedMinimalBar) {
             toggleCollapse()
         }
     }
@@ -688,13 +1110,19 @@ class OverlayService : Service() {
     private fun toggleCollapse() {
         if (!layoutConfig.panel.collapsible) return
         collapsed = !collapsed
+        if (unifiedMinimalBar) {
+            applyMinimalCollapseUi()
+            if (collapsed) cancelIdleCollapse() else scheduleIdleCollapse()
+            return
+        }
         panelView?.visibility = if (collapsed) View.GONE else View.VISIBLE
         ballView?.visibility = if (collapsed) View.VISIBLE else View.GONE
+        if (collapsed) cancelIdleCollapse() else scheduleIdleCollapse()
     }
 
     private fun appendLog(msg: String) {
         ScriptLog.i(msg)
-        logView?.append("$msg\n")
+        MainActivity.logSink?.invoke(msg) ?: OverlayLog.notify(msg)
     }
 
     private fun removeOverlay() {
@@ -706,9 +1134,18 @@ class OverlayService : Service() {
         ballFallbackView = null
         ballBadgeView = null
         ballUsesImage = false
+        unifiedMinimalBar = false
+        minimalControlsWrap = null
+        minimalControlsFrame = null
+        minimalLogWrap = null
+        minimalLogToggle = null
+        minimalToolbarRow = null
+        minimalLogExpanded = false
+        minimalBallHost = null
         titleDragHandle = null
         layoutParams = null
         ballParams = null
+        cancelIdleCollapse()
         OverlayLog.sink = null
     }
 
@@ -752,8 +1189,30 @@ class OverlayService : Service() {
     }
 }
 
-/** 浮动面板日志桥接 */
+/** 浮动面板日志桥接（与主界面运行日志共用脚本输出） */
 object OverlayLog {
+    private const val MAX_LINES = 256
+    private val buffer = ArrayDeque<String>(MAX_LINES)
+    private val lock = Any()
+
     @Volatile
     var sink: ((String) -> Unit)? = null
+
+    fun notify(msg: String) {
+        appendToBuffer(msg)
+        sink?.invoke(msg)
+    }
+
+    fun appendToBuffer(msg: String) {
+        synchronized(lock) {
+            if (buffer.size >= MAX_LINES) buffer.removeFirst()
+            buffer.addLast(msg)
+        }
+    }
+
+    fun replay(to: (String) -> Unit) {
+        synchronized(lock) {
+            buffer.forEach { to(it) }
+        }
+    }
 }

@@ -83,7 +83,7 @@ def prepare_staging_dir(project_dir: Path) -> tuple[Path, dict]:
     def _ignore(_dir: str, names: list[str]) -> set[str]:
         return {n for n in names if n in _SKIP}
 
-    shutil.copytree(project_dir, staging, dirs_exist_ok=False, ignore=_ignore)
+    shutil.copytree(project_dir, staging, dirs_exist_ok=True, ignore=_ignore)
 
     apk_cfg = dict(cfg)
     apk_cfg["entry"] = runtime_entry.name

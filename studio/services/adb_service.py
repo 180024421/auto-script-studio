@@ -13,6 +13,11 @@ def _is_emulator_serial(serial: str) -> bool:
     return s.startswith("emulator-") or ":5555" in s or "127.0.0.1" in s
 
 
+def _model_from_detail(detail: str) -> str:
+    m = re.search(r"model:(\S+)", detail)
+    return m.group(1) if m else ""
+
+
 @dataclass
 class AdbDevice:
     serial: str
@@ -24,6 +29,19 @@ class AdbDevice:
         tag = " [模拟器]" if _is_emulator_serial(self.serial) else ""
         extra = f" {self.detail}" if self.detail else ""
         return f"{self.serial}{tag} [{self.status}]{extra}"
+
+    @property
+    def combo_text(self) -> str:
+        """下拉框短标签（左对齐展示，完整信息见 tooltip）。"""
+        tag = "模拟器" if self.is_emulator else "真机"
+        model = _model_from_detail(self.detail)
+        if model:
+            short = model if len(model) <= 18 else f"{model[:16]}…"
+            return f"{short} [{tag}]"
+        serial = self.serial
+        if len(serial) > 22:
+            serial = f"{serial[:20]}…"
+        return f"{serial} [{tag}]"
 
     @property
     def is_emulator(self) -> bool:

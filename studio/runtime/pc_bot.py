@@ -175,6 +175,20 @@ class PcBot:
             for h in hits[:limit]
         ]
 
+    def find_node(self, opts: Any = None) -> Optional[tuple[int, int]]:
+        """PC 端无无障碍树，仅 APK 支持；optional 时返回 nil。"""
+        o = self._opt(opts)
+        optional = self._bool(o, "optional", False)
+        text = str(o.get("text") or "").strip()
+        rid = str(o.get("id") or "").strip()
+        self.log(
+            "PC 运行不支持 bot.findNode（需设备 APK + 无障碍），"
+            f"text={text or '-'} id={rid or '-'}"
+        )
+        if optional:
+            return None
+        raise RuntimeError("PC 端不支持 bot.findNode，请在 APK 中运行或设置 optional=true")
+
     def yolo_detect(self, opts: Any = None) -> list[dict[str, Any]]:
         o = self._opt(opts)
         model = self._resolve_model(o)
@@ -195,6 +209,9 @@ class PcBot:
         optional = self._bool(o, "optional", False)
         roi = roi_tuple(o)
         frac = frac_pair(o)
+        tap_dx = self._int(o, "tap_dx", 0)
+        tap_dy = self._int(o, "tap_dy", 0)
+        delay_before_click = self._float(o, "delay_before_click", 0.0)
         deadline = time.time() + timeout
         while time.time() < deadline:
             frame = self._capture()
@@ -203,9 +220,12 @@ class PcBot:
             if det is not None:
                 self.log(f"YOLO 命中 {det['class_name']} conf={det['confidence']:.2f}")
                 pt = self._yolo_click_point(det, frac)
+                x, y = pt[0] + tap_dx, pt[1] + tap_dy
                 if click:
-                    self.tap(pt[0], pt[1])
-                return pt
+                    if delay_before_click > 0:
+                        self.delay_seconds(delay_before_click)
+                    self.tap(x, y)
+                return x, y
             time.sleep(self.default_interval_ms / 1000.0)
         if optional:
             return None

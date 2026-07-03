@@ -155,6 +155,7 @@ def get_template(key: str) -> dict[str, Any] | None:
     item = LAYOUT_TEMPLATES.get(key)
     if not item:
         return None
-    import json
+    from studio.services.layout_clone import clone_layout
+    from studio.services.screen_layout import migrate_layout
 
-    return json.loads(json.dumps(item["layout"]))
+    return migrate_layout(clone_layout(item["layout"]))

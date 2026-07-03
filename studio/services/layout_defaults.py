@@ -54,14 +54,20 @@ DEFAULT_LAYOUT: dict[str, Any] = {
         "design_width": 720,
         "design_height": 1280,
         "active_screen": 0,
-        "width_dp": 320,
+        "width_mode": "auto",
+        "width_dp": 720,
+        "height_mode": "full",
+        "display_mode": "minimal",
+        "auto_collapse_idle_ms": 15000,
+        "show_on_launch": False,
         "opacity": 0.96,
-        "position": "right_center",
+        "position": "left_center",
         "start_x": 20,
         "start_y": 200,
         "columns": 2,
         "ball_size_dp": 48,
         "show_log": True,
+        "log_height_dp": 88,
         "draggable": True,
         "collapsible": True,
         "allow_design": True,
@@ -161,7 +167,9 @@ def layout_path(project_dir) -> "Path":
 
 def normalize_layout(data: dict[str, Any]) -> dict[str, Any]:
     """读取后归一化：buttons → widgets，补齐缺省字段。"""
-    out = json.loads(json.dumps(data))
+    from studio.services.layout_clone import clone_layout
+
+    out = clone_layout(data)
     if "widgets" not in out and "buttons" in out:
         out["widgets"] = out["buttons"]
     out.setdefault("widgets", [])
@@ -169,6 +177,13 @@ def normalize_layout(data: dict[str, Any]) -> dict[str, Any]:
     panel = out.setdefault("panel", {})
     panel.setdefault("theme", "light")
     panel.setdefault("width_dp", 220)
+    panel.setdefault("width_mode", "fixed")
+    panel.setdefault("height_mode", "wrap")
+    panel.setdefault("height_dp", int(panel.get("design_height", 1280) or 1280))
+    panel.setdefault("display_mode", "form")
+    panel.setdefault("auto_collapse_idle_ms", 0)
+    panel.setdefault("show_on_launch", False)
+    panel.setdefault("log_height_dp", 88)
     panel.setdefault("columns", 2)
     panel.setdefault("allow_design", True)
     panel.setdefault("start_confirm_collapse", True)
@@ -178,9 +193,12 @@ def normalize_layout(data: dict[str, Any]) -> dict[str, Any]:
     out = migrate_layout(out)
     panel.setdefault("active_screen", 0)
     if is_free_mode(out):
+        panel.setdefault("width_mode", "auto")
+        design_w = int(panel.get("design_width", 720) or 720)
+        panel.setdefault("width_dp", int(design_w * 0.9))
         from studio.services.screen_layout import normalize_chrome_widgets
 
-        out["widgets"] = normalize_chrome_widgets(out.get("widgets") or [])
+        out["widgets"] = normalize_chrome_widgets(out.get("widgets") or [], out.get("panel"))
         out = ensure_all_rects(out)
     return out
 
@@ -188,7 +206,9 @@ def normalize_layout(data: dict[str, Any]) -> dict[str, Any]:
 def load_layout(project_dir) -> dict[str, Any]:
     path = layout_path(project_dir)
     if not path.is_file():
-        return json.loads(json.dumps(DEFAULT_LAYOUT))
+        from studio.services.layout_clone import clone_layout
+
+        return clone_layout(DEFAULT_LAYOUT)
     return normalize_layout(json.loads(path.read_text(encoding="utf-8")))
 
 

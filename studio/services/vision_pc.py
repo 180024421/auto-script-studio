@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
+
+from studio.services.yolo_models import normalize_detections
 
 
 @dataclass
@@ -26,6 +29,10 @@ class TextHit:
     center_x: int
     center_y: int
     confidence: float
+    x: int = 0
+    y: int = 0
+    width: int = 40
+    height: int = 20
 
 
 def decode_png(png_bytes: bytes) -> np.ndarray:
@@ -34,6 +41,17 @@ def decode_png(png_bytes: bytes) -> np.ndarray:
     if img is None:
         raise RuntimeError("无法解码截图 PNG")
     return img
+
+
+def imread_bgr(path: str | Path) -> Optional[np.ndarray]:
+    """读取 BGR 图（支持中文路径，避免 cv2.imread 失败）。"""
+    p = Path(path)
+    if not p.is_file():
+        return None
+    data = np.fromfile(p, dtype=np.uint8)
+    if data.size == 0:
+        return None
+    return cv2.imdecode(data, cv2.IMREAD_COLOR)
 
 
 def find_color(
@@ -106,10 +124,56 @@ def recognize_text(
                 continue
             xs = [p[0] for p in box]
             ys = [p[1] for p in box]
-            cx = int(sum(xs) / len(xs)) + x1
-            cy = int(sum(ys) / len(ys)) + y1
-            hits.append(TextHit(text=str(text), center_x=cx, center_y=cy, confidence=float(conf)))
+            x_min, x_max = min(xs), max(xs)
+            y_min, y_max = min(ys), max(ys)
+            bw = max(1, int(x_max - x_min))
+            bh = max(1, int(y_max - y_min))
+            cx = int((x_min + x_max) / 2) + x1
+            cy = int((y_min + y_max) / 2) + y1
+            hits.append(
+                TextHit(
+                    text=str(text),
+                    center_x=cx,
+                    center_y=cy,
+                    confidence=float(conf),
+                    x=int(x_min) + x1,
+                    y=int(y_min) + y1,
+                    width=bw,
+                    height=bh,
+                )
+            )
     return hits
+
+
+def filter_text_hits(
+    hits: List[TextHit],
+    target: str,
+    *,
+    match_mode: str = "contains",
+) -> List[TextHit]:
+    needle = target.strip()
+    if not needle:
+        return hits
+    out: List[TextHit] = []
+    for h in hits:
+        if match_mode == "exact":
+            if h.text == needle:
+                out.append(h)
+        elif needle in h.text:
+            out.append(h)
+    return out
+
+
+def find_text(
+    bgr: np.ndarray,
+    target: str,
+    *,
+    match_mode: str = "contains",
+    roi: Optional[Tuple[int, int, int, int]] = None,
+    min_confidence: float = 0.5,
+) -> List[TextHit]:
+    hits = recognize_text(bgr, roi=roi, min_confidence=min_confidence)
+    return filter_text_hits(hits, target, match_mode=match_mode)
 
 
 def yolo_detect(
@@ -156,7 +220,7 @@ def yolo_detect(
                     "center_y": (by1 + by2) // 2 + y1,
                 }
             )
-    return out
+    return normalize_detections(out)
 
 
 def _roi_bounds(img: np.ndarray, roi: Optional[Tuple[int, int, int, int]]) -> Tuple[int, int, int, int]:

@@ -22,6 +22,11 @@ object LayoutJsonWriter {
     private fun panelToJson(panel: PanelConfig): JSONObject = JSONObject().apply {
         put("title", panel.title)
         put("width_dp", panel.widthDp)
+        put("width_mode", panel.widthMode)
+        put("height_mode", panel.heightMode)
+        put("height_dp", panel.heightDp)
+        put("display_mode", panel.displayMode)
+        put("auto_collapse_idle_ms", panel.autoCollapseIdleMs)
         put("opacity", panel.opacity.toDouble())
         put("position", panel.position)
         put("start_x", panel.startX)
@@ -29,6 +34,7 @@ object LayoutJsonWriter {
         put("columns", panel.columns)
         put("ball_size_dp", panel.ballSizeDp)
         put("show_log", panel.showLog)
+        put("log_height_dp", panel.logHeightDp)
         put("draggable", panel.draggable)
         put("collapsible", panel.collapsible)
         put("theme", panel.theme)
@@ -38,6 +44,7 @@ object LayoutJsonWriter {
         put("design_width", panel.designWidth)
         put("design_height", panel.designHeight)
         put("active_screen", panel.activeScreen)
+        put("show_on_launch", panel.showOnLaunch)
     }
 
     private fun screensToJson(screens: List<ScreenConfig>): JSONArray {

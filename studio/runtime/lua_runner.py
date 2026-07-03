@@ -46,6 +46,9 @@ def install_bot(lua, bot) -> None:
     def find_text(target, opts=None):
         return _ret_point(bot.find_text(str(target), table_to_dict(opts)))
 
+    def find_node(opts=None):
+        return _ret_point(bot.find_node(table_to_dict(opts)))
+
     def recognize_text(opts=None):
         return bot.recognize_text(table_to_dict(opts))
 
@@ -61,6 +64,9 @@ def install_bot(lua, bot) -> None:
     def log(msg):
         bot.log(str(msg))
 
+    def log_raw(msg):
+        bot.log(str(msg))
+
     bot_table = lua.table_from(
         {
             "delay": delay,
@@ -70,11 +76,13 @@ def install_bot(lua, bot) -> None:
             "findImage": find_image,
             "findColor": find_color,
             "findText": find_text,
+            "findNode": find_node,
             "recognizeText": recognize_text,
             "yoloDetect": yolo_detect,
             "findYolo": find_yolo,
             "yoloSwipe": yolo_swipe,
             "log": log,
+            "__logRaw": log_raw,
         }
     )
     g = lua.globals()
@@ -144,6 +152,12 @@ def run_project(project_dir: Path, *, serial: str | None = None) -> int:
         print("需要 lupa：pip install lupa>=2.0", file=sys.stderr)
         raise SystemExit(1) from exc
 
+    from studio.runtime.lua_execute import (
+        chunk_name_for,
+        execute_lua_chunk,
+        format_lua_error,
+        install_lua_logging,
+    )
     from studio.runtime.pc_bot import PcBot
     from studio.runtime.panel_state import PanelState
     from studio.services.layout_defaults import load_layout
@@ -160,20 +174,33 @@ def run_project(project_dir: Path, *, serial: str | None = None) -> int:
         print(f"缺少脚本: {script_path}", file=sys.stderr)
         return 1
 
-    bot = PcBot(project_dir, serial=serial, on_log=lambda m: print(m, flush=True))
+    def emit(line: str) -> None:
+        print(line, flush=True)
+
+    bot = PcBot(project_dir, serial=serial, on_log=emit)
     PanelState.clear_watches()
     if not PanelState.load_sidecar(project_dir):
         PanelState.seed_from_layout(load_layout(project_dir))
     lua = LuaRuntime(unpack_returned_tuples=True)
     install_bot(lua, bot)
+    install_lua_logging(lua)
     code = script_path.read_text(encoding="utf-8")
-    print(f"[lua_runner] 运行 {script_path} @ {serial or 'default'}", flush=True)
+    chunk = chunk_name_for(script_path)
+    line_count = code.count("\n") + (1 if code else 0)
+    emit(f"[lua_runner] 设备: {serial or bot.adb.default_serial() or '（无）'}")
+    emit(f"[lua_runner] 脚本: {script_path} ({line_count} 行)")
+    emit(f"[lua_runner] chunk: {chunk}")
+    emit("[lua_runner] ----- 开始执行 -----")
     try:
-        lua.execute(code)
-    except Exception:
-        traceback.print_exc()
+        execute_lua_chunk(lua, code, chunk)
+    except Exception as exc:
+        emit(format_lua_error(exc, script_path=script_path))
+        tb = traceback.format_exc()
+        for line in tb.strip().splitlines():
+            emit(line)
+        emit("[lua_runner] ----- 执行失败 -----")
         return 1
-    print("[lua_runner] 完成", flush=True)
+    emit("[lua_runner] ----- 执行完成 -----")
     return 0
 
 

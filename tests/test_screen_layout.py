@@ -78,18 +78,68 @@ def test_chrome_path_tag():
     assert CHROME_PATH_TAG == -1
 
 
-def test_normalize_chrome_strips_stop():
+def test_normalize_chrome_strips_stop_in_free_form():
     from studio.services.screen_layout import chrome_widgets, normalize_chrome_widgets
 
     widgets = [
         {"id": "start", "type": "start_script", "label": "开始"},
         {"id": "stop", "type": "stop_script", "label": "停止"},
     ]
-    out = normalize_chrome_widgets(widgets)
+    out = normalize_chrome_widgets(widgets, {"display_mode": "form"})
     assert len(out) == 1
     assert out[0]["type"] == "start_script"
     layout = migrate_screens({"version": 3, "panel": {"layout_mode": "free"}, "screens": [{"title": "A", "widgets": []}], "widgets": widgets})
     assert all(w.get("type") != "stop_script" for w in chrome_widgets(layout))
+
+
+def test_normalize_chrome_keeps_stop_in_minimal():
+    from studio.services.screen_layout import normalize_chrome_widgets
+
+    widgets = [{"id": "start", "type": "start_script", "label": "开始"}]
+    out = normalize_chrome_widgets(widgets, {"display_mode": "minimal"})
+    types = [w["type"] for w in out]
+    assert "start_script" in types
+    assert "stop_script" in types
+
+
+def test_clamp_widget_rect_horizontal_bounds():
+    from studio.services.free_layout import clamp_widget_rect
+
+    x, y, w, h = clamp_widget_rect(720, "input", 800, 50, 200, 48)
+    assert x + w <= 720
+    assert x >= 0
+    assert y == 50
+
+    x2, y2, w2, h2 = clamp_widget_rect(720, "input", 24, -10, 900, 48)
+    assert x2 >= 0
+    assert y2 == 0
+    assert x2 + w2 <= 720
+
+
+def test_clamp_widget_rect_allows_tall_scroll_layout():
+    from studio.services.free_layout import clamp_widget_rect
+
+    _, y, _, h = clamp_widget_rect(720, "input", 24, 2400, 672, 52)
+    assert y == 2400
+    assert h == 52
+
+
+def test_repair_off_canvas_widget():
+    widgets = [
+        {
+            "id": "account",
+            "type": "input",
+            "layout_x": 696,
+            "layout_y": 308,
+            "layout_w": 48,
+            "layout_h": 32,
+        }
+    ]
+    repair_screen_widgets(widgets)
+    w = widgets[0]
+    assert w["layout_x"] + w["layout_w"] <= 720
+    assert w["layout_w"] >= 160
+    assert w["layout_h"] >= 40
 
 
 def test_repair_overlapping_widgets():
