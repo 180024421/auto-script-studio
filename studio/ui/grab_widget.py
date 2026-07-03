@@ -227,6 +227,7 @@ class ScreenshotLabel(QLabel):
 
 class GrabWidget(QWidget):
     log_message = Signal(str)
+    insert_lua = Signal(str)
     panel_position_picked = Signal(int, int)
     button_coords_picked = Signal(int, int, str)
     images_changed = Signal()
@@ -355,6 +356,7 @@ class GrabWidget(QWidget):
         p.copy_color_desc.connect(self.copy_color_desc)
         p.copy_roi.connect(self.copy_coords)
         p.copy_script.connect(self.copy_lua)
+        p.insert_script.connect(self.insert_lua_to_editor)
         p.copy_color_script.connect(self.copy_color_script)
         p.copy_template_script.connect(self.copy_template_script)
         p.copy_text_script.connect(self.copy_text_script)
@@ -868,6 +870,17 @@ class GrabWidget(QWidget):
         self._last_lua_snippet = text
         QGuiApplication.clipboard().setText(text)
         self._log("已复制完整脚本到剪贴板，请粘贴到 main.lua")
+
+    def insert_lua_to_editor(self) -> None:
+        text = self._panel.script_edit.toPlainText().strip()
+        if not text:
+            if self._last_lua_snippet:
+                text = self._last_lua_snippet
+            else:
+                QMessageBox.warning(self, "提示", "请先生成或测试一段 Lua 代码")
+                return
+        self.insert_lua.emit(text)
+        self._log("已请求插入到脚本页")
 
     def copy_color_script(self) -> None:
         if self._picked_bgr is None:

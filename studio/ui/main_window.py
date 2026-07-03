@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QProcess, QProcessEnvironment, Qt
-from PySide6.QtGui import QCloseEvent, QFont, QGuiApplication, QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import QCloseEvent, QFont, QGuiApplication, QKeySequence, QPixmap, QShortcut, QShowEvent
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -63,6 +63,7 @@ from studio.services.project_persistence import (
     import_project_zip,
     remember_project,
 )
+from studio.ui.onboarding_dialog import OnboardingDialog, should_show_onboarding
 
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / "studio" / "resources" / "project-template"
@@ -113,6 +114,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_project_tab(), "工程")
         self.grab = GrabWidget(lambda: self.project_dir)
         self.grab.log_message.connect(self.append)
+        self.grab.insert_lua.connect(self._insert_lua_to_script)
         self.tabs.addTab(self.grab, "抓抓")
         self.layout_editor = LayoutEditorWidget(lambda: str(self.project_dir) if self.project_dir else None)
         self.layout_editor.layout_changed.connect(self.grab.apply_layout_from_editor)
@@ -147,6 +149,21 @@ class MainWindow(QMainWindow):
         self._refresh_recent_list()
         self.statusBar().showMessage("就绪")
         self._try_restore_last_project()
+        self._setup_help_menu()
+
+    def _setup_help_menu(self) -> None:
+        menu = self.menuBar().addMenu("帮助")
+        act_guide = menu.addAction("首次引导 / 环境预检")
+        act_guide.triggered.connect(self._show_onboarding)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        if should_show_onboarding():
+            self._show_onboarding()
+
+    def _show_onboarding(self) -> None:
+        dlg = OnboardingDialog(self, adb_path=self.adb.adb_path)
+        dlg.exec()
 
     def _build_project_tab(self) -> QWidget:
         w = QWidget()

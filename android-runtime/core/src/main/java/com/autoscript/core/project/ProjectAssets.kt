@@ -1,7 +1,9 @@
 package com.autoscript.core.project
 
 import android.content.Context
+import com.autoscript.core.update.ProjectUpdateManager
 import org.json.JSONObject
+import java.io.File
 import java.io.InputStream
 
 data class ProjectConfig(
@@ -18,6 +20,11 @@ data class ProjectConfig(
     val autoRun: Boolean = false,
     val screenshotMode: String = "media_projection",
     val inputMode: String = "auto",
+    val license: LicenseConfig = LicenseConfig(),
+    val update: UpdateConfig = UpdateConfig(),
+    val schedule: ScheduleConfig = ScheduleConfig(),
+    val boot: BootConfig = BootConfig(),
+    val perf: PerfConfig = PerfConfig(),
 ) {
     fun usesLua(): Boolean = when (scriptLanguage.lowercase()) {
         "lua" -> true
@@ -29,11 +36,17 @@ data class ProjectConfig(
 class ProjectAssets(private val context: Context) {
 
     private val root = "project"
+    private var updateManager: ProjectUpdateManager? = null
 
     fun loadConfig(): ProjectConfig {
         val json = readText("project.json")
         val obj = JSONObject(json)
         val runtime = obj.optJSONObject("runtime")
+        val licenseObj = obj.optJSONObject("license")
+        val updateObj = obj.optJSONObject("update")
+        val scheduleObj = obj.optJSONObject("schedule")
+        val bootObj = obj.optJSONObject("boot")
+        val perfObj = runtime?.optJSONObject("perf") ?: obj.optJSONObject("perf")
         return ProjectConfig(
             name = obj.getString("name"),
             packageId = obj.getString("package_id"),
@@ -48,7 +61,37 @@ class ProjectAssets(private val context: Context) {
             autoRun = runtime?.optBoolean("auto_run", false) ?: false,
             screenshotMode = runtime?.optString("screenshot_mode", "media_projection") ?: "media_projection",
             inputMode = runtime?.optString("input_mode", "auto") ?: "auto",
+            license = LicenseConfig(
+                enabled = licenseObj?.optBoolean("enabled", false) ?: false,
+                apiBase = licenseObj?.optString("api_base", "") ?: "",
+                appName = licenseObj?.optString("app_name", "") ?: "",
+                skipOnOffline = licenseObj?.optBoolean("skip_on_offline", false) ?: false,
+            ),
+            update = UpdateConfig(
+                enabled = updateObj?.optBoolean("enabled", false) ?: false,
+                manifestUrl = updateObj?.optString("manifest_url", "") ?: "",
+                checkOnStart = updateObj?.optBoolean("check_on_start", true) ?: true,
+            ),
+            schedule = ScheduleConfig(
+                enabled = scheduleObj?.optBoolean("enabled", false) ?: false,
+                dailyTime = scheduleObj?.optString("daily_time", "") ?: "",
+            ),
+            boot = BootConfig(
+                autoStart = bootObj?.optBoolean("auto_start", false) ?: false,
+            ),
+            perf = PerfConfig(
+                opencvMobile = perfObj?.optBoolean("opencv_mobile", false) ?: false,
+                yoloNnapi = perfObj?.optBoolean("yolo_nnapi", false) ?: false,
+            ),
         )
+    }
+
+    fun checkForUpdates(): Boolean {
+        val cfg = loadConfig()
+        if (!cfg.update.enabled || !cfg.update.checkOnStart) return false
+        val mgr = ProjectUpdateManager(context, cfg.update, cfg.versionCode)
+        updateManager = mgr
+        return mgr.maybeUpdate()
     }
 
     fun readEntryYaml(): String = readText(loadConfig().entry)
@@ -57,14 +100,19 @@ class ProjectAssets(private val context: Context) {
 
     fun readYaml(path: String): String = readText(path)
 
-    fun readBytes(path: String): ByteArray =
-        open(path).use { it.readBytes() }
+    fun readBytes(path: String): ByteArray {
+        overlayFile(path)?.let { return it.readBytes() }
+        return open(path).use { it.readBytes() }
+    }
 
-    fun exists(path: String): Boolean = try {
-        open(path).close()
-        true
-    } catch (_: Exception) {
-        false
+    fun exists(path: String): Boolean {
+        if (overlayFile(path) != null) return true
+        return try {
+            open(path).close()
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     fun appContext(): Context = context.applicationContext
@@ -73,8 +121,20 @@ class ProjectAssets(private val context: Context) {
         return context.assets.list("$root/$relativeDir")?.toList().orEmpty()
     }
 
-    private fun readText(relative: String): String =
-        open(relative).bufferedReader().use { it.readText() }
+    private fun overlayFile(relative: String): File? {
+        val rel = relative.trimStart('/')
+        val mgr = updateManager ?: ProjectUpdateManager(
+            context,
+            loadConfig().update,
+            loadConfig().versionCode,
+        ).also { updateManager = it }
+        return mgr.overlayFile(rel)
+    }
+
+    private fun readText(relative: String): String {
+        overlayFile(relative)?.let { return it.readText() }
+        return open(relative).bufferedReader().use { it.readText() }
+    }
 
     private fun open(relative: String): InputStream {
         val path = "$root/${relative.trimStart('/')}"

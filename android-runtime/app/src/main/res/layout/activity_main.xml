@@ -78,6 +78,14 @@
             android:layout_marginTop="8dp"
             android:text="授权屏幕录制" />
 
+        <Button
+            android:id="@+id/btnLicense"
+            style="@style/Widget.AutoScript.Button.Secondary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="卡密验证" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

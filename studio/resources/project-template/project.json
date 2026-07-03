@@ -9,6 +9,28 @@
     "default_interval_ms": 300,
     "default_yolo_conf": 0.35,
     "ocr_mode": "lazy",
-    "input_mode": "auto"
+    "input_mode": "auto",
+    "perf": {
+      "opencv_mobile": false,
+      "yolo_nnapi": false
+    }
+  },
+  "license": {
+    "enabled": false,
+    "api_base": "",
+    "app_name": "",
+    "skip_on_offline": false
+  },
+  "update": {
+    "enabled": false,
+    "manifest_url": "",
+    "check_on_start": true
+  },
+  "schedule": {
+    "enabled": false,
+    "daily_time": "08:00"
+  },
+  "boot": {
+    "auto_start": false
   }
 }

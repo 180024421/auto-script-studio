@@ -1,31 +1,32 @@
--- Demo Game — 可运行示例（找色 + 面板表单）
+-- Demo Game — 官方示例（找色 + 浮动面板）
+-- 详见 examples/demo-game/README.md
 
 bot.log("demo-game 开始")
 
--- 浮动面板表单（需 APK 浮动面板或 PC 预览填写后运行）
--- local mode = panel.get("mode")
--- if panel.is("mode", "极速") then bot.log("极速") end
--- if panel.has("tasks", "日常") then bot.log("含日常") end
+local mode = panel.get("mode")
+if mode and tostring(mode) ~= "" then
+  bot.log("面板模式: " .. tostring(mode))
+  if panel.is("mode", "极速") then
+    bot.log("已选择极速模式")
+  end
+end
 
 bot.delay(1)
--- 找色：屏幕中心附近灰色（模拟器桌面常见色）
+
+-- 找色：可按抓抓页取色结果修改 RGB
 local cx, cy = bot.findColor(40, 40, 40, { tol = 30, timeout = 5, optional = true })
 if cx then
   bot.log(string.format("找色命中 (%d,%d)", cx, cy))
+  bot.tap(cx, cy)
 else
-  bot.log("找色未命中，跳过")
+  bot.log("找色未命中（可改 RGB 或在抓抓页取色）")
 end
 
--- 找图（需 image/ 下有效模板图，如 leidian.png）
-local x, y = bot.findImage("image/leidian.png", { threshold = 0.8, timeout = 5, optional = true })
+-- 找图（需在 image/ 放置模板，见 image/README.md）
+local x, y = bot.findImage("image/template.png", { threshold = 0.8, timeout = 3, optional = true })
 if x then
   bot.log(string.format("找图命中 (%d,%d)", x, y))
   bot.tap(x, y)
 end
 
--- 无障碍控件示例（需目标应用在前台）
--- local nx, ny = bot.findNode({ text = "设置", timeout = 3, optional = true })
-
 bot.log("demo-game 完成")
-
-bot.tap(0, 0)

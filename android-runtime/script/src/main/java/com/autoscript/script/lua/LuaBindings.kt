@@ -109,6 +109,19 @@ object LuaBindings {
         loaded.set("autoscript", bot)
     }
 
+    /** 协程 yield → 调用 bot.delay，便于 Lua 协程式写法。 */
+    fun installCoroutineYield(globals: LuaValue, bridge: AutoScriptBridge) {
+        val co = globals.get("coroutine")
+        if (!co.istable()) return
+        co.checktable().set("yield", object : VarArgFunction() {
+            override fun invoke(args: Varargs): Varargs {
+                val sec = if (args.narg() >= 1) args.arg(1).todouble() else 0.0
+                runBlocking { bridge.delaySeconds(sec) }
+                return NONE
+            }
+        })
+    }
+
     private class DelayFn(private val bridge: AutoScriptBridge) : OneArgFunction() {
         override fun call(seconds: LuaValue): LuaValue {
             runBlocking { bridge.delaySeconds(seconds.todouble()) }

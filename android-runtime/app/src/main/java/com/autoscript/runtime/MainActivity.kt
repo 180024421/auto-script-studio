@@ -16,6 +16,8 @@ import com.autoscript.core.backend.DeviceAutomationBackend
 import com.autoscript.core.capture.CaptureSession
 import com.autoscript.core.capture.ScreenCaptureManager
 import com.autoscript.core.log.ScriptLog
+import com.autoscript.core.license.LicenseStore
+import com.autoscript.core.license.LicenseVerifier
 import com.autoscript.core.project.ProjectAssets
 import com.autoscript.core.root.RootShell
 
@@ -58,6 +60,11 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnStart).setOnClickListener { startScript() }
         findViewById<Button>(R.id.btnStop).setOnClickListener { stopScript() }
         findViewById<Button>(R.id.btnOverlay).setOnClickListener { requestOverlayAndStart() }
+        findViewById<Button>(R.id.btnLicense)?.setOnClickListener { promptLicense() }
+
+        runCatching {
+            ScheduleReceiver.scheduleNext(this)
+        }
 
         appendLog("工程: ${runCatching { ProjectAssets(this).loadConfig().name }.getOrElse { "未打包" }}")
         logSink = { msg -> runOnUiThread { appendLog(msg) } }
@@ -163,6 +170,39 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startScript() {
+        val cfg = ProjectAssets(this).loadConfig()
+        val verifier = LicenseVerifier(this, cfg.license, cfg.packageId)
+        if (cfg.license.enabled && !verifier.isLicensed()) {
+            promptLicense { startScriptInternal() }
+            return
+        }
+        startScriptInternal()
+    }
+
+    private fun promptLicense(onSuccess: (() -> Unit)? = null) {
+        val input = android.widget.EditText(this)
+        input.hint = "请输入卡密"
+        LicenseStore.getCode(this)?.let { input.setText(it) }
+        AlertDialog.Builder(this)
+            .setTitle("卡密验证")
+            .setMessage("本脚本需验证卡密后运行（jiaoben）")
+            .setView(input)
+            .setPositiveButton("验证") { _, _ ->
+                val code = input.text?.toString()?.trim().orEmpty()
+                val cfg = ProjectAssets(this).loadConfig()
+                val verifier = LicenseVerifier(this, cfg.license, cfg.packageId)
+                if (verifier.verifyAndBind(code)) {
+                    appendLog("卡密验证成功")
+                    onSuccess?.invoke()
+                } else {
+                    appendLog("卡密无效或网络错误")
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun startScriptInternal() {
         val backend = automationBackend()
         if (!backend.isReady()) {
             when {

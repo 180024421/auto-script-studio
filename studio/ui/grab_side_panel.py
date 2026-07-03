@@ -47,6 +47,7 @@ class GrabSidePanel(QWidget):
     copy_color_desc = Signal()
     copy_roi = Signal()
     copy_script = Signal()
+    insert_script = Signal()
     copy_color_script = Signal()
     copy_template_script = Signal()
     copy_text_script = Signal()
@@ -240,7 +241,13 @@ class GrabSidePanel(QWidget):
         self.script_edit.setPlaceholderText("测试或取色后，Lua 代码将显示在这里…")
         self.script_edit.setMinimumHeight(100)
         lay.addWidget(self.script_edit)
-        lay.addWidget(self._action_btn("复制完整脚本", self.copy_script.emit, "primary"))
+        btn_row = QWidget()
+        btn_lay = QHBoxLayout(btn_row)
+        btn_lay.setContentsMargins(0, 0, 0, 0)
+        btn_lay.setSpacing(8)
+        btn_lay.addWidget(self._action_btn("插入到脚本", self.insert_script.emit, "accent"))
+        btn_lay.addWidget(self._action_btn("复制完整脚本", self.copy_script.emit, "primary"))
+        lay.addWidget(btn_row)
         return w
 
     def _build_yolo_tab(self) -> QWidget:

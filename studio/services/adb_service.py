@@ -75,7 +75,14 @@ class AdbService:
             errors="ignore" if text else None,
         )
 
-    def list_devices(self) -> List[AdbDevice]:
+    def list_devices(self, *, auto_connect: bool = True) -> List[AdbDevice]:
+        if auto_connect:
+            try:
+                from studio.services.emulator_bridge import auto_connect_emulators
+
+                auto_connect_emulators(self.adb_path)
+            except Exception:
+                pass
         proc = self._run(["devices", "-l"], check=False, text=True, timeout=15)
         out: List[AdbDevice] = []
         for line in proc.stdout.splitlines()[1:]:

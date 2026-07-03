@@ -5,6 +5,13 @@
 对标按键精灵的「脚本 + 悬浮窗」体验，同时提供完整的 PC 开发助手。  
 **不依赖 adb-ide、script-control-center 或其他外部项目。**
 
+<p align="center">
+  <img src="images/jimeng.png" alt="吉祥物" width="120" />
+</p>
+
+> 演示 GIF 制作后请放入 `docs/assets/` 并在下方取消注释。  
+> `<!-- ![Studio 总览](docs/assets/studio-overview.png) -->`
+
 ---
 
 ## 项目能做什么
@@ -158,8 +165,10 @@ PC 与设备实现不同，但 **`bot.*` API 语义一致**，联调通过的脚
 
 ## 快速开始
 
+详见 **[5 分钟上手](docs/getting-started.md)**。
+
 ```powershell
-cd E:\xiangmu\auto-script-studio
+cd auto-script-studio
 .\start.cmd
 ```
 
@@ -195,10 +204,16 @@ python -m pytest tests/ -q
 
 | 文档 | 内容 |
 |------|------|
+| [快速上手](docs/getting-started.md) | 5 分钟跑通 demo-game |
 | [Lua API](docs/LUA.md) | `bot.*`、`panel.*` 脚本接口 |
 | [架构说明](docs/ARCHITECTURE.md) | 模块划分、工作流、运行模式 |
 | [浮动面板布局](docs/ui-layout.md) | `layout.json` v3 数据模型与控件 |
 | [打包指南](docs/pack-guide.md) | JDK/SDK 配置、签名、CI |
+| [与按键精灵对比](docs/comparison-anjian.md) | 能力对照 |
+| [工具生态](docs/ECOSYSTEM.md) | 关联开源项目 |
+| [定制服务](docs/services.md) | 接单套餐说明 |
+| [教程目录](docs/tutorials/01-find-color.md) | 找色 / 面板 / 部署 |
+| [FAQ](docs/faq.md) | 常见问题 |
 | [YAML 遗留 API](docs/script-api.md) | 旧版 YAML 脚本（不推荐新项目） |
 
 ---
@@ -213,4 +228,19 @@ python -m pytest tests/ -q
 
 ## 许可证
 
-见仓库根目录 LICENSE（如有）。
+[MIT License](LICENSE)
+
+## 相关项目
+
+| 项目 | 说明 |
+|------|------|
+| [adb-ide](https://github.com/180024421/adb-ide) | 抓图 / OCR / YOLO 开发 IDE |
+| [script-control-center](https://github.com/180024421/adb-batch-runner) | 多开批量中控（完整版） |
+| [adb-batch-runner](https://github.com/180024421/adb-batch-runner) | 轻量 Web 批量运行 |
+| [jiaoben](https://github.com/180024421/jiaoben) | 卡密发卡与脚本监控 |
+
+定制开发见 [docs/services.md](docs/services.md)。问题反馈请使用 [GitHub Issues](../../issues)。
+
+## 免责声明
+
+仅供学习交流。请遵守游戏/应用用户协议；不得用于外挂、破解、破坏公平竞技等用途。

@@ -22,6 +22,7 @@ class OnnxYoloDetector(
     private val context: Context,
     private val assets: ProjectAssets,
     private val imgsz: Int = 320,
+    private val useNnapi: Boolean = false,
 ) : YoloDetector {
 
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
@@ -66,7 +67,11 @@ class OnnxYoloDetector(
     private fun getSession(assetPath: String): OrtSession =
         sessions.getOrPut(assetPath) {
             val file = copyAssetToCache(assetPath)
-            env.createSession(file.absolutePath, OrtSession.SessionOptions())
+            val opts = OrtSession.SessionOptions()
+            if (useNnapi) {
+                runCatching { opts.addNnapi() }
+            }
+            env.createSession(file.absolutePath, opts)
         }
 
     private fun copyAssetToCache(path: String): File {

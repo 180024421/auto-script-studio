@@ -8,6 +8,7 @@ import com.autoscript.core.project.ProjectConfig
 import com.autoscript.core.root.RootInput
 import com.autoscript.core.root.RootScreenCapture
 import com.autoscript.core.root.RootShell
+import com.autoscript.core.root.ShizukuInputBackend
 
 /**
  * 统一自动化后端：支持无障碍 / root / auto（优先 root）。
@@ -15,25 +16,29 @@ import com.autoscript.core.root.RootShell
 class DeviceAutomationBackend(private val config: ProjectConfig) : AutomationBackend {
 
     private val mode: String = config.inputMode.lowercase()
+    private val useShizukuInput: Boolean
     private val useRootInput: Boolean
     private val useRootCapture: Boolean
 
     init {
         val rootOk = RootShell.isAvailable()
+        val shizukuOk = mode == "shizuku" && ShizukuInputBackend.isAvailable()
+        useShizukuInput = shizukuOk
         useRootInput = when (mode) {
+            "shizuku" -> shizukuOk || rootOk
             "root" -> rootOk
             "accessibility" -> false
             else -> rootOk // auto
         }
         useRootCapture = when (mode) {
-            "root" -> rootOk
+            "root", "shizuku" -> rootOk
             "accessibility" -> false
             else -> rootOk
         }
-        if (useRootInput || useRootCapture) {
-            ScriptLog.i("input_mode=$mode → 使用 root（input=$useRootInput capture=$useRootCapture）")
-        } else {
-            ScriptLog.i("input_mode=$mode → 使用无障碍/录屏")
+        when {
+            useShizukuInput -> ScriptLog.i("input_mode=$mode → Shizuku 触控（骨架）")
+            useRootInput || useRootCapture -> ScriptLog.i("input_mode=$mode → 使用 root（input=$useRootInput capture=$useRootCapture）")
+            else -> ScriptLog.i("input_mode=$mode → 使用无障碍/录屏")
         }
     }
 
@@ -51,6 +56,9 @@ class DeviceAutomationBackend(private val config: ProjectConfig) : AutomationBac
     }
 
     override suspend fun tap(x: Int, y: Int) {
+        if (useShizukuInput) {
+            if (ShizukuInputBackend.tap(x, y)) return
+        }
         if (useRootInput) {
             if (!RootInput.tap(x, y)) throw IllegalStateException("root 点击失败 ($x,$y)")
             return
@@ -60,6 +68,9 @@ class DeviceAutomationBackend(private val config: ProjectConfig) : AutomationBac
     }
 
     override suspend fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int) {
+        if (useShizukuInput) {
+            if (ShizukuInputBackend.swipe(x1, y1, x2, y2, durationMs)) return
+        }
         if (useRootInput) {
             if (!RootInput.swipe(x1, y1, x2, y2, durationMs)) throw IllegalStateException("root 滑动失败")
             return
@@ -69,6 +80,9 @@ class DeviceAutomationBackend(private val config: ProjectConfig) : AutomationBac
     }
 
     override suspend fun longPress(x: Int, y: Int, durationMs: Int) {
+        if (useShizukuInput) {
+            if (ShizukuInputBackend.longPress(x, y, durationMs)) return
+        }
         if (useRootInput) {
             if (!RootInput.longPress(x, y, durationMs)) throw IllegalStateException("root 长按失败")
             return

@@ -12,6 +12,7 @@ import com.autoscript.core.backend.DeviceAutomationBackend
 import com.autoscript.core.log.ScriptLog
 import com.autoscript.core.log.ScriptStatus
 import com.autoscript.core.script.ScriptCancelToken
+import com.autoscript.core.license.LicenseVerifier
 import com.autoscript.core.project.ProjectAssets
 import com.autoscript.script.ScriptRuntime
 import com.autoscript.script.ScriptRuntimeFactory
@@ -42,6 +43,18 @@ class ScriptRunnerService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification("脚本运行中"))
         val assets = ProjectAssets(this)
         val config = assets.loadConfig()
+        if (config.update.checkOnStart) {
+            assets.checkForUpdates()
+        }
+        val verifier = LicenseVerifier(this, config.license, config.packageId)
+        if (config.license.enabled && !verifier.isLicensed()) {
+            ScriptLog.i("卡密未验证，脚本未启动")
+            MainActivity.logSink?.invoke("请先输入有效卡密")
+                ?: OverlayLog.notify("请先输入有效卡密")
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
         val backend = DeviceAutomationBackend(config)
         val runtime: ScriptRuntime = ScriptRuntimeFactory.create(assets, backend) { msg ->
             ScriptLog.i(msg)

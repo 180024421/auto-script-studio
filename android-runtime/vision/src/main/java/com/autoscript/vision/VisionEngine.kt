@@ -6,6 +6,7 @@ import com.autoscript.core.model.MatchResult
 import com.autoscript.core.model.Rect
 import com.autoscript.core.model.ScreenFrame
 import com.autoscript.core.model.TextHit
+import com.autoscript.core.project.PerfConfig
 import com.autoscript.core.project.ProjectAssets
 import com.autoscript.vision.color.ColorFinder
 import com.autoscript.vision.ocr.MlKitOcrEngine
@@ -23,9 +24,10 @@ class VisionEngine(
     appContext: Context,
     ocrMode: String = "lazy",
     yoloImgsz: Int = 320,
+    perf: PerfConfig = PerfConfig(),
 ) {
     private val templateCache = mutableMapOf<String, ScreenFrame>()
-    private val yolo: YoloDetector = OnnxYoloDetector(appContext, assets, yoloImgsz)
+    private val yolo: YoloDetector = OnnxYoloDetector(appContext, assets, yoloImgsz, useNnapi = perf.yoloNnapi)
     private var ocr: OcrEngine? = when (ocrMode) {
         "disabled" -> null
         "eager" -> MlKitOcrEngine(appContext)

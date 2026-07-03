@@ -29,7 +29,7 @@ class LuaScriptEngine(
         if (!config.usesLua()) {
             throw IllegalStateException("工程 entry 不是 Lua: ${config.entry}")
         }
-        vision = VisionEngine(assets, assets.appContext(), config.ocrMode)
+        vision = VisionEngine(assets, assets.appContext(), config.ocrMode, perf = config.perf)
         bridge = AutoScriptBridge(backend, vision, config, onLog, config.defaultYoloModel)
         val source = assets.readEntryScript()
         onLog("开始 Lua: ${config.entry}")
@@ -38,6 +38,7 @@ class LuaScriptEngine(
                 val globals: Globals = JsePlatform.standardGlobals()
                 installLibLoader(globals)
                 LuaBindings.install(globals, bridge, onLog)
+                LuaBindings.installCoroutineYield(globals, bridge)
                 val chunk = globals.load(source, config.entry)
                 chunk.call()
             }
