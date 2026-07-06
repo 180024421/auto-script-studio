@@ -58,6 +58,7 @@ def save_pack_metadata(
     name: str,
     package_id: str,
     icon_text: str = "",
+    jiaoben_project_id: int | None = None,
 ) -> dict:
     """写入 project.json，自定义图标复制为工程内 icon.png。"""
     project_dir = project_dir.resolve()
@@ -78,17 +79,37 @@ def save_pack_metadata(
     else:
         cfg.pop("icon", None)
 
+    if jiaoben_project_id is not None:
+        cfg.setdefault("jiaoben", {})
+        pid = int(jiaoben_project_id)
+        if pid > 0:
+            cfg["jiaoben"]["project_id"] = pid
+        else:
+            cfg["jiaoben"].pop("project_id", None)
+    license_cfg = cfg.get("license") or {}
+    if license_cfg.get("api_base"):
+        cfg.setdefault("jiaoben", {})
+        cfg["jiaoben"]["api_base"] = license_cfg.get("api_base")
+
     cfg_path = project_dir / "project.json"
     cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return cfg
 
 
 def write_gradle_props(cfg: dict, props_path: Path, signing: dict | None = None) -> None:
+    license_cfg = cfg.get("license") or {}
+    jiaoben_cfg = cfg.get("jiaoben") or {}
+    jiaoben_base = str(
+        jiaoben_cfg.get("api_base") or license_cfg.get("api_base") or "http://111.229.202.251:8687"
+    ).strip()
+    jiaoben_project_id = int(jiaoben_cfg.get("project_id") or 0)
     lines = [
         f"applicationId={cfg['package_id']}",
         f"versionCode={cfg.get('version_code', 1)}",
         f"versionName={cfg.get('version_name', '1.0.0')}",
         f"appName={escape_gradle_property(str(cfg.get('name', 'Auto Script')))}",
+        f"jiaobenApiBase={jiaoben_base}",
+        f"jiaobenProjectId={jiaoben_project_id}",
     ]
     if signing:
         ks = signing.get("keystore")

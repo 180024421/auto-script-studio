@@ -23,15 +23,20 @@
     }
   },
   "license": {
-    "enabled": false,
-    "api_base": "https://your-jiaoben-host",
+    "enabled": true,
+    "api_base": "http://111.229.202.251:8687",
     "app_name": "com.autoscript.demo",
     "skip_on_offline": false
   },
+  "jiaoben": {
+    "project_id": 0,
+    "api_base": "http://111.229.202.251:8687"
+  },
   "update": {
-    "enabled": false,
+    "enabled": true,
     "manifest_url": "",
-    "check_on_start": true
+    "check_on_start": true,
+    "allow_local_import": false
   },
   "schedule": {
     "enabled": false,

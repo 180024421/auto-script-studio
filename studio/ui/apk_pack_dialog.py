@@ -43,6 +43,11 @@ class ApkPackDialog(QDialog):
         self.pkg_edit.setPlaceholderText("com.example.myscript")
         form.addRow("包名", self.pkg_edit)
 
+        jiaoben_cfg = cfg.get("jiaoben") or {}
+        self.project_id_edit = QLineEdit(str(jiaoben_cfg.get("project_id") or ""))
+        self.project_id_edit.setPlaceholderText("在 jiaoben 管理端「脚本发版」中查看项目 ID")
+        form.addRow("发卡项目 ID", self.project_id_edit)
+
         icon_row = QHBoxLayout()
         self.icon_edit = QLineEdit((cfg.get("icon") or "").strip())
         self.icon_edit.setPlaceholderText("留空则使用默认猫咪图标")
@@ -65,10 +70,16 @@ class ApkPackDialog(QDialog):
         hint = QLabel("自定义图标会写入工程 icon.png，并用于桌面图标与悬浮球。")
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#64748B;font-size:12px;")
+        jiaoben_hint = QLabel(
+            "发卡项目 ID 用于脚本热更新发版归属；须与 jiaoben 管理端绑定该包名的项目一致。"
+        )
+        jiaoben_hint.setWordWrap(True)
+        jiaoben_hint.setStyleSheet("color:#64748B;font-size:12px;")
         preview_row = QHBoxLayout()
         preview_row.addWidget(self.preview)
         preview_row.addWidget(hint, 1)
         root.addLayout(preview_row)
+        root.addWidget(jiaoben_hint)
 
         self.icon_edit.textChanged.connect(self._refresh_preview)
         self._refresh_preview()
@@ -135,6 +146,10 @@ class ApkPackDialog(QDialog):
         if err:
             QMessageBox.warning(self, "提示", err)
             return
+        pid_text = self.project_id_edit.text().strip()
+        if pid_text and not pid_text.isdigit():
+            QMessageBox.warning(self, "提示", "发卡项目 ID 须为正整数")
+            return
         try:
             self._resolved_icon_path()
         except FileNotFoundError as exc:
@@ -143,11 +158,14 @@ class ApkPackDialog(QDialog):
         self.accept()
 
     def save_to_project(self) -> None:
+        pid_text = self.project_id_edit.text().strip()
+        jiaoben_project_id = int(pid_text) if pid_text else 0
         save_pack_metadata(
             self.project_dir,
             name=self.name_edit.text(),
             package_id=self.pkg_edit.text(),
             icon_text=self.icon_edit.text(),
+            jiaoben_project_id=jiaoben_project_id,
         )
 
     @staticmethod

@@ -14,6 +14,8 @@ data class UpdateConfig(
     val enabled: Boolean = false,
     val manifestUrl: String = "",
     val checkOnStart: Boolean = true,
+    val allowLocalImport: Boolean = true,
+    val channel: String = "default",
 )
 
 data class ScheduleConfig(

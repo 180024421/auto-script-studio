@@ -14,6 +14,7 @@ import com.autoscript.core.log.ScriptStatus
 import com.autoscript.core.script.ScriptCancelToken
 import com.autoscript.core.license.LicenseVerifier
 import com.autoscript.core.project.ProjectAssets
+import com.autoscript.core.update.UpdatePreferences
 import com.autoscript.script.ScriptRuntime
 import com.autoscript.script.ScriptRuntimeFactory
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +34,7 @@ class ScriptRunnerService : Service() {
         when (intent?.action) {
             ACTION_START -> startRunning()
             ACTION_STOP -> stopRunning()
+            ACTION_UPDATE_CHECK -> checkUpdateOnly()
         }
         return START_NOT_STICKY
     }
@@ -43,7 +45,7 @@ class ScriptRunnerService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification("脚本运行中"))
         val assets = ProjectAssets(this)
         val config = assets.loadConfig()
-        if (config.update.checkOnStart) {
+        if (UpdatePreferences.isCheckEnabled(this) && UpdatePreferences.isAutoInstall(this)) {
             assets.checkForUpdates()
         }
         val verifier = LicenseVerifier(this, config.license, config.packageId)
@@ -75,6 +77,15 @@ class ScriptRunnerService : Service() {
                 stopSelf()
             }
         }
+    }
+
+    private fun checkUpdateOnly() {
+        val assets = ProjectAssets(this)
+        val updated = assets.checkForUpdates()
+        val msg = if (updated) "脚本热更新完成" else "无可用更新"
+        ScriptLog.i(msg)
+        MainActivity.logSink?.invoke(msg) ?: OverlayLog.notify(msg)
+        stopSelf()
     }
 
     private fun stopRunning() {
@@ -109,6 +120,7 @@ class ScriptRunnerService : Service() {
     companion object {
         const val ACTION_START = "com.autoscript.runtime.START"
         const val ACTION_STOP = "com.autoscript.runtime.STOP"
+        const val ACTION_UPDATE_CHECK = "com.autoscript.runtime.UPDATE_CHECK"
         private const val NOTIFICATION_ID = 1001
     }
 }

@@ -71,6 +71,8 @@ class ProjectAssets(private val context: Context) {
                 enabled = updateObj?.optBoolean("enabled", false) ?: false,
                 manifestUrl = updateObj?.optString("manifest_url", "") ?: "",
                 checkOnStart = updateObj?.optBoolean("check_on_start", true) ?: true,
+                allowLocalImport = updateObj?.optBoolean("allow_local_import", true) ?: true,
+                channel = updateObj?.optString("channel", "default") ?: "default",
             ),
             schedule = ScheduleConfig(
                 enabled = scheduleObj?.optBoolean("enabled", false) ?: false,
@@ -88,10 +90,42 @@ class ProjectAssets(private val context: Context) {
 
     fun checkForUpdates(): Boolean {
         val cfg = loadConfig()
-        if (!cfg.update.enabled || !cfg.update.checkOnStart) return false
         val mgr = ProjectUpdateManager(context, cfg.update, cfg.versionCode)
         updateManager = mgr
+        if (!mgr.isActive()) return false
         return mgr.maybeUpdate()
+    }
+
+    fun peekAvailableUpdate(): org.json.JSONObject? {
+        val cfg = loadConfig()
+        val mgr = updateManager ?: ProjectUpdateManager(context, cfg.update, cfg.versionCode).also { updateManager = it }
+        return mgr.peekAvailableUpdate()
+    }
+
+    fun applyAvailableUpdate(manifest: org.json.JSONObject): Boolean {
+        val cfg = loadConfig()
+        val mgr = updateManager ?: ProjectUpdateManager(context, cfg.update, cfg.versionCode).also { updateManager = it }
+        return mgr.applyManifest(manifest)
+    }
+
+    fun importUpdateZip(zipFile: File): Boolean {
+        val cfg = loadConfig()
+        val mgr = ProjectUpdateManager(context, cfg.update, cfg.versionCode)
+        updateManager = mgr
+        return mgr.importLocalZip(zipFile)
+    }
+
+    fun clearUpdateOverlay(): Boolean {
+        val cfg = loadConfig()
+        val mgr = updateManager ?: ProjectUpdateManager(context, cfg.update, cfg.versionCode)
+        updateManager = mgr
+        return mgr.clearOverlay()
+    }
+
+    fun overlayVersionInfo(): Pair<Int, String> {
+        val cfg = loadConfig()
+        val mgr = updateManager ?: ProjectUpdateManager(context, cfg.update, cfg.versionCode)
+        return mgr.effectiveVersionCode() to mgr.overlayVersionName()
     }
 
     fun readEntryYaml(): String = readText(loadConfig().entry)

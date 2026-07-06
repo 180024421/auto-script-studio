@@ -24,6 +24,11 @@ android {
         versionCode = propInt("versionCode", 1)
         versionName = prop("versionName", "1.0.0")
 
+        val jiaobenApiBase = prop("jiaobenApiBase", "http://111.229.202.251:8687")
+        val jiaobenProjectId = propInt("jiaobenProjectId", 0)
+        buildConfigField("String", "JIAOBEN_API_BASE", "\"${jiaobenApiBase.replace("\"", "\\\"")}\"")
+        buildConfigField("int", "JIAOBEN_PROJECT_ID", jiaobenProjectId.toString())
+
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
@@ -64,6 +69,9 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    buildFeatures {
+        buildConfig = true
+    }
     kotlinOptions {
         jvmTarget = "17"
     }
@@ -91,5 +99,8 @@ dependencies {
     implementation(project(":script"))
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("androidx.activity:activity-ktx:1.8.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
 }

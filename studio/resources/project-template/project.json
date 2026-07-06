@@ -16,10 +16,14 @@
     }
   },
   "license": {
-    "enabled": false,
-    "api_base": "",
+    "enabled": true,
+    "api_base": "http://111.229.202.251:8687",
     "app_name": "",
     "skip_on_offline": false
+  },
+  "jiaoben": {
+    "project_id": 0,
+    "api_base": "http://111.229.202.251:8687"
   },
   "update": {
     "enabled": false,

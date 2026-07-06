@@ -93,6 +93,26 @@ def main(argv: list[str] | None = None) -> int:
     p_validate = sub.add_parser("validate", help="校验工程")
     p_validate.add_argument("project", type=Path)
 
+    p_publish = sub.add_parser("publish-update", help="发布脚本热更新 zip + manifest.json")
+    p_publish.add_argument("project", type=Path, help="脚本工程目录")
+    p_publish.add_argument("-o", "--output", type=Path, required=True, help="输出目录")
+    p_publish.add_argument("--bump", type=int, default=None, help="指定 version_code（默认 project+1）")
+    p_publish.add_argument(
+        "--scc-packages",
+        type=Path,
+        help="发布到 SCC packages/<id>/apk_updates/，值为 SCC packages 根目录",
+    )
+    p_publish.add_argument("--scc-id", type=str, default="", help="SCC 包 ID（默认用 package_id）")
+    p_publish.add_argument(
+        "--jiaoben",
+        type=str,
+        default="",
+        help="发布到 run-jane-script jiaoben（填 api_base，如 http://111.229.202.251:8687）",
+    )
+    p_publish.add_argument("--changelog", type=str, default="", help="更新说明")
+    p_publish.add_argument("--publish-token", type=str, default="", help="X-Script-Update-Token")
+    p_publish.add_argument("--project-id", type=int, default=None, help="发卡项目 ID（默认读 project.json jiaoben.project_id）")
+
     args = parser.parse_args(argv)
     if args.cmd == "validate":
         cfg = validate_project(args.project)
@@ -108,6 +128,35 @@ def main(argv: list[str] | None = None) -> int:
                 "key_pass": args.key_pass or args.ks_pass,
             }
         build(args.project, args.output, release=args.release, signing=signing)
+        return 0
+    if args.cmd == "publish-update":
+        from packager.publish_update import build_update_zip, publish_for_scc, publish_to_jiaoben
+
+        if args.jiaoben:
+            cfg = read_project_cfg(args.project)
+            api_base = args.jiaoben or str((cfg.get("license") or {}).get("api_base", ""))
+            manifest = publish_to_jiaoben(
+                args.project,
+                api_base,
+                bump_version=args.bump,
+                changelog=args.changelog,
+                publish_token=args.publish_token,
+                project_id=args.project_id,
+            )
+            print("jiaoben 热更新已发布:", json.dumps(manifest, ensure_ascii=False, indent=2))
+            return 0
+        if args.scc_packages:
+            cfg = read_project_cfg(args.project)
+            key = args.scc_id or str(cfg.get("package_id", "demo"))
+            manifest = publish_for_scc(args.project, args.scc_packages, key)
+            print("SCC 热更新已发布:", json.dumps(manifest, ensure_ascii=False, indent=2))
+            return 0
+        zip_path, manifest_path, manifest = build_update_zip(
+            args.project, args.output, bump_version=args.bump
+        )
+        print(f"zip: {zip_path}")
+        print(f"manifest: {manifest_path}")
+        print(json.dumps(manifest, ensure_ascii=False, indent=2))
         return 0
     return 1
 

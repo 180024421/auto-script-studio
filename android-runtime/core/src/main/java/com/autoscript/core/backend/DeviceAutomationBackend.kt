@@ -22,7 +22,7 @@ class DeviceAutomationBackend(private val config: ProjectConfig) : AutomationBac
 
     init {
         val rootOk = RootShell.isAvailable()
-        val shizukuOk = mode == "shizuku" && ShizukuInputBackend.isAvailable()
+        val shizukuOk = mode == "shizuku" && ShizukuInputBackend.isReady()
         useShizukuInput = shizukuOk
         useRootInput = when (mode) {
             "shizuku" -> shizukuOk || rootOk
@@ -36,7 +36,7 @@ class DeviceAutomationBackend(private val config: ProjectConfig) : AutomationBac
             else -> rootOk
         }
         when {
-            useShizukuInput -> ScriptLog.i("input_mode=$mode → Shizuku 触控（骨架）")
+            useShizukuInput -> ScriptLog.i("input_mode=$mode → Shizuku 触控")
             useRootInput || useRootCapture -> ScriptLog.i("input_mode=$mode → 使用 root（input=$useRootInput capture=$useRootCapture）")
             else -> ScriptLog.i("input_mode=$mode → 使用无障碍/录屏")
         }
@@ -97,10 +97,10 @@ class DeviceAutomationBackend(private val config: ProjectConfig) : AutomationBac
         } else {
             CaptureSession.isActive()
         }
-        val inputOk = if (useRootInput) {
-            RootShell.isAvailable()
-        } else {
-            AutomationAccessibilityService.isConnected()
+        val inputOk = when {
+            useShizukuInput -> ShizukuInputBackend.isReady()
+            useRootInput -> RootShell.isAvailable()
+            else -> AutomationAccessibilityService.isConnected()
         }
         return captureOk && inputOk
     }
