@@ -11,6 +11,7 @@ from PySide6.QtGui import QCloseEvent, QFont, QGuiApplication, QKeySequence, QPi
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
@@ -53,7 +54,11 @@ from studio.ui.page_shell import (
 from studio.services.adb_service import AdbService
 from studio.services.async_command import AsyncCommand
 from studio.ui.apk_pack_dialog import ApkPackDialog
-from packager.pack_metadata import save_pack_metadata, validate_pack_fields
+from studio.ui.publish_update_dialog import PublishUpdateDialog
+from studio.services.pack_preflight import validate_before_pack
+from studio.services.runtime_presets import PRESETS, apply_preset
+from studio.services.jiaoben_api import fetch_projects_for_combo
+from packager.pack_metadata import read_project_cfg, save_pack_metadata, validate_pack_fields
 from packager.icon_processor import resolve_icon_source
 from studio.runtime.panel_state import PanelState
 from studio.services.project_persistence import (
@@ -206,6 +211,7 @@ class MainWindow(QMainWindow):
             ("YAML→Lua", self.convert_yaml_to_lua, "ghost"),
             ("打包 APK", self.build_apk, "accent"),
             ("打包安装", self.build_and_install, "primary"),
+            ("发布热更新", self.publish_hot_update, "ghost"),
         ):
             btn = QPushButton(text)
             set_button_role(btn, role)
@@ -225,6 +231,10 @@ class MainWindow(QMainWindow):
         self.pack_pkg_edit = QLineEdit()
         self.pack_pkg_edit.setPlaceholderText("com.example.myscript")
         pack_form.addRow("包名", self.pack_pkg_edit)
+        self.pack_project_combo = QComboBox()
+        self.pack_project_combo.setEditable(True)
+        self.pack_project_combo.setPlaceholderText("jiaoben 发卡项目")
+        pack_form.addRow("发卡项目", self.pack_project_combo)
         icon_row = QHBoxLayout()
         self.pack_icon_edit = QLineEdit()
         self.pack_icon_edit.setPlaceholderText("留空=默认图标；可点右侧选择")
@@ -253,6 +263,18 @@ class MainWindow(QMainWindow):
         set_button_role(save_pack_btn, "ghost")
         save_pack_btn.clicked.connect(lambda: self._save_pack_fields(show_ok=True))
         left_lay.addWidget(save_pack_btn)
+
+        left_lay.addWidget(section_title("性能预设"))
+        preset_row = QHBoxLayout()
+        for key, preset in PRESETS.items():
+            btn = QPushButton(str(preset["label"]).split("（")[0])
+            set_button_role(btn, "ghost")
+            btn.clicked.connect(lambda _c=False, k=key: self._apply_runtime_preset(k))
+            preset_row.addWidget(btn)
+        preset_wrap = QWidget()
+        preset_wrap.setLayout(preset_row)
+        left_lay.addWidget(preset_wrap)
+
         self.pack_icon_edit.textChanged.connect(self._refresh_pack_icon_preview)
 
         left_scroll = scroll_side_panel(left, min_width=260)
@@ -723,6 +745,66 @@ class MainWindow(QMainWindow):
         self._set_project(project)
         self.append(f"已导入并打开工程: {project}")
 
+    def _refresh_jiaoben_projects(self) -> None:
+        if not self.project_dir:
+            return
+        try:
+            cfg = read_project_cfg(self.project_dir)
+        except Exception:
+            return
+        current = str((cfg.get("jiaoben") or {}).get("project_id") or "")
+        self.pack_project_combo.blockSignals(True)
+        self.pack_project_combo.clear()
+        self.pack_project_combo.addItem("（手动输入 ID）", 0)
+        for pid, label in fetch_projects_for_combo(cfg):
+            self.pack_project_combo.addItem(label, pid)
+        if current:
+            idx = self.pack_project_combo.findData(int(current))
+            if idx >= 0:
+                self.pack_project_combo.setCurrentIndex(idx)
+            else:
+                self.pack_project_combo.setEditText(current)
+        self.pack_project_combo.blockSignals(False)
+
+    def _apply_runtime_preset(self, key: str) -> None:
+        if not self._require_project():
+            return
+        try:
+            label = apply_preset(self.project_dir, key)
+        except Exception as exc:
+            QMessageBox.warning(self, "预设失败", str(exc))
+            return
+        self.append(f"已应用性能预设: {label}")
+        QMessageBox.information(self, "完成", f"已写入 project.json runtime\n{label}")
+
+    def publish_hot_update(self) -> None:
+        if not self._require_project():
+            return
+        dlg = PublishUpdateDialog(self, self.project_dir)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            manifest = dlg.publish()
+        except Exception as exc:
+            QMessageBox.warning(self, "发版失败", str(exc))
+            return
+        self.append(f"jiaoben 热更新已发布: v{manifest.get('version_code', '?')}")
+        QMessageBox.information(self, "发版成功", f"已发布 v{manifest.get('version_code')}")
+
+    def _run_pack_preflight(self) -> bool:
+        issues = validate_before_pack(self.project_dir)
+        if not issues:
+            return True
+        msg = "\n".join(f"• {x}" for x in issues)
+        ans = QMessageBox.question(
+            self,
+            "打包预检",
+            f"发现以下问题，仍要继续打包吗？\n\n{msg}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return ans == QMessageBox.StandardButton.Yes
+
     def _load_pack_fields(self) -> None:
         if not self.project_dir or not (self.project_dir / "project.json").is_file():
             self.pack_name_edit.clear()
@@ -730,6 +812,8 @@ class MainWindow(QMainWindow):
             self.pack_icon_edit.clear()
             self.pack_icon_preview.clear()
             self.pack_show_log_cb.setChecked(False)
+            if hasattr(self, "pack_project_combo"):
+                self.pack_project_combo.clear()
             return
         name, pkg, icon = ApkPackDialog.load_fields(self.project_dir)
         self.pack_name_edit.setText(name)
@@ -743,6 +827,7 @@ class MainWindow(QMainWindow):
         except Exception:
             self.pack_show_log_cb.setChecked(False)
         self._refresh_pack_icon_preview()
+        self._refresh_jiaoben_projects()
 
     def _refresh_pack_icon_preview(self) -> None:
         if not self.project_dir:
@@ -796,11 +881,16 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "应用信息不完整", err)
             return False
         try:
+            pid = int(self.pack_project_combo.currentData() or 0)
+            if pid <= 0:
+                text = self.pack_project_combo.currentText().strip()
+                pid = int(text) if text.isdigit() else 0
             save_pack_metadata(
                 self.project_dir,
                 name=self.pack_name_edit.text(),
                 package_id=self.pack_pkg_edit.text(),
                 icon_text=self.pack_icon_edit.text(),
+                jiaoben_project_id=pid if pid > 0 else 0,
             )
             from studio.services.layout_defaults import load_layout, save_layout
 
@@ -1031,6 +1121,8 @@ class MainWindow(QMainWindow):
         self._save_all_before_build()
         if not self._confirm_pack_metadata():
             return
+        if not self._run_pack_preflight():
+            return
         out, _ = QFileDialog.getSaveFileName(self, "输出 APK", "", "APK (*.apk)")
         if not out:
             return
@@ -1052,6 +1144,8 @@ class MainWindow(QMainWindow):
             return
         self._save_all_before_build()
         if not self._confirm_pack_metadata():
+            return
+        if not self._run_pack_preflight():
             return
         DIST = ROOT / "dist"
         DIST.mkdir(parents=True, exist_ok=True)
@@ -1146,6 +1240,7 @@ class MainWindow(QMainWindow):
                 self._start_pack_install()
             else:
                 self._finish_pack_task(True, "完成")
+                self._offer_publish_after_pack()
             return
         if phase == "install":
             if code != 0:
@@ -1160,6 +1255,7 @@ class MainWindow(QMainWindow):
                 self._finish_pack_task(True, f"已安装并启动: {name}")
             else:
                 self._finish_pack_task(True, f"已安装（启动退出码 {code}）: {name}")
+            self._offer_publish_after_pack()
             return
         if phase == "yaml_lua":
             self._set_pack_busy(False)
@@ -1174,6 +1270,19 @@ class MainWindow(QMainWindow):
         self._pack_phase = ""
         self._set_pack_busy(False)
         self.append("完成" if code == 0 else f"退出码 {code}")
+
+    def _offer_publish_after_pack(self) -> None:
+        if not self.project_dir:
+            return
+        ans = QMessageBox.question(
+            self,
+            "发布热更新",
+            "APK 已打包完成。是否立即发布脚本热更新到 jiaoben？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if ans == QMessageBox.StandardButton.Yes:
+            self.publish_hot_update()
 
     def _require_project(self) -> bool:
         if self.project_dir and (self.project_dir / "project.json").is_file():

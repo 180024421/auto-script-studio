@@ -4,6 +4,7 @@ import com.autoscript.core.accessibility.AutomationAccessibilityService
 import com.autoscript.core.capture.CaptureSession
 import com.autoscript.core.log.ScriptLog
 import com.autoscript.core.model.ScreenFrame
+import com.autoscript.core.perf.PerfMonitor
 import com.autoscript.core.project.ProjectConfig
 import com.autoscript.core.root.RootInput
 import com.autoscript.core.root.RootScreenCapture
@@ -11,11 +12,13 @@ import com.autoscript.core.root.RootShell
 import com.autoscript.core.root.ShizukuInputBackend
 
 /**
- * 统一自动化后端：支持无障碍 / root / auto（优先 root）。
+ * 统一自动化后端：输入（点击/滑动）与截屏可独立配置。
+ * screenshot_mode 为 media_projection / accessibility 时，即使 auto/root 也不走 su screencap。
  */
 class DeviceAutomationBackend(private val config: ProjectConfig) : AutomationBackend {
 
     private val mode: String = config.inputMode.lowercase()
+    private val screenshotMode: String = config.screenshotMode.lowercase()
     private val useShizukuInput: Boolean
     private val useRootInput: Boolean
     private val useRootCapture: Boolean
@@ -28,31 +31,46 @@ class DeviceAutomationBackend(private val config: ProjectConfig) : AutomationBac
             "shizuku" -> shizukuOk || rootOk
             "root" -> rootOk
             "accessibility" -> false
-            else -> rootOk // auto
-        }
-        useRootCapture = when (mode) {
-            "root", "shizuku" -> rootOk
-            "accessibility" -> false
             else -> rootOk
         }
-        when {
-            useShizukuInput -> ScriptLog.i("input_mode=$mode → Shizuku 触控")
-            useRootInput || useRootCapture -> ScriptLog.i("input_mode=$mode → 使用 root（input=$useRootInput capture=$useRootCapture）")
-            else -> ScriptLog.i("input_mode=$mode → 使用无障碍/录屏")
+        useRootCapture = when (screenshotMode) {
+            "media_projection", "accessibility" -> false
+            else -> when (mode) {
+                "root", "shizuku" -> rootOk
+                "accessibility" -> false
+                else -> rootOk
+            }
         }
+        val captureLabel = when {
+            useRootCapture -> "root screencap"
+            screenshotMode == "accessibility" -> "无障碍截图"
+            else -> "MediaProjection"
+        }
+        val inputLabel = when {
+            useShizukuInput -> "Shizuku"
+            useRootInput -> "root input"
+            else -> "无障碍手势"
+        }
+        ScriptLog.i("input_mode=$mode screenshot_mode=$screenshotMode → 点击:$inputLabel 截屏:$captureLabel")
     }
 
     override suspend fun capture(): ScreenFrame {
+        val t0 = System.nanoTime()
+        val frame = captureInternal()
+        PerfMonitor.recordCapture((System.nanoTime() - t0) / 1_000_000)
+        return frame
+    }
+
+    private suspend fun captureInternal(): ScreenFrame {
         if (useRootCapture) {
             val frame = RootScreenCapture.captureFrame()
             if (frame != null) return frame
-            if (mode == "root") {
+            if (mode == "root" || screenshotMode == "root") {
                 throw IllegalStateException("root 截屏失败，请确认 su 权限")
             }
         }
-        val frame = CaptureSession.captureFrame()
+        return CaptureSession.captureFrame()
             ?: throw IllegalStateException("截屏失败，请授权录屏或开启无障碍截图")
-        return frame
     }
 
     override suspend fun tap(x: Int, y: Int) {
@@ -105,9 +123,22 @@ class DeviceAutomationBackend(private val config: ProjectConfig) : AutomationBac
         return captureOk && inputOk
     }
 
-    fun needsAccessibility(): Boolean = !useRootInput
+    fun needsAccessibility(): Boolean =
+        screenshotMode == "accessibility" || (!useRootInput && !useShizukuInput) || screenshotMode == "accessibility"
     fun needsMediaProjection(): Boolean = !useRootCapture && CaptureSession.needsMediaProjection()
     fun usingRoot(): Boolean = useRootInput || useRootCapture
+
+    fun captureModeLabel(): String = when {
+        useRootCapture -> "root"
+        screenshotMode == "accessibility" -> "accessibility"
+        else -> "projection"
+    }
+
+    fun inputModeLabel(): String = when {
+        useShizukuInput -> "shizuku"
+        useRootInput -> "root"
+        else -> "accessibility"
+    }
 
     private fun requireA11y(): AutomationAccessibilityService =
         AutomationAccessibilityService.get()

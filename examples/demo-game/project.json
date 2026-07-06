@@ -13,13 +13,15 @@
   },
   "runtime": {
     "default_interval_ms": 300,
-    "default_yolo_conf": 0.35,
+    "default_yolo_conf": 0.4,
     "ocr_mode": "lazy",
-    "input_mode": "auto",
-    "screenshot_mode": "accessibility",
+    "input_mode": "root",
+    "screenshot_mode": "media_projection",
     "perf": {
       "opencv_mobile": false,
-      "yolo_nnapi": false
+      "yolo_nnapi": true,
+      "yolo_imgsz": 320,
+      "capture_cache_ttl_ms": 80
     }
   },
   "license": {

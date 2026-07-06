@@ -143,6 +143,18 @@
             android:layout_height="wrap_content"
             android:text="检测到更新后自动安装" />
 
+        <CheckBox
+            android:id="@+id/chkWifiOnly"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="仅 WiFi 下检测/下载更新" />
+
+        <CheckBox
+            android:id="@+id/chkSilentNight"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="夜间免打扰（23:00–07:00 不弹窗）" />
+
         <Button
             android:id="@+id/btnCheckUpdate"
             style="@style/Widget.AutoScript.Button.Secondary"
@@ -158,5 +170,25 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="导入本地更新包 (.zip)" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="8dp"
+            android:text="性能统计（最近一次）"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/perfStatsText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/log_panel"
+            android:lineSpacingExtra="4dp"
+            android:padding="12dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
     </LinearLayout>
 </ScrollView>

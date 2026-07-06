@@ -83,7 +83,9 @@ class ProjectAssets(private val context: Context) {
             ),
             perf = PerfConfig(
                 opencvMobile = perfObj?.optBoolean("opencv_mobile", false) ?: false,
-                yoloNnapi = perfObj?.optBoolean("yolo_nnapi", false) ?: false,
+                yoloNnapi = perfObj?.optBoolean("yolo_nnapi", true) ?: true,
+                yoloImgsz = perfObj?.optInt("yolo_imgsz", 320) ?: 320,
+                captureCacheTtlMs = perfObj?.optLong("capture_cache_ttl_ms", 80L) ?: 80L,
             ),
         )
     }

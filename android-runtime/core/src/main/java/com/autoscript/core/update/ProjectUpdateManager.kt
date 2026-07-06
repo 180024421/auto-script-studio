@@ -48,6 +48,11 @@ class ProjectUpdateManager(
         if (url.isBlank()) return null
         return try {
             val manifest = fetchManifest(url) ?: return null
+            UpdateReporter.reportScriptVersion(
+                context,
+                effectiveVersionCode(),
+                overlayVersionName(),
+            )
             val remoteVer = manifest.optInt("version_code", 0)
             if (remoteVer <= 0 || remoteVer <= effectiveVersionCode()) return null
             val minApk = manifest.optInt("min_apk_version", 0)

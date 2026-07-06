@@ -46,10 +46,19 @@
         },
         "screenshot_mode": {
           "type": "string",
-          "enum": ["media_projection", "accessibility"],
+          "enum": ["media_projection", "accessibility", "root"],
           "default": "media_projection"
         },
-        "auto_run": { "type": "boolean", "default": false }
+        "auto_run": { "type": "boolean", "default": false },
+        "perf": {
+          "type": "object",
+          "properties": {
+            "yolo_nnapi": { "type": "boolean", "default": true },
+            "yolo_imgsz": { "type": "integer", "default": 320 },
+            "capture_cache_ttl_ms": { "type": "integer", "default": 80 },
+            "opencv_mobile": { "type": "boolean", "default": false }
+          }
+        }
       }
     }
   }

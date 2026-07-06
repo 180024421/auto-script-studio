@@ -29,7 +29,13 @@ class LuaScriptEngine(
         if (!config.usesLua()) {
             throw IllegalStateException("工程 entry 不是 Lua: ${config.entry}")
         }
-        vision = VisionEngine(assets, assets.appContext(), config.ocrMode, perf = config.perf)
+        vision = VisionEngine(
+            assets,
+            assets.appContext(),
+            config.ocrMode,
+            yoloImgsz = config.perf.yoloImgsz,
+            perf = config.perf,
+        )
         bridge = AutoScriptBridge(backend, vision, config, onLog, config.defaultYoloModel)
         val source = assets.readEntryScript()
         onLog("开始 Lua: ${config.entry}")

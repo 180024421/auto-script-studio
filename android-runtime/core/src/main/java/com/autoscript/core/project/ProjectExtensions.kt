@@ -30,5 +30,7 @@ data class BootConfig(
 
 data class PerfConfig(
     val opencvMobile: Boolean = false,
-    val yoloNnapi: Boolean = false,
+    val yoloNnapi: Boolean = true,
+    val yoloImgsz: Int = 320,
+    val captureCacheTtlMs: Long = 80,
 )

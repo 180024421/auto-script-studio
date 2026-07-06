@@ -21,6 +21,7 @@ import com.autoscript.core.license.LicenseVerifier
 import com.autoscript.core.project.ProjectAssets
 import com.autoscript.core.root.RootShell
 import com.autoscript.core.root.ShizukuInputBackend
+import com.autoscript.core.update.UpdateNetwork
 import com.autoscript.core.update.UpdatePreferences
 import com.autoscript.core.update.UpdateServer
 import com.autoscript.runtime.shizuku.ShizukuShell
@@ -255,6 +256,7 @@ class MainActivity : AppCompatActivity() {
     private fun scheduleBuiltinUpdateCheck() {
         if (updateCheckRunning || !UpdateServer.isConfigured()) return
         if (!UpdatePreferences.isCheckEnabled(this)) return
+        if (!UpdateNetwork.canCheckNow(this)) return
         updateCheckRunning = true
         Thread {
             try {
@@ -286,7 +288,11 @@ class MainActivity : AppCompatActivity() {
         if (!manual && remoteVer <= UpdatePreferences.declinedVersion(this)) {
             return
         }
+        if (!manual && !UpdateNetwork.canCheckNow(this)) {
+            return
+        }
         if (!manual && updateDialogShown) return
+        if (!manual) UpdatePreferences.setPendingUpdateBadge(this, true)
         runOnUiThread { showUpdateDialog(manifest, remoteVer) }
     }
 
@@ -316,6 +322,7 @@ class MainActivity : AppCompatActivity() {
                     }.getOrDefault(false)
                     runOnUiThread {
                         appendLog(if (ok) "脚本已更新到 v$remoteVer" else "更新失败")
+                        if (ok) UpdatePreferences.setPendingUpdateBadge(this, false)
                         refreshStatus()
                     }
                 }.start()

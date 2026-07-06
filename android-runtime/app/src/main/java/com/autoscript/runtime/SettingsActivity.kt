@@ -16,6 +16,7 @@ import com.autoscript.core.capture.CaptureSession
 import com.autoscript.core.capture.ScreenCaptureManager
 import com.autoscript.core.license.LicenseStore
 import com.autoscript.core.license.LicenseVerifier
+import com.autoscript.core.perf.PerfMonitor
 import com.autoscript.core.project.ProjectAssets
 import com.autoscript.core.root.RootShell
 import com.autoscript.core.root.ShizukuInputBackend
@@ -30,6 +31,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var capture: ScreenCaptureManager
     private lateinit var authStatusText: TextView
     private lateinit var updateServerText: TextView
+    private lateinit var perfStatsText: TextView
     private var updateDialogShown = false
 
     private val importZipLauncher = registerForActivityResult(
@@ -64,6 +66,7 @@ class SettingsActivity : AppCompatActivity() {
 
         authStatusText = findViewById(R.id.authStatusText)
         updateServerText = findViewById(R.id.updateServerText)
+        perfStatsText = findViewById(R.id.perfStatsText)
 
         findViewById<ImageButton>(R.id.btnBack).setOnClickListener { finish() }
         findViewById<Button>(R.id.btnAccessibility).setOnClickListener {
@@ -100,6 +103,20 @@ class SettingsActivity : AppCompatActivity() {
                 UpdatePreferences.setAutoInstall(this@SettingsActivity, checked)
             }
         }
+        findViewById<CheckBox>(R.id.chkWifiOnly)?.apply {
+            isChecked = UpdatePreferences.isWifiOnly(this@SettingsActivity)
+            setOnCheckedChangeListener { _, checked ->
+                UpdatePreferences.setWifiOnly(this@SettingsActivity, checked)
+            }
+        }
+        findViewById<CheckBox>(R.id.chkSilentNight)?.apply {
+            val (start, end) = UpdatePreferences.silentHours(this@SettingsActivity)
+            isChecked = start == 23 && end == 7
+            setOnCheckedChangeListener { _, checked ->
+                if (checked) UpdatePreferences.setSilentHours(this@SettingsActivity, 23, 7)
+                else UpdatePreferences.setSilentHours(this@SettingsActivity, -1, -1)
+            }
+        }
 
         refreshUpdateServerHint()
         ShizukuShell.init()
@@ -108,6 +125,15 @@ class SettingsActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshAuthStatus()
+        refreshPerfStats()
+    }
+
+    private fun refreshPerfStats() {
+        val backend = DeviceAutomationBackend(ProjectAssets(this).loadConfig())
+        perfStatsText.text = buildString {
+            appendLine("点击: ${backend.inputModeLabel()} · 截屏: ${backend.captureModeLabel()}")
+            append(PerfMonitor.summary())
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

@@ -3,7 +3,7 @@ package com.autoscript.script.lua
 import com.autoscript.core.accessibility.AccessibilityFinder
 import com.autoscript.core.backend.AutomationBackend
 import com.autoscript.core.capture.CaptureCache
-import com.autoscript.core.model.Detection
+import com.autoscript.core.perf.PerfMonitor
 import com.autoscript.core.model.Rect
 import com.autoscript.core.project.ProjectConfig
 import com.autoscript.core.script.ScriptCancelToken
@@ -21,7 +21,7 @@ class AutoScriptBridge(
     private val onLog: (String) -> Unit,
     private val defaultYoloModel: String? = null,
 ) {
-    private val captureCache = CaptureCache()
+    private val captureCache = CaptureCache(config.perf.captureCacheTtlMs)
 
     suspend fun delaySeconds(seconds: Double) {
         val total = (seconds * 1000).toLong().coerceAtLeast(0)
@@ -118,8 +118,10 @@ class AutoScriptBridge(
         val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
         while (System.currentTimeMillis() < deadline) {
             ScriptCancelToken.check()
+            val t0 = System.nanoTime()
             val frame = captureCache.getOrCapture { backend.capture() }
             val hits = vision.findText(frame, target, mode, roi, minConf)
+            PerfMonitor.recordOcr((System.nanoTime() - t0) / 1_000_000)
             if (hits.isNotEmpty()) {
                 val h = hits[index.coerceIn(0, hits.lastIndex)]
                 onLog("识字命中 ${h.text}")
@@ -183,8 +185,11 @@ class AutoScriptBridge(
         val className = LuaOpts.str(opts, "class_name", "")
         val conf = LuaOpts.float(opts, "conf", config.defaultYoloConf)
         val roi = LuaOpts.roi(opts)
+        val t0 = System.nanoTime()
         val frame = captureCache.getOrCapture { backend.capture() }
-        return vision.yoloDetect(frame, model, conf, className, roi)
+        val dets = vision.yoloDetect(frame, model, conf, className, roi)
+        PerfMonitor.recordYolo((System.nanoTime() - t0) / 1_000_000)
+        return dets
     }
 
     suspend fun findYolo(opts: Map<String, Any?>): Pair<Int, Int>? {

@@ -65,6 +65,7 @@ from studio.services.yolo_models import (
 class ScreenshotLabel(QLabel):
     clicked = Signal(int, int)
     selected = Signal(int, int, int, int)
+    ocr_hit_clicked = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -219,6 +220,17 @@ class ScreenshotLabel(QLabel):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self._origin is not None and self._ocr_hits and event.button() == Qt.MouseButton.LeftButton:
+            if self._drag_start is not None:
+                start = self._to_image_xy(self._drag_start)
+                end = self._to_image_xy(event.position().toPoint())
+                if abs(start[0] - end[0]) <= 8 and abs(start[1] - end[1]) <= 8:
+                    for hit in self._ocr_hits:
+                        hx = getattr(hit, "center_x", hit.get("x", 0) if isinstance(hit, dict) else 0)
+                        hy = getattr(hit, "center_y", hit.get("y", 0) if isinstance(hit, dict) else 0)
+                        if abs(hx - end[0]) <= 28 and abs(hy - end[1]) <= 28:
+                            self.ocr_hit_clicked.emit(str(getattr(hit, "text", hit.get("text", ""))))
+                            break
         if self._selection and self._selection[2] > 2 and self._selection[3] > 2:
             self.selected.emit(*self._selection)
         self._drag_start = None
@@ -310,6 +322,7 @@ class GrabWidget(QWidget):
         self.canvas = ScreenshotLabel()
         self.canvas.clicked.connect(self._on_pixel)
         self.canvas.selected.connect(self._on_selected)
+        self.canvas.ocr_hit_clicked.connect(self._on_ocr_hit_clicked)
         canvas_lay.addWidget(self.canvas, 1)
         center_lay.addWidget(canvas_wrap, 1)
         self.local_log = QTextEdit()
@@ -1092,7 +1105,7 @@ class GrabWidget(QWidget):
         if target:
             self._log(f"识字「{target}」({match_mode}) 命中 {len(hits)} 处")
         else:
-            self._log(f"全量识字 {len(hits)} 条（可在上方输入目标文字后重试）")
+            self._log(f"全量识字 {len(hits)} 条（点击绿框可插入 findText 脚本）")
         if roi:
             self._log(f"  识别范围 ROI={roi}")
         if not hits:
@@ -1112,7 +1125,14 @@ class GrabWidget(QWidget):
         elif hits:
             snippet = lua_snippets.find_text(hits[0].text, match_mode="contains")
             self._prepare_script(snippet, f"已按首条命中生成脚本: {hits[0].text}")
-        QMessageBox.information(self, "识字完成", f"共 {len(hits)} 处命中，绿框已标在截图上")
+        QMessageBox.information(self, "识字完成", f"共 {len(hits)} 处命中，点击绿框可插入脚本")
+
+    def _on_ocr_hit_clicked(self, text: str) -> None:
+        if not text.strip():
+            return
+        match_mode = str(self.ocr_mode_combo.currentData() or "contains")
+        snippet = lua_snippets.find_text(text.strip(), match_mode=match_mode)
+        self._prepare_script(snippet, f"已插入识字脚本: {text.strip()}")
 
     def copy_ocr_hit_script(self) -> None:
         hits = self._last_ocr_hits

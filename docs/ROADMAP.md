@@ -1,38 +1,34 @@
 # 开发路线图
 
+## 已完成（v0.4）
+
+- [x] 截屏与点击分离（`input_mode` + `screenshot_mode`）
+- [x] YOLO 性能预设、`yolo_imgsz` / `yolo_nnapi` / 帧缓存 TTL
+- [x] APK 设置页：授权、热更新、WiFi/夜间策略、性能统计
+- [x] jiaoben 脚本发版管理（按项目、changelog、回滚/禁用、设备版本上报）
+- [x] Studio 一键发版、打包预检、性能预设、识字点击插入脚本
+- [x] Shizuku 触控、脚本热更新、定时/开机启动
+- [x] Lua 为主 + 浮动面板 + PC Studio 全链路
+
 ## 已完成（v0.3）
 
 - [x] Lua 为主脚本语言 + `lib/` require 模块
-- [x] **按键精灵式浮动面板**（`ui/layout.json` + `OverlayService`）
+- [x] 按键精灵式浮动面板（`ui/layout.json` + `OverlayService`）
 - [x] PC Studio 浮动面板布局编辑器
-- [x] Lua 语法高亮、`bot.findNode` 无障碍控件
-- [x] 截屏帧缓存、脚本取消令牌、JSON 状态文件
+- [x] 截屏帧缓存、脚本取消令牌
 - [x] 打包器增强校验 + Release keystore CLI
-- [x] `tools/yaml_to_lua.py` YAML 迁移
-- [x] CI（validate + pytest + Android compile）
 - [x] demo-game 可运行 Lua 示例
-
-## 已完成（v0.2）
-
-- [x] 项目结构：`studio` / `android-runtime` / `packager` / `tools` / `examples`
-- [x] Android 运行时：无障碍、截屏、YAML/Lua 双引擎
-- [x] 找色、NCC 找图、ML Kit OCR、ONNX YOLO
-- [x] PC Studio 抓抓、打包并安装
-- [x] 模拟器冒烟 `tools/run_emulator_test.py`
 
 ## 下一步
 
 ### P1 — 体验
-- [x] 浮动面板在 Studio 内实时预览（叠加截图）
-- [ ] OCR 测试结果点击插入 `findText`
-- [ ] Shizuku 触控备选
+- [ ] 实机 free 布局拖动保存（APK 设计模式）
+- [ ] SCC Web UI 集成 jiaoben 发版按钮
 
 ### P2 — 性能
-- [ ] OpenCV Mobile NDK 加速大模板
-- [ ] YOLO NNAPI delegate
+- [ ] OpenCV Mobile NDK 加速大模板（可选）
 - [ ] Lua 协程桥接（减少 runBlocking）
 
 ### P3 — 生态
-- [ ] script-control-center 远程调度 APK 脚本
-- [ ] 脚本热更新（仅 assets）
-- [ ] 定时任务 / 开机启动
+- [ ] script-control-center 远程调度 + 目标脚本版本
+- [ ] 微调数据自动回流（lmstudio-finetune）
