@@ -20,6 +20,7 @@ import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import com.autoscript.core.overlay.OverlayTabButton
 import com.autoscript.core.overlay.OverlayTheme
 import com.autoscript.core.overlay.OverlayWidgetStore
 import com.autoscript.core.overlay.TabConfig
@@ -386,7 +387,7 @@ class OverlayPanelBuilder(
                 addView(TextView(context).apply {
                     text = cfg.label
                     textSize = 11f
-                    setTextColor(theme.logText)
+                    setTextColor(theme.titleText)
                     gravity = if (freeLayoutPlacement) {
                         Gravity.START or Gravity.CENTER_VERTICAL
                     } else {
@@ -447,33 +448,22 @@ class OverlayPanelBuilder(
         }
 
         tabs.forEachIndexed { index, tab ->
-            val btn = Button(context).apply {
-                text = tab.title
-                textSize = 11f
-                isAllCaps = false
-                stateListAnimator = null
-                elevation = 0f
-                val active = index == selected
-                background = if (active) {
-                    theme.buttonDrawable("#2563EB", dp(6).toFloat())
-                } else {
-                    theme.logDrawable(dp(6).toFloat())
+            val btn = OverlayTabButton.create(
+                context = context,
+                theme = theme,
+                title = tab.title,
+                selected = index == selected,
+                dp = dp,
+            ) {
+                selected = index
+                for (i in 0 until tabBar.childCount) {
+                    val child = tabBar.getChildAt(i) as TextView
+                    OverlayTabButton.applyStyle(theme, child, i == selected, dp)
                 }
-                setTextColor(if (active) theme.buttonTextColor("#2563EB") else theme.logText)
-                layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f).apply {
-                    setMargins(dp(2), 0, dp(2), 0)
-                }
-                setOnClickListener {
-                    selected = index
-                    for (i in 0 until tabBar.childCount) {
-                        val child = tabBar.getChildAt(i) as Button
-                        val on = i == selected
-                        child.background = if (on) theme.buttonDrawable("#2563EB", dp(6).toFloat())
-                        else theme.logDrawable(dp(6).toFloat())
-                        child.setTextColor(if (on) theme.buttonTextColor("#2563EB") else theme.logText)
-                    }
-                    renderContent()
-                }
+                renderContent()
+            }
+            btn.layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f).apply {
+                setMargins(dp(2), 0, dp(2), 0)
             }
             tabBar.addView(btn)
         }

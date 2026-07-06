@@ -106,7 +106,7 @@ class MainActivity : AppCompatActivity() {
         }
         AlertDialog.Builder(this)
             .setTitle("悬浮窗权限")
-            .setMessage("按键精灵式浮动面板需要「显示在其他应用上层」权限。可在左上角设置中授权。")
+            .setMessage("按键精灵式浮动面板需要「显示在其他应用上层」权限。可在右上角设置中授权。")
             .setPositiveButton("去设置") { _, _ ->
                 startActivity(
                     Intent(
@@ -182,7 +182,7 @@ class MainActivity : AppCompatActivity() {
         if (autoRunAttempts <= 25) {
             handler.postDelayed({ maybeAutoRun() }, 1_500)
         } else {
-            appendLog("auto_run: 等待就绪超时（请在左上角设置中完成授权）")
+            appendLog("auto_run: 等待就绪超时（请在右上角设置中完成授权）")
         }
     }
 
@@ -202,7 +202,7 @@ class MainActivity : AppCompatActivity() {
         LicenseStore.getCode(this)?.let { input.setText(it) }
         AlertDialog.Builder(this)
             .setTitle("卡密验证")
-            .setMessage("本脚本需验证卡密后运行。也可在左上角设置中验证。")
+            .setMessage("本脚本需验证卡密后运行。也可在右上角设置中验证。")
             .setView(input)
             .setPositiveButton("验证") { _, _ ->
                 val code = input.text?.toString()?.trim().orEmpty()
@@ -232,7 +232,7 @@ class MainActivity : AppCompatActivity() {
                     appendLog("请先在设置中开启无障碍服务")
                 backend.needsMediaProjection() && !CaptureSession.isActive() ->
                     appendLog("请先在设置中授权屏幕录制")
-                else -> appendLog("环境未就绪，请打开左上角设置")
+                else -> appendLog("环境未就绪，请打开右上角设置")
             }
             return
         }
@@ -359,9 +359,9 @@ class MainActivity : AppCompatActivity() {
             backend.usingRoot() && !RootShell.isAvailable() ->
                 "root 模式：等待 su 授权（见设置）"
             backend.needsAccessibility() && !AutomationAccessibilityService.isConnected() ->
-                "请开启无障碍服务（左上角设置）"
+                "请开启无障碍服务（右上角设置）"
             backend.needsMediaProjection() && !CaptureSession.isActive() ->
-                "请授权屏幕录制（左上角设置）"
+                "请授权屏幕录制（右上角设置）"
             else -> getString(R.string.status_ready)
         }
     }

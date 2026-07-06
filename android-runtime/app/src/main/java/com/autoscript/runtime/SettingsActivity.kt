@@ -164,7 +164,7 @@ class SettingsActivity : AppCompatActivity() {
                     !backend.needsMediaProjection() || CaptureSession.isActive(),
                 ),
             )
-            add(line("悬浮窗", Settings.canDrawOverlays(this)))
+            add(line("悬浮窗", Settings.canDrawOverlays(this@SettingsActivity)))
             if (cfg.license.enabled) {
                 add(line("卡密验证", verifier.isLicensed()))
             }
@@ -179,7 +179,7 @@ class SettingsActivity : AppCompatActivity() {
             if (backend.usingRoot()) {
                 add(line("Root", RootShell.isAvailable()))
             }
-            val (overlayVer, overlayName) = ProjectAssets(this).overlayVersionInfo()
+            val (overlayVer, overlayName) = ProjectAssets(this@SettingsActivity).overlayVersionInfo()
             val verText = if (overlayName.isNotBlank()) "v$overlayVer ($overlayName)" else "v$overlayVer"
             add("脚本版本：$verText")
         }

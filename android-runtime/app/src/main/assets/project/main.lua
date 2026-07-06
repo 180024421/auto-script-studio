@@ -1,31 +1,42 @@
--- Demo Game — 可运行示例（找色 + 面板表单）
+-- Demo Game — 浮动面板展示示例
+-- 读取面板配置并输出日志，便于在实机查看控件效果
 
-bot.log("demo-game 开始")
+bot.log("======== Demo 助手 ========")
 
--- 浮动面板表单（需 APK 浮动面板或 PC 预览填写后运行）
--- local mode = panel.get("mode")
--- if panel.is("mode", "极速") then bot.log("极速") end
--- if panel.has("tasks", "日常") then bot.log("含日常") end
+local account = panel.get("account") or ""
+local password = panel.get("password") or ""
+local autoLogin = panel.get("auto_login")
+local mode = panel.get("mode") or "普通"
+local priority = panel.get("priority") or ""
+local delaySec = panel.get("delay_sec") or "2"
+local loopCount = panel.get("loop_count") or "1"
+local features = panel.get("features") or ""
 
-bot.delay(1)
--- 找色：屏幕中心附近灰色（模拟器桌面常见色）
-local cx, cy = bot.findColor(40, 40, 40, { tol = 30, timeout = 5, optional = true })
-if cx then
-  bot.log(string.format("找色命中 (%d,%d)", cx, cy))
+bot.log(string.format("账号: %s", account))
+bot.log(string.format("密码: %s", password ~= "" and "******" or "(空)"))
+bot.log(string.format("自动登录: %s", tostring(autoLogin)))
+bot.log(string.format("模式: %s | 优先级: %s", mode, priority))
+bot.log(string.format("间隔: %s 秒 | 循环: %s 次", delaySec, loopCount))
+bot.log(string.format("附加功能: %s", features))
+
+if panel.is("mode", "极速") then
+  bot.log(">> 极速模式：步骤间隔缩短")
+elseif panel.is("mode", "省电") then
+  bot.log(">> 省电模式：降低操作频率")
 else
-  bot.log("找色未命中，跳过")
+  bot.log(">> 普通模式")
 end
 
--- 找图（需 image/ 下有效模板图，如 leidian.png）
-local x, y = bot.findImage("image/leidian.png", { threshold = 0.8, timeout = 5, optional = true })
-if x then
-  bot.log(string.format("找图命中 (%d,%d)", x, y))
-  bot.tap(x, y)
+local loops = tonumber(loopCount) or 1
+for i = 1, loops do
+  bot.log(string.format("--- 第 %d / %d 轮 ---", i, loops))
+  bot.delay(tonumber(delaySec) or 1)
+  local cx, cy = bot.findColor(40, 40, 40, { tol = 30, timeout = 2, optional = true })
+  if cx then
+    bot.log(string.format("找色命中 (%d,%d)", cx, cy))
+  else
+    bot.log("找色未命中（演示跳过）")
+  end
 end
 
--- 无障碍控件示例（需目标应用在前台）
--- local nx, ny = bot.findNode({ text = "设置", timeout = 3, optional = true })
-
-bot.log("demo-game 完成")
-
-bot.tap(0, 0)
+bot.log("======== 演示完成 ========")

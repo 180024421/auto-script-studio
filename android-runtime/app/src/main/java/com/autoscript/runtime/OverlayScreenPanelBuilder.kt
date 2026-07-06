@@ -2,11 +2,11 @@ package com.autoscript.runtime
 
 import android.content.Context
 import android.view.Gravity
-import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import com.autoscript.core.overlay.LayoutConfig
+import com.autoscript.core.overlay.OverlayTabButton
 import com.autoscript.core.overlay.OverlayTheme
 import com.autoscript.core.overlay.WidgetConfig
 
@@ -82,30 +82,24 @@ class OverlayScreenPanelBuilder(
     private fun rebuildTabButtons() {
         tabBar.removeAllViews()
         layoutConfig.resolvedScreens().forEachIndexed { index, sc ->
-            val btn = Button(context).apply {
-                text = sc.title
-                textSize = 11f
-                isAllCaps = false
-                stateListAnimator = null
-                elevation = 0f
-                minHeight = dp(32)
-                val on = index == activeScreen
-                background = if (on) theme.buttonDrawable("#2563EB", dp(6).toFloat())
-                else theme.logDrawable(dp(6).toFloat())
-                setTextColor(if (on) theme.buttonTextColor("#2563EB") else theme.logText)
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                ).apply { marginEnd = dp(4) }
-                setOnClickListener {
-                    if (activeScreen != index) {
-                        activeScreen = index
-                        onActiveScreenChange(index)
-                        rebuildTabButtons()
-                        renderActiveScreen()
-                    }
+            val btn = OverlayTabButton.create(
+                context = context,
+                theme = theme,
+                title = sc.title,
+                selected = index == activeScreen,
+                dp = dp,
+            ) {
+                if (activeScreen != index) {
+                    activeScreen = index
+                    onActiveScreenChange(index)
+                    rebuildTabButtons()
+                    renderActiveScreen()
                 }
             }
+            btn.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { marginEnd = dp(4) }
             tabBar.addView(btn)
         }
     }

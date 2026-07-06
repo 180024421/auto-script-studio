@@ -4,6 +4,7 @@ import com.autoscript.core.accessibility.AccessibilityFinder
 import com.autoscript.core.backend.AutomationBackend
 import com.autoscript.core.capture.CaptureCache
 import com.autoscript.core.perf.PerfMonitor
+import com.autoscript.core.model.Detection
 import com.autoscript.core.model.Rect
 import com.autoscript.core.project.ProjectConfig
 import com.autoscript.core.script.ScriptCancelToken

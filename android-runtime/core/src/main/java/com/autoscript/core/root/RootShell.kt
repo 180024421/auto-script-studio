@@ -1,5 +1,6 @@
 package com.autoscript.core.root
 
+import android.os.Build
 import android.util.Log
 import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
@@ -13,12 +14,34 @@ object RootShell {
     private const val TAG = "AutoScriptRoot"
     private var cachedAvailable: Boolean? = null
 
+    /** Process.waitFor(timeout) 需 API 26+，Android 7.x 用线程超时回退。 */
+    private fun waitForProcess(process: Process, timeoutSec: Long): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            return process.waitFor(timeoutSec, TimeUnit.SECONDS)
+        }
+        return try {
+            val waiter = Thread { runCatching { process.waitFor() } }
+            waiter.start()
+            waiter.join(timeoutSec * 1000)
+            if (waiter.isAlive) {
+                process.destroy()
+                waiter.interrupt()
+                false
+            } else {
+                true
+            }
+        } catch (_: InterruptedException) {
+            process.destroy()
+            false
+        }
+    }
+
     fun isAvailable(): Boolean {
         cachedAvailable?.let { return it }
         val ok = try {
             val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
             val out = p.inputStream.bufferedReader().readText()
-            p.waitFor(3, TimeUnit.SECONDS)
+            waitForProcess(p, 3)
             p.exitValue() == 0 && out.contains("uid=0")
         } catch (e: Exception) {
             Log.w(TAG, "root check failed", e)
@@ -33,9 +56,9 @@ object RootShell {
         if (!isAvailable()) return false
         return try {
             val p = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
-            val finished = p.waitFor(timeoutSec, TimeUnit.SECONDS)
+            val finished = waitForProcess(p, timeoutSec)
             if (!finished) {
-                p.destroyForcibly()
+                p.destroy()
                 return false
             }
             p.exitValue() == 0
@@ -52,8 +75,8 @@ object RootShell {
             val out = ByteArrayOutputStream()
             p.inputStream.use { it.copyTo(out) }
             val err = p.errorStream.use { it.readBytes() }
-            if (!p.waitFor(timeoutSec, TimeUnit.SECONDS)) {
-                p.destroyForcibly()
+            if (!waitForProcess(p, timeoutSec)) {
+                p.destroy()
                 return null
             }
             if (p.exitValue() != 0) {
@@ -72,8 +95,8 @@ object RootShell {
         return try {
             val p = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
             val text = p.inputStream.bufferedReader().use(BufferedReader::readText)
-            if (!p.waitFor(timeoutSec, TimeUnit.SECONDS)) {
-                p.destroyForcibly()
+            if (!waitForProcess(p, timeoutSec)) {
+                p.destroy()
                 return null
             }
             if (p.exitValue() != 0) null else text

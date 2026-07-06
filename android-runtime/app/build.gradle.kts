@@ -19,7 +19,7 @@ android {
 
     defaultConfig {
         applicationId = prop("applicationId", "com.autoscript.runtime")
-        minSdk = 26
+        minSdk = 24
         targetSdk = 34
         versionCode = propInt("versionCode", 1)
         versionName = prop("versionName", "1.0.0")
@@ -71,6 +71,7 @@ android {
     }
     buildFeatures {
         buildConfig = true
+        aidl = true
     }
     kotlinOptions {
         jvmTarget = "17"

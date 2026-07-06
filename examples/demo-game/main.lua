@@ -1,32 +1,42 @@
--- Demo Game — 官方示例（找色 + 浮动面板）
--- 详见 examples/demo-game/README.md
+-- Demo Game — 浮动面板展示示例
+-- 读取面板配置并输出日志，便于在实机查看控件效果
 
-bot.log("demo-game 开始")
+bot.log("======== Demo 助手 ========")
 
-local mode = panel.get("mode")
-if mode and tostring(mode) ~= "" then
-  bot.log("面板模式: " .. tostring(mode))
-  if panel.is("mode", "极速") then
-    bot.log("已选择极速模式")
+local account = panel.get("account") or ""
+local password = panel.get("password") or ""
+local autoLogin = panel.get("auto_login")
+local mode = panel.get("mode") or "普通"
+local priority = panel.get("priority") or ""
+local delaySec = panel.get("delay_sec") or "2"
+local loopCount = panel.get("loop_count") or "1"
+local features = panel.get("features") or ""
+
+bot.log(string.format("账号: %s", account))
+bot.log(string.format("密码: %s", password ~= "" and "******" or "(空)"))
+bot.log(string.format("自动登录: %s", tostring(autoLogin)))
+bot.log(string.format("模式: %s | 优先级: %s", mode, priority))
+bot.log(string.format("间隔: %s 秒 | 循环: %s 次", delaySec, loopCount))
+bot.log(string.format("附加功能: %s", features))
+
+if panel.is("mode", "极速") then
+  bot.log(">> 极速模式：步骤间隔缩短")
+elseif panel.is("mode", "省电") then
+  bot.log(">> 省电模式：降低操作频率")
+else
+  bot.log(">> 普通模式")
+end
+
+local loops = tonumber(loopCount) or 1
+for i = 1, loops do
+  bot.log(string.format("--- 第 %d / %d 轮 ---", i, loops))
+  bot.delay(tonumber(delaySec) or 1)
+  local cx, cy = bot.findColor(40, 40, 40, { tol = 30, timeout = 2, optional = true })
+  if cx then
+    bot.log(string.format("找色命中 (%d,%d)", cx, cy))
+  else
+    bot.log("找色未命中（演示跳过）")
   end
 end
 
-bot.delay(1)
-
--- 找色：可按抓抓页取色结果修改 RGB
-local cx, cy = bot.findColor(40, 40, 40, { tol = 30, timeout = 5, optional = true })
-if cx then
-  bot.log(string.format("找色命中 (%d,%d)", cx, cy))
-  bot.tap(cx, cy)
-else
-  bot.log("找色未命中（可改 RGB 或在抓抓页取色）")
-end
-
--- 找图（需在 image/ 放置模板，见 image/README.md）
-local x, y = bot.findImage("image/template.png", { threshold = 0.8, timeout = 3, optional = true })
-if x then
-  bot.log(string.format("找图命中 (%d,%d)", x, y))
-  bot.tap(x, y)
-end
-
-bot.log("demo-game 完成")
+bot.log("======== 演示完成 ========")

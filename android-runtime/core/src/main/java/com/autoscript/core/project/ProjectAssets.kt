@@ -157,14 +157,25 @@ class ProjectAssets(private val context: Context) {
         return context.assets.list("$root/$relativeDir")?.toList().orEmpty()
     }
 
+    private fun ensureUpdateManager(): ProjectUpdateManager {
+        updateManager?.let { return it }
+        val json = open("project.json").bufferedReader().use { it.readText() }
+        val obj = JSONObject(json)
+        val updateObj = obj.optJSONObject("update")
+        val updateCfg = UpdateConfig(
+            enabled = updateObj?.optBoolean("enabled", false) ?: false,
+            manifestUrl = updateObj?.optString("manifest_url", "") ?: "",
+            checkOnStart = updateObj?.optBoolean("check_on_start", true) ?: true,
+            allowLocalImport = updateObj?.optBoolean("allow_local_import", true) ?: true,
+            channel = updateObj?.optString("channel", "default") ?: "default",
+        )
+        val versionCode = obj.optInt("version_code", 1)
+        return ProjectUpdateManager(context, updateCfg, versionCode).also { updateManager = it }
+    }
+
     private fun overlayFile(relative: String): File? {
         val rel = relative.trimStart('/')
-        val mgr = updateManager ?: ProjectUpdateManager(
-            context,
-            loadConfig().update,
-            loadConfig().versionCode,
-        ).also { updateManager = it }
-        return mgr.overlayFile(rel)
+        return ensureUpdateManager().overlayFile(rel)
     }
 
     private fun readText(relative: String): String {

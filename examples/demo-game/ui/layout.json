@@ -8,20 +8,20 @@
     "design_width": 720,
     "design_height": 1280,
     "active_screen": 0,
-    "width_mode": "fixed",
-    "width_dp": 48,
+    "width_mode": "auto",
+    "width_dp": 680,
     "height_mode": "wrap",
-    "display_mode": "minimal",
-    "auto_collapse_idle_ms": 15000,
-    "show_on_launch": false,
-    "opacity": 0.96,
+    "display_mode": "form",
+    "auto_collapse_idle_ms": 0,
+    "show_on_launch": true,
+    "opacity": 0.98,
     "position": "left_center",
-    "start_x": 0,
+    "start_x": 8,
     "start_y": 0,
     "columns": 2,
     "ball_size_dp": 48,
     "show_log": true,
-    "log_height_dp": 88,
+    "log_height_dp": 96,
     "draggable": true,
     "collapsible": true,
     "allow_design": false,
@@ -30,39 +30,46 @@
   },
   "screens": [
     {
-      "title": "标签页1",
+      "title": "基础设置",
       "widgets": [
         {
-          "id": "hint",
+          "id": "welcome",
           "type": "text",
-          "text": "请填写登陆账号信息",
+          "text": "欢迎使用 Demo 助手",
           "text_style": "title",
           "layout_x": 24,
-          "layout_y": 24,
-          "layout_w": 648,
-          "layout_h": 40,
-          "label": "",
-          "color": "#2563EB",
-          "width": 1,
-          "placeholder": "",
-          "default": "",
-          "x": 0,
-          "y": 0,
-          "x1": 0,
-          "y1": 0,
-          "x2": 0,
-          "y2": 0,
-          "lua": ""
+          "layout_y": 20,
+          "layout_w": 672,
+          "layout_h": 44
+        },
+        {
+          "id": "welcome_hint",
+          "type": "text",
+          "text": "填写账号与偏好，点击底部「开始」体验脚本",
+          "text_style": "hint",
+          "layout_x": 24,
+          "layout_y": 68,
+          "layout_w": 672,
+          "layout_h": 36
+        },
+        {
+          "id": "div1",
+          "type": "divider",
+          "layout_x": 24,
+          "layout_y": 112,
+          "layout_w": 672,
+          "layout_h": 8
         },
         {
           "id": "account",
           "type": "input",
           "label": "账号",
-          "placeholder": "请输入账号，多个用:号分隔",
+          "placeholder": "请输入游戏账号",
+          "default": "demo_user",
           "layout_x": 24,
-          "layout_y": 72,
+          "layout_y": 132,
           "layout_w": 672,
-          "layout_h": 52
+          "layout_h": 56
         },
         {
           "id": "password",
@@ -70,47 +77,109 @@
           "label": "密码",
           "placeholder": "请输入密码",
           "layout_x": 24,
-          "layout_y": 132,
+          "layout_y": 200,
           "layout_w": 672,
-          "layout_h": 52
+          "layout_h": 56
         },
         {
-          "id": "section_div",
-          "type": "divider",
-          "text": "",
+          "id": "auto_login",
+          "type": "switch",
+          "label": "自动登录",
+          "default": "true",
           "layout_x": 24,
-          "layout_y": 192,
+          "layout_y": 268,
           "layout_w": 672,
-          "layout_h": 12
+          "layout_h": 48
         },
         {
-          "id": "func_hint",
+          "id": "div2",
+          "type": "divider",
+          "layout_x": 24,
+          "layout_y": 328,
+          "layout_w": 672,
+          "layout_h": 8
+        },
+        {
+          "id": "note",
           "type": "text",
-          "text": "脚本功能选择：",
+          "text": "提示：切换到「运行选项」可调整模式与循环次数",
           "text_style": "hint",
           "layout_x": 24,
-          "layout_y": 228,
-          "layout_w": 112,
-          "layout_h": 36
+          "layout_y": 348,
+          "layout_w": 672,
+          "layout_h": 40
         }
       ]
     },
     {
-      "title": "界面1",
+      "title": "运行选项",
       "widgets": [
+        {
+          "id": "mode_title",
+          "type": "text",
+          "text": "运行策略",
+          "text_style": "title",
+          "layout_x": 24,
+          "layout_y": 20,
+          "layout_w": 672,
+          "layout_h": 40
+        },
         {
           "id": "mode",
           "type": "select",
           "label": "模式",
-          "options": [
-            "普通",
-            "极速"
-          ],
+          "options": ["普通", "极速", "省电"],
           "default": "普通",
           "layout_x": 24,
-          "layout_y": 24,
+          "layout_y": 72,
           "layout_w": 672,
-          "layout_h": 64
+          "layout_h": 60
+        },
+        {
+          "id": "priority",
+          "type": "radio",
+          "label": "优先级",
+          "options": ["体验优先", "稳定优先"],
+          "default": "稳定优先",
+          "layout_x": 24,
+          "layout_y": 144,
+          "layout_w": 672,
+          "layout_h": 80
+        },
+        {
+          "id": "delay_sec",
+          "type": "slider",
+          "label": "步骤间隔(秒)",
+          "default": "2",
+          "min": 1,
+          "max": 10,
+          "layout_x": 24,
+          "layout_y": 236,
+          "layout_w": 672,
+          "layout_h": 56
+        },
+        {
+          "id": "loop_count",
+          "type": "stepper",
+          "label": "循环次数",
+          "default": "3",
+          "min": 1,
+          "max": 99,
+          "layout_x": 24,
+          "layout_y": 304,
+          "layout_w": 672,
+          "layout_h": 52
+        },
+        {
+          "id": "features",
+          "type": "multiselect",
+          "label": "附加功能",
+          "options": ["自动领奖", "自动升级", "异常重试"],
+          "default": "异常重试",
+          "layout_x": 24,
+          "layout_y": 372,
+          "layout_w": 672,
+          "layout_h": 120
         }
       ]
     }
@@ -119,44 +188,22 @@
     {
       "id": "start",
       "type": "start_script",
-      "label": "开始",
+      "label": "开始运行",
       "color": "#2563EB",
-      "layout_x": 0,
+      "layout_x": 24,
       "layout_y": 8,
-      "layout_w": 32,
-      "layout_h": 32
+      "layout_w": 320,
+      "layout_h": 48
     },
     {
       "id": "stop",
       "type": "stop_script",
-      "label": "结束",
+      "label": "停止",
       "color": "#DC2626",
-      "layout_x": 34,
+      "layout_x": 360,
       "layout_y": 8,
-      "layout_w": 32,
-      "layout_h": 32
-    }
-  ],
-  "buttons": [
-    {
-      "id": "start",
-      "type": "start_script",
-      "label": "开始",
-      "color": "#2563EB",
-      "layout_x": 0,
-      "layout_y": 8,
-      "layout_w": 32,
-      "layout_h": 32
-    },
-    {
-      "id": "stop",
-      "type": "stop_script",
-      "label": "结束",
-      "color": "#DC2626",
-      "layout_x": 34,
-      "layout_y": 8,
-      "layout_w": 32,
-      "layout_h": 32
+      "layout_w": 320,
+      "layout_h": 48
     }
   ]
 }

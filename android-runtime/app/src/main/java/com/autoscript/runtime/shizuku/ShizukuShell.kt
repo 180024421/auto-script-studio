@@ -85,7 +85,6 @@ object ShizukuShell {
         binding = true
         val args = UserServiceArgs(
             ComponentName(BuildConfig.APPLICATION_ID, ShizukuUserService::class.java.name),
-            IUserService::class.java.name,
         ).daemon(false).processNameSuffix("shizuku_shell").debuggable(BuildConfig.DEBUG).version(1)
         try {
             Shizuku.bindUserService(args, connection)
@@ -100,7 +99,6 @@ object ShizukuShell {
         try {
             val args = UserServiceArgs(
                 ComponentName(BuildConfig.APPLICATION_ID, ShizukuUserService::class.java.name),
-                IUserService::class.java.name,
             )
             Shizuku.unbindUserService(args, connection, true)
         } catch (_: Exception) {

@@ -15,7 +15,7 @@
     "default_interval_ms": 300,
     "default_yolo_conf": 0.4,
     "ocr_mode": "lazy",
-    "input_mode": "root",
+    "input_mode": "auto",
     "screenshot_mode": "media_projection",
     "perf": {
       "opencv_mobile": false,
@@ -25,13 +25,12 @@
     }
   },
   "license": {
-    "enabled": true,
+    "enabled": false,
     "api_base": "http://111.229.202.251:8687",
     "app_name": "com.autoscript.demo",
     "skip_on_offline": false
   },
   "jiaoben": {
-    "project_id": 0,
     "api_base": "http://111.229.202.251:8687"
   },
   "update": {

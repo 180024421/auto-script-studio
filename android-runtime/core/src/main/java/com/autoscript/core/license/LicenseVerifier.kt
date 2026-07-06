@@ -2,6 +2,7 @@ package com.autoscript.core.license
 
 import android.content.Context
 import android.provider.Settings
+import com.autoscript.core.project.LicenseConfig
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader

@@ -40,6 +40,6 @@ class ShizukuUserService : IUserService.Stub() {
 
         @Keep
         @JvmStatic
-        private fun create(): IBinder = ShizukuUserService()
+        private fun create(): IBinder = ShizukuUserService().asBinder()
     }
 }

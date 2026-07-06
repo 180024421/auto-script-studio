@@ -9,6 +9,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
+import android.provider.Settings
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -120,9 +121,12 @@ class OverlayService : Service() {
         OverlayWidgetStore.seedFromLayout(layoutConfig)
         startForeground(NOTIFICATION_ID, buildNotification("浮动面板运行中"))
         if (layoutConfig.enabled && layoutConfig.panel.showOnLaunch) {
-            showOverlay()
-            statusPollActive = true
-            handler.post(statusPollRunnable)
+            if (showOverlay()) {
+                statusPollActive = true
+                handler.post(statusPollRunnable)
+            } else {
+                ScriptLog.w("无悬浮窗权限或窗口创建失败，已跳过启动时自动显示面板")
+            }
         }
     }
 
@@ -135,7 +139,9 @@ class OverlayService : Service() {
                 layoutConfig = loadLayout()
                 OverlayWidgetStore.seedFromLayout(layoutConfig)
                 if (layoutConfig.enabled) {
-                    showOverlay()
+                    if (!showOverlay()) {
+                        ScriptLog.w("重新加载后无法显示浮动面板")
+                    }
                     statusPollActive = true
                     handler.post(statusPollRunnable)
                 }
@@ -145,7 +151,9 @@ class OverlayService : Service() {
                 stopSelf()
             }
             else -> if (layoutConfig.enabled && panelView == null) {
-                showOverlay()
+                if (!showOverlay()) {
+                    ScriptLog.w("无法显示浮动面板，请授予悬浮窗权限")
+                }
                 if (!statusPollActive) {
                     statusPollActive = true
                     handler.post(statusPollRunnable)
@@ -237,8 +245,12 @@ class OverlayService : Service() {
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun showOverlay() {
-        if (panelView != null) return
+    private fun showOverlay(): Boolean {
+        if (panelView != null) return true
+        if (!hasOverlayPermission()) {
+            ScriptLog.w("无悬浮窗权限，无法显示浮动面板")
+            return false
+        }
         unifiedMinimalBar = isMinimalDisplay()
         if (unifiedMinimalBar && !restoreCollapsedAfterBuild) {
             collapsed = true
@@ -261,7 +273,7 @@ class OverlayService : Service() {
             )
         }
         val panel = buildPanel()
-        val type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        val type = overlayWindowType()
         val focusable = layoutConfig.needsFocusablePanel() && !designMode && !unifiedMinimalBar
         val panelLp = WindowManager.LayoutParams(
             if (unifiedMinimalBar) panelWidthPx else panelWidthPx,
@@ -311,19 +323,19 @@ class OverlayService : Service() {
             if (!unifiedMinimalBar && ballLp != null) {
                 val ball = buildBall()
                 attachDrag(ball, ballLp) { onBallClicked() }
-                wm.addView(ball, ballLp)
+                if (!safeAddOverlayView(ball, ballLp)) return false
                 ball.visibility = View.GONE
                 ballView = ball
                 ballParams = ballLp
             }
         } else if (!unifiedMinimalBar) {
             val ball = buildBall()
-            wm.addView(ball, ballLp!!)
+            if (!safeAddOverlayView(ball, ballLp!!)) return false
             ball.visibility = View.GONE
             ballView = ball
             ballParams = ballLp
         }
-        wm.addView(panel, panelLp)
+        if (!safeAddOverlayView(panel, panelLp)) return false
         panelView = panel
         layoutParams = panelLp
         if (!unifiedMinimalBar && ballView != null) {
@@ -336,6 +348,32 @@ class OverlayService : Service() {
         }
         updateBallAppearance()
         if (!collapsed) scheduleIdleCollapse()
+        return true
+    }
+
+    private fun overlayWindowType(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+    private fun hasOverlayPermission(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(this)
+        } else {
+            true
+        }
+
+    private fun safeAddOverlayView(view: View, lp: WindowManager.LayoutParams): Boolean {
+        return try {
+            wm.addView(view, lp)
+            true
+        } catch (e: Exception) {
+            ScriptLog.w("浮动窗 addView 失败: ${e.message}")
+            false
+        }
     }
 
     private fun buildPanel(): View {

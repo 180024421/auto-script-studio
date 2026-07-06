@@ -56,6 +56,31 @@ CHROME_ICONS: dict[str, str] = {
 }
 
 
+def _screen_tab_stylesheet(scale: float, *, checked: bool) -> str:
+  """脚本页窄栏缩放时覆盖全局 QPushButton min-height，避免标签文字被裁切。"""
+  fs = max(8, int(11 * scale))
+  pad_v = max(2, int(4 * scale))
+  pad_h = max(4, int(8 * scale))
+  min_h = max(18, int(26 * scale))
+  if checked:
+    return (
+      f"QPushButton#PanelScreenTab {{ min-height: {min_h}px; max-height: {min_h}px; "
+      f"font-size: {fs}px; font-weight: 600; padding: {pad_v}px {pad_h}px; "
+      f"background: #EFF6FF; color: #2563EB; border: 1px solid #2563EB; "
+      f"border-radius: {max(4, int(6 * scale))}px; }}"
+    )
+  return (
+    f"QPushButton#PanelScreenTab {{ min-height: {min_h}px; max-height: {min_h}px; "
+    f"font-size: {fs}px; padding: {pad_v}px {pad_h}px; "
+    f"background: #FFFFFF; color: #334155; border: 1px solid #CBD5E1; "
+    f"border-radius: {max(4, int(6 * scale))}px; }}"
+  )
+
+
+def _screen_tab_bar_height(scale: float) -> int:
+  return max(int(TAB_BAR_DP * scale), int(26 * scale) + 8)
+
+
 def _snap_design(v: int) -> int:
     g = SNAP_GRID
     return int(round(v / g) * g)
@@ -659,7 +684,7 @@ class PhoneCanvasWidget(QScrollArea):
     title.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
     inner_lay.addWidget(title)
 
-    tab_h = int(TAB_BAR_DP * self._scale)
+    tab_h = _screen_tab_bar_height(self._scale)
     tab_bar = QWidget()
     tab_bar.setFixedHeight(tab_h)
     tab_bar.setStyleSheet("background:#F1F5F9;border-bottom:1px solid #CBD5E1;")
@@ -669,11 +694,12 @@ class PhoneCanvasWidget(QScrollArea):
     tab_buttons: list[QPushButton] = []
     for i, sc in enumerate(sc_list):
       tb = QPushButton(sc.get("title", f"界面{i + 1}"))
+      tb.setObjectName("PanelScreenTab")
       tb.setCheckable(True)
       tb.blockSignals(True)
       tb.setChecked(i == active)
       tb.blockSignals(False)
-      tb.setMinimumHeight(int(32 * self._scale))
+      tb.setStyleSheet(_screen_tab_stylesheet(self._scale, checked=i == active))
       tb.clicked.connect(lambda _c=False, idx=i: self._on_tab_clicked(idx))
       tab_lay.addWidget(tb)
       tab_buttons.append(tb)
@@ -755,7 +781,7 @@ class PhoneCanvasWidget(QScrollArea):
     shell.title.setText(panel.get("title", "脚本助手"))
     title_h = int(TITLE_DP * self._scale)
     shell.title.setFixedHeight(title_h)
-    tab_h = int(TAB_BAR_DP * self._scale)
+    tab_h = _screen_tab_bar_height(self._scale)
     shell.tab_bar.setFixedHeight(tab_h)
     for i, tb in enumerate(shell.tab_buttons):
       if i < len(sc_list):
@@ -763,7 +789,7 @@ class PhoneCanvasWidget(QScrollArea):
       tb.blockSignals(True)
       tb.setChecked(i == active)
       tb.blockSignals(False)
-      tb.setMinimumHeight(int(32 * self._scale))
+      tb.setStyleSheet(_screen_tab_stylesheet(self._scale, checked=i == active))
 
     content_h_design = content_height(
       self._layout,
