@@ -35,6 +35,10 @@ object LuaBindings {
         bot.set("yoloDetect", YoloDetectFn(bridge))
         bot.set("findYolo", FindYoloFn(bridge))
         bot.set("yoloSwipe", YoloSwipeFn(bridge))
+        bot.set("read_chain", ReadChainFn())
+        bot.set("load_bases", LoadBasesFn())
+        bot.set("set_memory_pid", SetMemoryPidFn())
+        bot.set("set_pointer_size", SetPointerSizeFn())
         bot.set("log", object : OneArgFunction() {
             override fun call(msg: LuaValue): LuaValue {
                 onLog(msg.tojstring())
@@ -42,6 +46,18 @@ object LuaBindings {
             }
         })
         globals.set("bot", bot)
+        val mem = LuaTable()
+        mem.set("read_chain", bot.get("read_chain"))
+        mem.set("load_bases", bot.get("load_bases"))
+        mem.set("list_modules", object : OneArgFunction() {
+            override fun call(refresh: LuaValue): LuaValue {
+                val mods = MemoryReader.listModules(refresh.toboolean())
+                val t = LuaTable()
+                mods.forEach { (k, v) -> t.set(k, LuaInteger.valueOf(v)) }
+                return t
+            }
+        })
+        globals.set("mem", mem)
         val panel = LuaTable()
         panel.set("get", object : OneArgFunction() {
             override fun call(id: LuaValue): LuaValue = LuaString.valueOf(OverlayWidgetStore.get(id.checkjstring()))
@@ -225,6 +241,81 @@ object LuaBindings {
             runBlocking { bridge.yoloSwipe(opts) }
             return NONE
         }
+    }
+
+    private class ReadChainFn : VarArgFunction() {
+        override fun invoke(args: Varargs): Varargs {
+            val module = args.arg(1).checkjstring()
+            val baseOff = parseHexOrLong(args.arg(2))
+            val offsetsTable = args.arg(3).checktable()
+            val vtype = if (args.narg() >= 4) args.arg(4).checkjstring() else "int32"
+            val offsets = LongArray(offsetsTable.length()) { i ->
+                parseHexOrLong(offsetsTable.get(i + 1))
+            }
+            val value = MemoryReader.readChain(module, baseOff, offsets, vtype)
+            return when (value) {
+                is Int -> LuaInteger.valueOf(value)
+                is Long -> LuaInteger.valueOf(value)
+                is Float -> LuaValue.valueOf(value.toDouble())
+                is Double -> LuaValue.valueOf(value)
+                else -> LuaString.valueOf(value.toString())
+            }
+        }
+    }
+
+    private class LoadBasesFn : OneArgFunction() {
+        override fun call(path: LuaValue): LuaValue {
+            val file = java.io.File(path.checkjstring())
+            if (!file.isFile) throw org.luaj.vm2.LuaError("bases file not found: ${file.path}")
+            val json = org.json.JSONObject(file.readText())
+            val chains = json.getJSONArray("chains")
+            val out = LuaTable()
+            for (i in 0 until chains.length()) {
+                val c = chains.getJSONObject(i)
+                val name = c.getString("name")
+                val module = c.getString("module")
+                val moduleOffset = c.getLong("module_offset")
+                val offsetsArr = c.getJSONArray("offsets")
+                val offsets = LongArray(offsetsArr.length()) { j -> offsetsArr.getLong(j) }
+                val vtype = c.optString("type", "int32")
+                out.set(name, object : VarArgFunction() {
+                    override fun invoke(_args: Varargs): Varargs {
+                        val value = MemoryReader.readChain(module, moduleOffset, offsets, vtype)
+                        return when (value) {
+                            is Int -> LuaValue.varargsOf(LuaInteger.valueOf(value))
+                            is Long -> LuaValue.varargsOf(LuaInteger.valueOf(value))
+                            is Float -> LuaValue.varargsOf(LuaValue.valueOf(value.toDouble()))
+                            is Double -> LuaValue.varargsOf(LuaValue.valueOf(value))
+                            else -> LuaValue.varargsOf(LuaString.valueOf(value.toString()))
+                        }
+                    }
+                })
+            }
+            return out
+        }
+    }
+
+    private class SetMemoryPidFn : OneArgFunction() {
+        override fun call(pid: LuaValue): LuaValue {
+            MemoryReader.setTargetPid(pid.toint())
+            return NIL
+        }
+    }
+
+    private class SetPointerSizeFn : OneArgFunction() {
+        override fun call(size: LuaValue): LuaValue {
+            MemoryReader.setPointerSize(size.toint())
+            return NIL
+        }
+    }
+
+    private fun parseHexOrLong(v: LuaValue): Long {
+        if (v.isstring()) {
+            val s = v.tojstring().trim()
+            if (s.startsWith("0x", true)) return s.substring(2).toLong(16)
+            return s.toLong()
+        }
+        return v.tolong()
     }
 
     private fun ptToVarargs(pt: Pair<Int, Int>?): Varargs =
