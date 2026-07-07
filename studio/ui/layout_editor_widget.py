@@ -538,12 +538,29 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
             )
             return
         if is_action_type(wtype) and wtype in ("start_script", "stop_script"):
+            from studio.services.screen_layout import is_host_display
+
+            if is_host_display(self._layout.get("panel")):
+                QMessageBox.information(
+                    self,
+                    "提示",
+                    "当前为「主页面表单 + 悬浮球启停」模式：\n"
+                    "开始/停止请用悬浮窗，不要在界面里添加开始/停止按钮。",
+                )
+                return
             widgets = self._chrome_widgets()
             widgets.append(default_widget(wtype, len(widgets) + 1))
             self._selected_path = (CHROME_PATH_TAG, len(widgets) - 1)
             w = widgets[-1]
             self._load_widget_into_form(w)
         else:
+            if is_action_type(wtype) and is_host_display(self._layout.get("panel")):
+                QMessageBox.information(
+                    self,
+                    "提示",
+                    "主页面模式不支持在表单界面内添加动作按钮（开始/停止等）。",
+                )
+                return
             widgets = self._widgets()
             w = default_widget(wtype, len(widgets) + 1)
             if widgets:

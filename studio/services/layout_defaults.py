@@ -57,7 +57,7 @@ DEFAULT_LAYOUT: dict[str, Any] = {
         "width_mode": "auto",
         "width_dp": 720,
         "height_mode": "full",
-        "display_mode": "minimal",
+        "display_mode": "host",
         "auto_collapse_idle_ms": 15000,
         "show_on_launch": False,
         "opacity": 0.96,
@@ -145,18 +145,7 @@ DEFAULT_LAYOUT: dict[str, Any] = {
             ],
         },
     ],
-    "widgets": [
-        {
-            "id": "start",
-            "type": "start_script",
-            "label": "开始",
-            "color": "#2563EB",
-            "layout_x": 24,
-            "layout_y": 4,
-            "layout_w": 672,
-            "layout_h": 52,
-        },
-    ],
+    "widgets": [],
 }
 
 def layout_path(project_dir) -> "Path":
@@ -180,7 +169,7 @@ def normalize_layout(data: dict[str, Any]) -> dict[str, Any]:
     panel.setdefault("width_mode", "fixed")
     panel.setdefault("height_mode", "wrap")
     panel.setdefault("height_dp", int(panel.get("design_height", 1280) or 1280))
-    panel.setdefault("display_mode", "form")
+    panel.setdefault("display_mode", "host")
     panel.setdefault("auto_collapse_idle_ms", 0)
     panel.setdefault("show_on_launch", False)
     panel.setdefault("log_height_dp", 88)
@@ -200,6 +189,10 @@ def normalize_layout(data: dict[str, Any]) -> dict[str, Any]:
 
         out["widgets"] = normalize_chrome_widgets(out.get("widgets") or [], out.get("panel"))
         out = ensure_all_rects(out)
+    from studio.services.screen_layout import is_host_display, strip_action_widgets_from_screens
+
+    if is_host_display(out.get("panel")):
+        strip_action_widgets_from_screens(out)
     return out
 
 
@@ -387,7 +380,11 @@ def is_action_type(wtype: str) -> bool:
 
 
 def action_types_for_layout(layout: dict[str, Any]) -> list[tuple[str, str]]:
-    """自由布局 chrome 不再提供停止按钮（改由悬浮球 ■ 停止）。"""
+    """host/form 无 chrome 动作区；自由布局 minimal 保留悬浮窗启停。"""
+    from studio.services.screen_layout import is_host_display
+
+    if is_host_display(layout.get("panel")):
+        return [(t, d) for t, d in ACTION_TYPES if t not in ("start_script", "stop_script")]
     if is_free_mode(layout):
         return [(t, d) for t, d in ACTION_TYPES if t != "stop_script"]
     return list(ACTION_TYPES)

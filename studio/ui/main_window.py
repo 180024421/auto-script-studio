@@ -58,6 +58,7 @@ from studio.ui.publish_update_dialog import PublishUpdateDialog
 from studio.services.pack_preflight import validate_before_pack
 from studio.services.runtime_presets import PRESETS, apply_preset
 from studio.services.jiaoben_api import fetch_projects_for_combo
+from studio.services.jiaoben_project_id import resolve_jiaoben_project_id
 from packager.pack_metadata import read_project_cfg, save_pack_metadata, validate_pack_fields
 from packager.icon_processor import resolve_icon_source
 from studio.runtime.panel_state import PanelState
@@ -881,10 +882,20 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "应用信息不完整", err)
             return False
         try:
-            pid = int(self.pack_project_combo.currentData() or 0)
-            if pid <= 0:
-                text = self.pack_project_combo.currentText().strip()
-                pid = int(text) if text.isdigit() else 0
+            pid = resolve_jiaoben_project_id(self.pack_project_combo)
+            combo_text = self.pack_project_combo.currentText().strip()
+            if (
+                pid <= 0
+                and combo_text
+                and combo_text != "（手动输入 ID）"
+            ):
+                QMessageBox.warning(
+                    self,
+                    "发卡项目 ID 无效",
+                    "无法识别发卡项目 ID。\n\n"
+                    "请从下拉列表选择项目，或仅在输入框中填写数字 ID（例如 123）。",
+                )
+                return False
             save_pack_metadata(
                 self.project_dir,
                 name=self.pack_name_edit.text(),
@@ -902,7 +913,10 @@ class MainWindow(QMainWindow):
             return False
         self._load_pack_fields()
         if show_ok:
-            self.append("已保存应用名 / 包名 / 图标到 project.json")
+            msg = "已保存应用名 / 包名 / 图标到 project.json"
+            if pid > 0:
+                msg += f"（发卡项目 ID: {pid}）"
+            self.append(msg)
         return True
 
     def _set_project(self, path: Path, *, remember: bool = True) -> None:

@@ -7,7 +7,9 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -18,6 +20,9 @@ import com.autoscript.core.capture.ScreenCaptureManager
 import com.autoscript.core.log.ScriptLog
 import com.autoscript.core.license.LicenseStore
 import com.autoscript.core.license.LicenseVerifier
+import com.autoscript.core.overlay.LayoutConfig
+import com.autoscript.core.overlay.LayoutOverrideStore
+import com.autoscript.core.overlay.OverlayWidgetStore
 import com.autoscript.core.project.ProjectAssets
 import com.autoscript.core.root.RootShell
 import com.autoscript.core.root.ShizukuInputBackend
@@ -38,6 +43,8 @@ class MainActivity : AppCompatActivity() {
     private var captureRequested = false
     private var updateDialogShown = false
     private var updateCheckRunning = false
+    private var layoutConfig: LayoutConfig = LayoutConfig.DEFAULT
+    private var hostPanelEnabled = false
     private val handler = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,6 +66,10 @@ class MainActivity : AppCompatActivity() {
 
         statusText = findViewById(R.id.statusText)
         logText = findViewById(R.id.logText)
+
+        layoutConfig = loadLayoutConfig()
+        OverlayWidgetStore.seedFromLayout(layoutConfig)
+        setupHostPanel()
 
         findViewById<ImageButton>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
@@ -84,6 +95,42 @@ class MainActivity : AppCompatActivity() {
         logSink = { msg -> runOnUiThread { appendLog(msg) } }
     }
 
+    private fun loadLayoutConfig(): LayoutConfig =
+        runCatching { LayoutOverrideStore.load(this) }
+            .getOrElse { LayoutConfig.DEFAULT }
+
+    private fun setupHostPanel() {
+        val container = findViewById<FrameLayout>(R.id.hostPanelContainer)
+        val title = findViewById<TextView>(R.id.hostPanelTitle)
+        val legacy = findViewById<LinearLayout>(R.id.legacyControlSection)
+        hostPanelEnabled = layoutConfig.enabled &&
+            layoutConfig.resolvedScreens().any { it.widgets.isNotEmpty() }
+        if (!hostPanelEnabled) {
+            container.visibility = android.view.View.GONE
+            title.visibility = android.view.View.GONE
+            legacy.visibility = android.view.View.VISIBLE
+            return
+        }
+        legacy.visibility = android.view.View.GONE
+        title.visibility = android.view.View.VISIBLE
+        container.visibility = android.view.View.VISIBLE
+        container.post {
+            val panelWidth = (container.width - container.paddingLeft - container.paddingRight)
+                .coerceAtLeast(resources.displayMetrics.widthPixels - dp(40))
+            container.removeAllViews()
+            container.addView(
+                HostPanelRenderer(
+                    context = this,
+                    layoutConfig = layoutConfig,
+                    dp = ::dp,
+                    panelWidthPx = panelWidth,
+                ).build(),
+            )
+        }
+    }
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         if (logSink != null) logSink = null
@@ -101,7 +148,7 @@ class MainActivity : AppCompatActivity() {
     private fun requestOverlayAndStart() {
         if (Settings.canDrawOverlays(this)) {
             OverlayService.start(this)
-            appendLog("浮动面板已启动（点标题栏可拖动）")
+            appendLog("悬浮控制已启动（开始/停止）")
             return
         }
         AlertDialog.Builder(this)

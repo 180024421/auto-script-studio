@@ -219,7 +219,9 @@ class OverlayService : Service() {
     }
 
     private fun isMinimalDisplay(): Boolean =
-        layoutConfig.panel.displayMode.equals("minimal", ignoreCase = true)
+        layoutConfig.isHostDisplay() ||
+            layoutConfig.panel.displayMode.equals("minimal", ignoreCase = true) ||
+            layoutConfig.resolvedScreens().any { it.widgets.isNotEmpty() }
 
     private fun scheduleIdleCollapse() {
         handler.removeCallbacks(idleCollapseRunnable)
@@ -408,6 +410,12 @@ class OverlayService : Service() {
             setTextColor(theme.titleText)
             textSize = 14f
             paint.isFakeBoldText = true
+            gravity = Gravity.CENTER
+            textAlignment = android.view.View.TEXT_ALIGNMENT_CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
         }
         titleWrap.addView(title)
         root.addView(titleWrap)
@@ -543,23 +551,30 @@ class OverlayService : Service() {
         loadBallImage()
 
         val chrome = minimalChromeControls()
-        val frameW = chrome.maxOf { it.layoutX + it.layoutW }.coerceAtLeast(48)
-        val frameH = chrome.maxOf { it.layoutY + it.layoutH }.coerceAtLeast(32)
-        val controlsFrame = FrameLayout(this).apply {
-            visibility = View.GONE
-            setBackgroundColor(Color.TRANSPARENT)
-            layoutParams = LinearLayout.LayoutParams(dp(frameW), dp(frameH))
-        }
-        minimalControlsFrame = controlsFrame
-        chrome.forEach { cfg ->
-            val (icon, color, action) = when (cfg.type) {
-                "stop_script" -> Triple("■", Color.parseColor("#EF4444")) { stopMainScript() }
-                else -> Triple("▶", Color.parseColor("#22C55E")) { onStartButtonPressed() }
+        val controlsFrame = if (chrome.isNotEmpty()) {
+            val frameW = chrome.maxOf { it.layoutX + it.layoutW }.coerceAtLeast(48)
+            val frameH = chrome.maxOf { it.layoutY + it.layoutH }.coerceAtLeast(32)
+            FrameLayout(this).apply {
+                visibility = View.GONE
+                setBackgroundColor(Color.TRANSPARENT)
+                layoutParams = LinearLayout.LayoutParams(dp(frameW), dp(frameH))
+            }.also { frame ->
+                minimalControlsFrame = frame
+                chrome.forEach { cfg ->
+                    val (icon, color, action) = when (cfg.type) {
+                        "stop_script" -> Triple("■", Color.parseColor("#EF4444")) { stopMainScript() }
+                        else -> Triple("▶", Color.parseColor("#22C55E")) { onStartButtonPressed() }
+                    }
+                    placeMinimalControl(frame, cfg, icon, color, action)
+                }
+                minimalControlsWrap = frame
+                toolbar.addView(frame)
             }
-            placeMinimalControl(controlsFrame, cfg, icon, color, action)
+        } else {
+            minimalControlsFrame = null
+            minimalControlsWrap = null
+            null
         }
-        toolbar.addView(controlsFrame)
-        minimalControlsWrap = controlsFrame
 
         if (showLog) {
             val logBtnSize = dp(28)
@@ -621,6 +636,8 @@ class OverlayService : Service() {
     }
 
     private fun minimalChromeControls(): List<WidgetConfig> {
+        // 主页面 host：启停由悬浮球承担，不再单独渲染开始/停止按钮
+        if (layoutConfig.isHostDisplay()) return emptyList()
         val chrome = layoutConfig.chromeWidgets().filter {
             it.type == "start_script" || it.type == "stop_script"
         }
@@ -693,10 +710,23 @@ class OverlayService : Service() {
         }
     }
 
-    /** 轻点悬浮条（非拖动）时切换展开/收起。 */
+    /** 轻点悬浮条（非拖动）时切换展开/收起；host 模式下点击悬浮球启停脚本。 */
     private fun onMinimalDragTap() {
         if (!unifiedMinimalBar) return
+        if (layoutConfig.isHostDisplay()) {
+            onHostBallAction()
+            return
+        }
         onMinimalBallClick()
+    }
+
+    private fun onHostBallAction() {
+        bumpIdleTimer()
+        if (scriptRunning) {
+            stopMainScript()
+        } else {
+            startMainScript()
+        }
     }
 
     private fun onMinimalBallClick() {
@@ -712,7 +742,7 @@ class OverlayService : Service() {
 
     private fun applyMinimalCollapseUi() {
         if (!unifiedMinimalBar) return
-        val showControls = !collapsed
+        val showControls = !collapsed && !layoutConfig.isHostDisplay()
         minimalControlsFrame?.visibility = if (showControls) View.VISIBLE else View.GONE
         minimalControlsWrap?.visibility = if (showControls) View.VISIBLE else View.GONE
         val showLogBtn = showControls && layoutConfig.panel.showLog
@@ -957,9 +987,29 @@ class OverlayService : Service() {
             ballFallbackView?.visibility = View.GONE
             iv.visibility = View.VISIBLE
             if (unifiedMinimalBar) {
-                iv.clearColorFilter()
-                iv.imageAlpha = 255
-                badge?.visibility = View.GONE
+                when {
+                    scriptRunning -> {
+                        iv.setColorFilter(Color.parseColor("#EF4444"), PorterDuff.Mode.SRC_ATOP)
+                        iv.imageAlpha = 235
+                        badge?.apply {
+                            text = "■"
+                            visibility = View.VISIBLE
+                        }
+                    }
+                    layoutConfig.isHostDisplay() -> {
+                        iv.clearColorFilter()
+                        iv.imageAlpha = if (startArmed) 255 else 200
+                        badge?.apply {
+                            text = "▶"
+                            visibility = View.VISIBLE
+                        }
+                    }
+                    else -> {
+                        iv.clearColorFilter()
+                        iv.imageAlpha = 255
+                        badge?.visibility = View.GONE
+                    }
+                }
                 return
             }
             when {

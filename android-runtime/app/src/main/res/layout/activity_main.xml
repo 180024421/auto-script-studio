@@ -79,31 +79,56 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
+        <LinearLayout
+            android:id="@+id/legacyControlSection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="8dp"
+                android:text="脚本控制"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnStart"
+                style="@style/Widget.AutoScript.Button.Primary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/btn_start_script" />
+
+            <Button
+                android:id="@+id/btnStop"
+                style="@style/Widget.AutoScript.Button.Secondary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:enabled="false"
+                android:text="@string/btn_stop_script" />
+        </LinearLayout>
+
         <TextView
+            android:id="@+id/hostPanelTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
             android:layout_marginBottom="8dp"
-            android:text="脚本控制"
+            android:text="脚本配置"
             android:textColor="@color/text_primary"
             android:textSize="14sp"
-            android:textStyle="bold" />
+            android:textStyle="bold"
+            android:visibility="gone" />
 
-        <Button
-            android:id="@+id/btnStart"
-            style="@style/Widget.AutoScript.Button.Primary"
+        <FrameLayout
+            android:id="@+id/hostPanelContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/btn_start_script" />
-
-        <Button
-            android:id="@+id/btnStop"
-            style="@style/Widget.AutoScript.Button.Secondary"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:enabled="false"
-            android:text="@string/btn_stop_script" />
+            android:visibility="gone" />
 
         <Button
             android:id="@+id/btnOverlay"
@@ -111,7 +136,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="启动浮动面板" />
+            android:text="启动悬浮控制（开始/停止）" />
 
         <TextView
             android:layout_width="match_parent"

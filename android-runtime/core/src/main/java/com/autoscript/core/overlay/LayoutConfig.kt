@@ -12,8 +12,8 @@ data class PanelConfig(
     val heightMode: String = "wrap",
     /** auto 高度模式下设计稿像素高度 */
     val heightDp: Int = 1280,
-    /** form=完整表单；minimal=仅开始/结束 */
-    val displayMode: String = "form",
+    /** form/host=主页面表单+悬浮窗仅启停；minimal=无主页表单、悬浮窗仅启停 */
+    val displayMode: String = "host",
     /** 无操作多少毫秒后自动收起到悬浮球；0=关闭 */
     val autoCollapseIdleMs: Int = 0,
     val opacity: Float = 0.96f,
@@ -120,6 +120,14 @@ data class LayoutConfig(
     val buttons: List<WidgetConfig> get() = widgets
 
     fun isFreeMode(): Boolean = panel.layoutMode == "free"
+
+    /** 表单在主 Activity，悬浮窗仅保留开始/停止。 */
+    fun isHostDisplay(): Boolean =
+        panel.displayMode.equals("host", ignoreCase = true) ||
+            panel.displayMode.equals("form", ignoreCase = true)
+
+    fun hasHostFormWidgets(): Boolean =
+        resolvedScreens().any { sc -> sc.widgets.any { w -> w.type in WidgetConfig.FORM_VALUE_TYPES || w.type in setOf("text", "label", "divider") } }
 
     fun resolvedScreens(): List<ScreenConfig> =
         if (screens.isNotEmpty()) screens else legacyScreensFromWidgets(widgets)
@@ -265,7 +273,7 @@ data class LayoutConfig(
             widthMode = panelObj?.optString("width_mode", "fixed") ?: "fixed",
             heightMode = panelObj?.optString("height_mode", "wrap") ?: "wrap",
             heightDp = panelObj?.optInt("height_dp", 1280) ?: 1280,
-            displayMode = panelObj?.optString("display_mode", "form") ?: "form",
+            displayMode = panelObj?.optString("display_mode", "host") ?: "host",
             autoCollapseIdleMs = panelObj?.optInt("auto_collapse_idle_ms", 0) ?: 0,
             opacity = panelObj?.optDouble("opacity", 0.96)?.toFloat() ?: 0.96f,
             position = panelObj?.optString("position", "right_center") ?: "right_center",

@@ -23,7 +23,7 @@ from studio.services.screen_layout import (
 def test_migrate_to_screens():
     raw = {
         "version": 2,
-        "panel": {"layout_mode": "free"},
+        "panel": {"layout_mode": "free", "display_mode": "minimal"},
         "widgets": [
             {
                 "type": "tabs",
@@ -78,7 +78,7 @@ def test_chrome_path_tag():
     assert CHROME_PATH_TAG == -1
 
 
-def test_normalize_chrome_strips_stop_in_free_form():
+def test_normalize_chrome_empty_for_host_form():
     from studio.services.screen_layout import chrome_widgets, normalize_chrome_widgets
 
     widgets = [
@@ -86,10 +86,16 @@ def test_normalize_chrome_strips_stop_in_free_form():
         {"id": "stop", "type": "stop_script", "label": "停止"},
     ]
     out = normalize_chrome_widgets(widgets, {"display_mode": "form"})
-    assert len(out) == 1
-    assert out[0]["type"] == "start_script"
-    layout = migrate_screens({"version": 3, "panel": {"layout_mode": "free"}, "screens": [{"title": "A", "widgets": []}], "widgets": widgets})
-    assert all(w.get("type") != "stop_script" for w in chrome_widgets(layout))
+    assert out == []
+    layout = migrate_screens(
+        {
+            "version": 3,
+            "panel": {"layout_mode": "free", "display_mode": "host"},
+            "screens": [{"title": "A", "widgets": []}],
+            "widgets": widgets,
+        }
+    )
+    assert chrome_widgets(layout) == []
 
 
 def test_normalize_chrome_keeps_stop_in_minimal():

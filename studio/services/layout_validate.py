@@ -14,7 +14,8 @@ def validate_layout(layout: dict[str, Any]) -> list[str]:
     data = dict(layout)
     ensure_migrated(data)
     panel = data.get("panel", {})
-    minimal = panel.get("display_mode") == "minimal"
+    mode = panel.get("display_mode", "host")
+    overlay_minimal = mode in ("minimal", "host", "form")
     if panel.get("layout_mode") == "free":
         dw = int(panel.get("design_width", 720))
         dh = int(panel.get("design_height", 1280))
@@ -25,7 +26,7 @@ def validate_layout(layout: dict[str, Any]) -> list[str]:
             hh = int(w.get("layout_h", 28))
             wtype = str(w.get("type", ""))
             min_w, min_h = min_rect_for_type(wtype)
-            if minimal and wtype in ("start_script", "stop_script"):
+            if overlay_minimal and wtype in ("start_script", "stop_script"):
                 min_w, min_h = 24, 24
             if x < 0 or y < 0:
                 errors.append(f"控件「{w.get('id', '?')}」坐标不能为负")

@@ -4,7 +4,8 @@ import android.content.Context
 import android.view.Gravity
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ScrollView
+import android.widget.HorizontalScrollView
+import android.view.ViewGroup
 import com.autoscript.core.overlay.LayoutConfig
 import com.autoscript.core.overlay.OverlayTabButton
 import com.autoscript.core.overlay.OverlayTheme
@@ -21,10 +22,12 @@ class OverlayScreenPanelBuilder(
     private val dp: (Int) -> Int,
     private val panelWidthPx: Int,
     private val onActiveScreenChange: (Int) -> Unit,
+    private val includeChrome: Boolean = true,
 ) {
     private var activeScreen: Int = layoutConfig.activeScreenIndex()
     private lateinit var contentFrame: FrameLayout
     private lateinit var tabBar: LinearLayout
+    private lateinit var tabScroll: HorizontalScrollView
 
     fun build(): LinearLayout {
         val root = LinearLayout(context).apply {
@@ -35,7 +38,19 @@ class OverlayScreenPanelBuilder(
             setPadding(dp(4), dp(4), dp(4), dp(4))
             setBackgroundColor(0xFFF1F5F9.toInt())
         }
-        root.addView(tabBar, LinearLayout.LayoutParams(
+        tabScroll = HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            setBackgroundColor(0xFFF1F5F9.toInt())
+            addView(
+                tabBar,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                ),
+            )
+        }
+        root.addView(tabScroll, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT,
         ))
@@ -59,22 +74,24 @@ class OverlayScreenPanelBuilder(
         ))
         renderActiveScreen()
 
-        val chrome = layoutConfig.chromeWidgets()
-        if (chrome.isNotEmpty()) {
-            val chromeDesignH = chrome.maxOf { it.layoutY + it.layoutH }.coerceAtLeast(64)
-            val chromeHost = FrameLayout(context).apply {
-                clipChildren = true
-                clipToPadding = true
-                setPadding(dp(4), dp(4), dp(4), dp(4))
-                setBackgroundColor(0xFFF8FAFC.toInt())
+        if (includeChrome) {
+            val chrome = layoutConfig.chromeWidgets()
+            if (chrome.isNotEmpty()) {
+                val chromeDesignH = chrome.maxOf { it.layoutY + it.layoutH }.coerceAtLeast(64)
+                val chromeHost = FrameLayout(context).apply {
+                    clipChildren = true
+                    clipToPadding = true
+                    setPadding(dp(4), dp(4), dp(4), dp(4))
+                    setBackgroundColor(0xFFF8FAFC.toInt())
+                }
+                val chromeH = scaleY(chromeDesignH).coerceAtLeast(dp(52))
+                chromeHost.layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    chromeH,
+                )
+                placeFreeWidgets(chromeHost, chrome, chromeDesignH)
+                root.addView(chromeHost)
             }
-            val chromeH = scaleY(chromeDesignH).coerceAtLeast(dp(52))
-            chromeHost.layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                chromeH,
-            )
-            placeFreeWidgets(chromeHost, chrome, chromeDesignH)
-            root.addView(chromeHost)
         }
         return root
     }
@@ -94,6 +111,9 @@ class OverlayScreenPanelBuilder(
                     onActiveScreenChange(index)
                     rebuildTabButtons()
                     renderActiveScreen()
+                    tabBar.post {
+                        tabScroll.smoothScrollTo(tabBar.getChildAt(index).left, 0)
+                    }
                 }
             }
             btn.layoutParams = LinearLayout.LayoutParams(
@@ -102,11 +122,22 @@ class OverlayScreenPanelBuilder(
             ).apply { marginEnd = dp(4) }
             tabBar.addView(btn)
         }
+        tabBar.post {
+            val idx = activeScreen.coerceIn(0, layoutConfig.resolvedScreens().size - 1)
+            if (idx > 0 && tabBar.childCount > idx) {
+                tabScroll.smoothScrollTo(tabBar.getChildAt(idx).left, 0)
+            }
+        }
+    }
+
+    private fun formWidgetsForScreen(screenIdx: Int): List<WidgetConfig> {
+        val raw = layoutConfig.screenWidgets(screenIdx)
+        return if (!includeChrome) raw.filter { !it.isActionControl() } else raw
     }
 
     private fun renderActiveScreen() {
         contentFrame.removeAllViews()
-        val widgets = layoutConfig.screenWidgets(activeScreen)
+        val widgets = formWidgetsForScreen(activeScreen)
         val contentDesignH = if (widgets.isEmpty()) 800 else {
             widgets.maxOf { it.layoutY + it.layoutH } + 80
         }

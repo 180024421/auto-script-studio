@@ -31,7 +31,8 @@
     "skip_on_offline": false
   },
   "jiaoben": {
-    "api_base": "http://111.229.202.251:8687"
+    "api_base": "http://111.229.202.251:8687",
+    "project_id": 1
   },
   "update": {
     "enabled": true,

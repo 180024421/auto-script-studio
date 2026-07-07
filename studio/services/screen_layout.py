@@ -17,6 +17,22 @@ from studio.services.free_layout import (
 CHROME_PATH_TAG = -1
 
 
+def is_host_display(panel: dict[str, Any] | None = None) -> bool:
+    """APK 主页面承载表单，悬浮球启停，无底部 chrome 按钮区。"""
+    mode = (panel or {}).get("display_mode", "host")
+    return mode in ("host", "form")
+
+
+def strip_action_widgets_from_screens(layout: dict[str, Any]) -> None:
+    """host 模式：界面内不应出现开始/停止等动作按钮（仅悬浮窗启停）。"""
+    from studio.services.layout_defaults import is_action_type
+
+    for sc in layout.get("screens") or []:
+        sc["widgets"] = [
+            w for w in sc.get("widgets") or [] if not is_action_type(w.get("type", ""))
+        ]
+
+
 def ensure_migrated(layout: dict[str, Any]) -> None:
     """旧 widgets + 嵌套 tabs → screens[]，就地迁移（不拷贝）。"""
     if layout.get("screens"):
@@ -88,8 +104,11 @@ def normalize_chrome_widgets(
     widgets: list[dict[str, Any]],
     panel: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """底部 chrome：自由布局预览去掉 stop；minimal 悬浮窗保留开始+停止。"""
-    minimal = (panel or {}).get("display_mode") == "minimal"
+    """底部 chrome：host/form 无 chrome；minimal 悬浮窗保留开始+停止小图标。"""
+    if is_host_display(panel):
+        return []
+    mode = (panel or {}).get("display_mode", "host")
+    minimal = mode == "minimal"
     if minimal:
         out = [copy.deepcopy(w) for w in widgets]
     else:

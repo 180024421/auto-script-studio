@@ -32,6 +32,7 @@ from studio.services.screen_layout import (
   active_screen_index,
   chrome_widgets,
   content_height,
+  is_host_display,
   migrate_layout,
   path_for_chrome,
   path_for_screen,
@@ -46,6 +47,10 @@ TAB_BAR_DP = 44
 CHROME_DP = 64
 SNAP_GRID = 8
 DRAG_THRESHOLD = 5
+
+
+def _chrome_dp(layout: dict[str, Any]) -> int:
+  return 0 if is_host_display(layout.get("panel")) else CHROME_DP
 
 CHROME_ICONS: dict[str, str] = {
   "start_script": "▶",
@@ -79,6 +84,45 @@ def _screen_tab_stylesheet(scale: float, *, checked: bool) -> str:
 
 def _screen_tab_bar_height(scale: float) -> int:
   return max(int(TAB_BAR_DP * scale), int(26 * scale) + 8)
+
+
+def _build_screen_tab_bar(
+  sc_list: list[dict[str, Any]],
+  active: int,
+  scale: float,
+  on_tab_clicked,
+) -> tuple[QScrollArea, list[QPushButton]]:
+  """标签过多时可横向滚动，避免文字被裁切。"""
+  tab_h = _screen_tab_bar_height(scale)
+  tab_scroll = QScrollArea()
+  tab_scroll.setFixedHeight(tab_h)
+  tab_scroll.setWidgetResizable(True)
+  tab_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+  tab_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+  tab_scroll.setFrameShape(QFrame.Shape.NoFrame)
+  tab_scroll.setStyleSheet(
+    "QScrollArea { background:#F1F5F9; border:none; border-bottom:1px solid #CBD5E1; }"
+  )
+
+  tab_row = QWidget()
+  tab_lay = QHBoxLayout(tab_row)
+  tab_lay.setContentsMargins(4, 4, 4, 4)
+  tab_lay.setSpacing(4)
+  tab_buttons: list[QPushButton] = []
+  for i, sc in enumerate(sc_list):
+    tb = QPushButton(sc.get("title", f"界面{i + 1}"))
+    tb.setObjectName("PanelScreenTab")
+    tb.setCheckable(True)
+    tb.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+    tb.blockSignals(True)
+    tb.setChecked(i == active)
+    tb.blockSignals(False)
+    tb.setStyleSheet(_screen_tab_stylesheet(scale, checked=i == active))
+    tb.clicked.connect(lambda _c=False, idx=i: on_tab_clicked(idx))
+    tab_lay.addWidget(tb)
+    tab_buttons.append(tb)
+  tab_scroll.setWidget(tab_row)
+  return tab_scroll, tab_buttons
 
 
 def _snap_design(v: int) -> int:
@@ -679,34 +723,17 @@ class PhoneCanvasWidget(QScrollArea):
     title = QLabel(panel.get("title", "脚本助手"))
     title.setFixedHeight(title_h)
     title.setStyleSheet(
-      "background:#2563EB;color:white;padding-left:10px;font-weight:600;font-size:13px;"
+      "background:#2563EB;color:white;font-weight:600;font-size:13px;"
     )
-    title.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+    title.setAlignment(Qt.AlignmentFlag.AlignCenter)
     inner_lay.addWidget(title)
 
-    tab_h = _screen_tab_bar_height(self._scale)
-    tab_bar = QWidget()
-    tab_bar.setFixedHeight(tab_h)
-    tab_bar.setStyleSheet("background:#F1F5F9;border-bottom:1px solid #CBD5E1;")
-    tab_lay = QHBoxLayout(tab_bar)
-    tab_lay.setContentsMargins(4, 4, 4, 4)
-    tab_lay.setSpacing(4)
-    tab_buttons: list[QPushButton] = []
-    for i, sc in enumerate(sc_list):
-      tb = QPushButton(sc.get("title", f"界面{i + 1}"))
-      tb.setObjectName("PanelScreenTab")
-      tb.setCheckable(True)
-      tb.blockSignals(True)
-      tb.setChecked(i == active)
-      tb.blockSignals(False)
-      tb.setStyleSheet(_screen_tab_stylesheet(self._scale, checked=i == active))
-      tb.clicked.connect(lambda _c=False, idx=i: self._on_tab_clicked(idx))
-      tab_lay.addWidget(tb)
-      tab_buttons.append(tb)
-    tab_lay.addStretch()
-    inner_lay.addWidget(tab_bar)
+    tab_scroll, tab_buttons = _build_screen_tab_bar(
+      sc_list, active, self._scale, self._on_tab_clicked
+    )
+    inner_lay.addWidget(tab_scroll)
 
-    view_h = int((dh - TITLE_DP - TAB_BAR_DP - CHROME_DP) * self._scale)
+    view_h = int((dh - TITLE_DP - TAB_BAR_DP - _chrome_dp(self._layout)) * self._scale)
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
     scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -718,9 +745,10 @@ class PhoneCanvasWidget(QScrollArea):
     scroll.setWidget(canvas)
     inner_lay.addWidget(scroll, 1)
 
-    chrome_h = int(CHROME_DP * self._scale)
+    chrome_h = int(_chrome_dp(self._layout) * self._scale)
     chrome_host = QWidget()
-    chrome_host.setFixedHeight(chrome_h)
+    chrome_host.setFixedHeight(max(0, chrome_h))
+    chrome_host.setVisible(chrome_h > 0)
     chrome_host.setStyleSheet("background:#F8FAFC;border-top:1px solid #E2E8F0;")
     chrome_host.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
     chrome_host.customContextMenuRequested.connect(
@@ -746,7 +774,7 @@ class PhoneCanvasWidget(QScrollArea):
       phone=phone,
       inner=inner,
       title=title,
-      tab_bar=tab_bar,
+      tab_bar=tab_scroll,
       tab_buttons=tab_buttons,
       scroll=scroll,
       canvas=canvas,
@@ -760,12 +788,18 @@ class PhoneCanvasWidget(QScrollArea):
     )
 
   def _hint_text(self, dw: int, dh: int) -> str:
-    hint_text = (
-      f"设计 {dw}×{dh}  ·  点击标签切换界面  ·  拖动移动控件  ·  右下角缩放  ·  界面可上下滚动"
-    )
+    if is_host_display(self._layout.get("panel")):
+      base = (
+        f"主页面表单预览 {dw}×{dh}  ·  点击标签切换界面  ·  拖动移动控件"
+        "  ·  APK 启停由悬浮球控制"
+      )
+    else:
+      base = (
+        f"设计 {dw}×{dh}  ·  点击标签切换界面  ·  拖动移动控件  ·  右下角缩放  ·  界面可上下滚动"
+      )
     if self._interactive_preview:
-      hint_text += "  ·  交互预览：顶部色条拖动，控件区内可操作"
-    return hint_text
+      base += "  ·  交互预览：顶部色条拖动，控件区内可操作"
+    return base
 
   def _sync_shell_content(self) -> None:
     if self._shell is None:
@@ -791,18 +825,22 @@ class PhoneCanvasWidget(QScrollArea):
       tb.blockSignals(False)
       tb.setStyleSheet(_screen_tab_stylesheet(self._scale, checked=i == active))
 
+    if 0 <= active < len(shell.tab_buttons):
+      shell.tab_bar.ensureWidgetVisible(shell.tab_buttons[active], 12, 0)
+
     content_h_design = content_height(
       self._layout,
       active,
       min_canvas=0 if self._fit_viewport else 800,
     )
-    view_h = int((dh - TITLE_DP - TAB_BAR_DP - CHROME_DP) * self._scale)
+    view_h = int((dh - TITLE_DP - TAB_BAR_DP - _chrome_dp(self._layout)) * self._scale)
     shell.scroll.setFixedHeight(max(200, view_h))
     canvas_h = int(content_h_design * self._scale)
     shell.canvas.setFixedSize(sw, max(canvas_h, view_h))
 
-    chrome_h = int(CHROME_DP * self._scale)
-    shell.chrome_host.setFixedHeight(chrome_h)
+    chrome_h = int(_chrome_dp(self._layout) * self._scale)
+    shell.chrome_host.setFixedHeight(max(0, chrome_h))
+    shell.chrome_host.setVisible(chrome_h > 0)
     phone_h = title_h + tab_h + shell.scroll.height() + chrome_h
     shell.inner.setFixedWidth(sw)
     shell.inner.setFixedHeight(phone_h)

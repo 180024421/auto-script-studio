@@ -175,7 +175,7 @@ def paint_layout_overlay(
     font.setPointSizeF(max(7.0, 9 * scale))
     font.setBold(True)
     painter.setFont(font)
-    painter.drawText(QRectF(sx + pad, sy + pad // 2, pw - pad * 2, title_h), Qt.AlignLeft | Qt.AlignVCenter, title)
+    painter.drawText(QRectF(sx + pad, sy + pad // 2, pw - pad * 2, title_h), Qt.AlignCenter, title)
 
     # 按钮网格
     font.setBold(False)
