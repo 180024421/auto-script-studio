@@ -1,6 +1,7 @@
 package com.autoscript.script.runner
 
 import com.autoscript.core.backend.AutomationBackend
+import com.autoscript.core.capture.CaptureCache
 import com.autoscript.core.project.ProjectConfig
 import com.autoscript.script.parseBgr
 import com.autoscript.script.parseRoi
@@ -15,6 +16,7 @@ class ActionRunner(
     private val config: ProjectConfig,
     private val onLog: (String) -> Unit,
 ) {
+    private val captureCache = CaptureCache(config.perf.captureCacheTtlMs)
 
     suspend fun runAction(action: Map<String, Any?>, workflow: Map<String, Any?>) {
         val type = str(action["type"]).lowercase()
@@ -70,7 +72,7 @@ class ActionRunner(
         val roi = parseRoi(action["roi"]) ?: parseRoi(workflow["yolo_roi"])
         val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
         while (System.currentTimeMillis() < deadline) {
-            val frame = backend.capture()
+            val frame = captureCache.getOrCapture { backend.capture() }
             val m = vision.findTemplate(frame, path, threshold, roi)
             if (m != null) {
                 onLog("找图命中 $path score=${m.score}")
@@ -84,6 +86,7 @@ class ActionRunner(
             }
             delay(interval)
         }
+        captureCache.invalidate()
         throw IllegalStateException("找图超时: $path")
     }
 
@@ -94,7 +97,7 @@ class ActionRunner(
         val roi = parseRoi(action["roi"]) ?: parseRoi(workflow["yolo_roi"])
         val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
         while (System.currentTimeMillis() < deadline) {
-            val frame = backend.capture()
+            val frame = captureCache.getOrCapture { backend.capture() }
             val pt = vision.findColor(frame, bgr, tol, roi)
             if (pt != null) {
                 onLog("找色命中 $pt")
@@ -105,6 +108,7 @@ class ActionRunner(
             }
             delay(config.defaultIntervalMs.toLong())
         }
+        captureCache.invalidate()
         throw IllegalStateException("找色超时: $bgr")
     }
 
@@ -116,7 +120,7 @@ class ActionRunner(
         val roi = parseRoi(action["roi"]) ?: parseRoi(workflow["yolo_roi"])
         val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
         while (System.currentTimeMillis() < deadline) {
-            val frame = backend.capture()
+            val frame = captureCache.getOrCapture { backend.capture() }
             val hits = vision.findText(frame, target, mode, roi, minConf)
             if (hits.isNotEmpty()) {
                 val h = hits[num(action["index"], 0).coerceAtMost(hits.lastIndex)]
@@ -128,6 +132,7 @@ class ActionRunner(
             }
             delay(config.defaultIntervalMs.toLong())
         }
+        captureCache.invalidate()
         throw IllegalStateException("识字超时: $target")
     }
 
@@ -239,7 +244,7 @@ class ActionRunner(
             } else {
                 stable = 0
             }
-            prev = cur
+            prev = if (frame.sharedBuffer) frame.bgr.copyOf() else frame.bgr
             delay(config.defaultIntervalMs.toLong())
         }
         throw IllegalStateException("等待画面稳定超时")

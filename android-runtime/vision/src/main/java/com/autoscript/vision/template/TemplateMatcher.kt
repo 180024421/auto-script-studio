@@ -23,6 +23,7 @@ object TemplateMatcher {
         val th = template.height
         if (tw > (x2 - x1) || th > (y2 - y1)) return null
 
+        val fGray = toGray(frame)
         val tGray = toGray(template)
         val tMean = tGray.average().toFloat()
         val tStd = std(tGray, tMean)
@@ -34,7 +35,7 @@ object TemplateMatcher {
 
         for (y in y1 until y2 - th step stride) {
             for (x in x1 until x2 - tw step stride) {
-                val score = nccAt(frame, x, y, tw, th, tGray, tMean, tStd)
+                val score = nccAt(fGray, frame.width, x, y, tw, th, tGray, tMean, tStd)
                 if (score > bestScore) {
                     bestScore = score
                     bestX = x
@@ -54,7 +55,8 @@ object TemplateMatcher {
     }
 
     private fun nccAt(
-        frame: ScreenFrame,
+        fGray: FloatArray,
+        frameWidth: Int,
         ox: Int,
         oy: Int,
         tw: Int,
@@ -69,8 +71,9 @@ object TemplateMatcher {
         var cross = 0f
         var ti = 0
         for (ty in 0 until th) {
+            val rowBase = (oy + ty) * frameWidth + ox
             for (tx in 0 until tw) {
-                val fv = grayAt(frame, ox + tx, oy + ty)
+                val fv = fGray[rowBase + tx]
                 val tv = tGray[ti++]
                 sum += fv
                 sumSq += fv * fv
@@ -81,14 +84,7 @@ object TemplateMatcher {
         val fVar = sumSq / n - fMean * fMean
         val fStd = sqrt(fVar.coerceAtLeast(0f))
         if (fStd < 1e-6f) return -1f
-        cross = 0f
-        ti = 0
-        for (ty in 0 until th) {
-            for (tx in 0 until tw) {
-                val fv = grayAt(frame, ox + tx, oy + ty)
-                cross += (fv - fMean) * (tGray[ti++] - tMean)
-            }
-        }
+        cross -= n * fMean * tMean
         return (cross / n) / (fStd * tStd)
     }
 
@@ -100,11 +96,6 @@ object TemplateMatcher {
             out[i] = gray(t.bgr[j], t.bgr[j + 1], t.bgr[j + 2])
         }
         return out
-    }
-
-    private fun grayAt(frame: ScreenFrame, x: Int, y: Int): Float {
-        val j = (y * frame.width + x) * 3
-        return gray(frame.bgr[j], frame.bgr[j + 1], frame.bgr[j + 2])
     }
 
     private fun std(arr: FloatArray, mean: Float): Float {

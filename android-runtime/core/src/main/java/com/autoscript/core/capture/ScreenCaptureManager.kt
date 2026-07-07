@@ -108,7 +108,7 @@ class ScreenCaptureManager(private val context: Context) {
                 }
                 xOffset += rowPadding
             }
-            return ScreenFrame(width, height, out.copyOf())
+            return ScreenFrame(width, height, out, sharedBuffer = true)
         } finally {
             image.close()
         }

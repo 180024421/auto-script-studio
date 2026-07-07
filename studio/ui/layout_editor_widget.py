@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QColorDialog,
@@ -96,6 +96,10 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self._history = LayoutHistory()
         self._clipboard_widget: dict | None = None
         self._loading_form = False
+        self._layout_emit_timer = QTimer(self)
+        self._layout_emit_timer.setSingleShot(True)
+        self._layout_emit_timer.setInterval(100)
+        self._layout_emit_timer.timeout.connect(self._flush_layout_changed)
 
         root = QVBoxLayout(self)
         root.setSpacing(6)
@@ -663,6 +667,9 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self._emit_layout_changed()
 
     def _emit_layout_changed(self) -> None:
+        self._layout_emit_timer.start()
+
+    def _flush_layout_changed(self) -> None:
         self.layout_changed.emit(clone_layout(self._layout))
 
     def _refresh_ui(self) -> None:

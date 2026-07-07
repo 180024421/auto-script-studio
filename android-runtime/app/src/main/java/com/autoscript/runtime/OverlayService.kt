@@ -85,6 +85,16 @@ class OverlayService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var statusPollActive = false
     private val idleCollapseRunnable = Runnable { onIdleCollapse() }
+    private val logPending = StringBuilder()
+    private val logFlushRunnable = Runnable { flushPendingLog() }
+    private val scriptRunningListener: (Boolean) -> Unit = { running ->
+        handler.post {
+            if (running != scriptRunning) {
+                scriptRunning = running
+                updateBallAppearance()
+            }
+        }
+    }
     private val statusPollRunnable = object : Runnable {
         override fun run() {
             val running = ScriptStatus.isRunning(this@OverlayService)
@@ -92,7 +102,7 @@ class OverlayService : Service() {
                 scriptRunning = running
                 updateBallAppearance()
             }
-            handler.postDelayed(this, 500)
+            handler.postDelayed(this, 1500)
         }
     }
 
@@ -122,12 +132,13 @@ class OverlayService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification("浮动面板运行中"))
         if (layoutConfig.enabled && layoutConfig.panel.showOnLaunch) {
             if (showOverlay()) {
-                statusPollActive = true
-                handler.post(statusPollRunnable)
+                startStatusTracking()
             } else {
                 ScriptLog.w("无悬浮窗权限或窗口创建失败，已跳过启动时自动显示面板")
             }
         }
+        ScriptStatus.addRunningListener(scriptRunningListener)
+        scriptRunning = ScriptStatus.isRunning(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -142,8 +153,7 @@ class OverlayService : Service() {
                     if (!showOverlay()) {
                         ScriptLog.w("重新加载后无法显示浮动面板")
                     }
-                    statusPollActive = true
-                    handler.post(statusPollRunnable)
+                    startStatusTracking()
                 }
             }
             ACTION_STOP -> {
@@ -154,22 +164,54 @@ class OverlayService : Service() {
                 if (!showOverlay()) {
                     ScriptLog.w("无法显示浮动面板，请授予悬浮窗权限")
                 }
-                if (!statusPollActive) {
-                    statusPollActive = true
-                    handler.post(statusPollRunnable)
-                }
+                startStatusTracking()
             }
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
-        handler.removeCallbacks(statusPollRunnable)
+        ScriptStatus.removeRunningListener(scriptRunningListener)
+        stopStatusTracking()
+        handler.removeCallbacks(logFlushRunnable)
+        flushPendingLog()
         cancelIdleCollapse()
-        statusPollActive = false
         removeOverlay()
         snippetJob?.cancel()
         super.onDestroy()
+    }
+
+    private fun startStatusTracking() {
+        if (statusPollActive) return
+        statusPollActive = true
+        handler.postDelayed(statusPollRunnable, 1500)
+    }
+
+    private fun stopStatusTracking() {
+        handler.removeCallbacks(statusPollRunnable)
+        statusPollActive = false
+    }
+
+    private fun installLogSink() {
+        OverlayLog.sink = { msg -> queueLogLine(msg) }
+    }
+
+    private fun queueLogLine(msg: String) {
+        synchronized(logPending) {
+            logPending.append(msg).append('\n')
+        }
+        handler.removeCallbacks(logFlushRunnable)
+        handler.postDelayed(logFlushRunnable, 100)
+    }
+
+    private fun flushPendingLog() {
+        val chunk = synchronized(logPending) {
+            if (logPending.isEmpty()) return
+            val text = logPending.toString()
+            logPending.clear()
+            text
+        }
+        logView?.append(chunk)
     }
 
     private fun layoutModeReset() {
@@ -471,7 +513,8 @@ class OverlayService : Service() {
             scroll.addView(logView)
             root.addView(scroll)
         }
-        OverlayLog.sink = { msg -> handler.post { logView?.append("$msg\n") } }
+        OverlayLog.replay { line -> queueLogLine(line) }
+        installLogSink()
         return root
     }
 
@@ -628,10 +671,10 @@ class OverlayService : Service() {
             scroll.addView(logView)
             logWrap.addView(scroll)
             outer.addView(logWrap)
-            OverlayLog.replay { line -> logView?.append("$line\n") }
+            OverlayLog.replay { line -> queueLogLine(line) }
         }
 
-        OverlayLog.sink = { msg -> handler.post { logView?.append("$msg\n") } }
+        installLogSink()
         return outer
     }
 

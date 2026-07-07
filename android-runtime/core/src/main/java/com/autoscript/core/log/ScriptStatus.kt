@@ -3,11 +3,33 @@ package com.autoscript.core.log
 import android.content.Context
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.CopyOnWriteArraySet
 
 object ScriptStatus {
     private const val FILE = "script_status.json"
 
+    @Volatile
+    private var memoryRunning: Boolean = false
+
+    private val runningListeners = CopyOnWriteArraySet<(Boolean) -> Unit>()
+
+    fun addRunningListener(listener: (Boolean) -> Unit) {
+        runningListeners.add(listener)
+        listener(memoryRunning)
+    }
+
+    fun removeRunningListener(listener: (Boolean) -> Unit) {
+        runningListeners.remove(listener)
+    }
+
+    private fun notifyRunning(running: Boolean) {
+        if (memoryRunning == running) return
+        memoryRunning = running
+        runningListeners.forEach { it(running) }
+    }
+
     fun write(context: Context, status: String, phase: String = "", error: String = "") {
+        notifyRunning(status == "running")
         val obj = JSONObject()
         obj.put("status", status)
         obj.put("phase", phase)
@@ -39,7 +61,8 @@ object ScriptStatus {
         }.getOrElse { "idle" }
     }
 
-    fun isRunning(context: Context): Boolean = read(context) == "running"
+    fun isRunning(context: Context): Boolean =
+        memoryRunning || read(context) == "running"
 
     fun pathHint(context: Context): String {
         val dir = context.getExternalFilesDir(null) ?: context.filesDir

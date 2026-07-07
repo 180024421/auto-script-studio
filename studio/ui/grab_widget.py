@@ -84,40 +84,44 @@ class ScreenshotLabel(QLabel):
         self._highlight_xy: Optional[Tuple[int, int]] = None
         self._overlay_layout: Optional[dict[str, Any]] = None
         self._overlay_enabled = False
+        self._base_pixmap: Optional[QPixmap] = None
 
     def set_overlay_layout(self, layout: Optional[dict[str, Any]], enabled: bool) -> None:
         self._overlay_layout = layout
         self._overlay_enabled = enabled
-        self._refresh()
+        self._paint_overlay()
 
     def set_highlight_xy(self, xy: Optional[Tuple[int, int]]) -> None:
         self._highlight_xy = xy
-        self._refresh()
+        self._paint_overlay()
 
     def set_ocr_hits(self, hits: list[Any]) -> None:
         self._ocr_hits = hits or []
-        self._refresh()
+        self._paint_overlay()
 
     def set_match_boxes(self, boxes: list[dict[str, Any]]) -> None:
         self._match_boxes = boxes or []
-        self._refresh()
+        self._paint_overlay()
 
     def set_point_markers(self, markers: list[dict[str, Any]]) -> None:
         self._point_markers = markers or []
-        self._refresh()
+        self._paint_overlay()
 
     def clear_test_overlays(self) -> None:
         self._ocr_hits = []
         self._match_boxes = []
         self._point_markers = []
-        self._refresh()
+        self._paint_overlay()
 
     def set_image(self, bgr: np.ndarray) -> None:
         self._origin = bgr.copy()
         self._selection = None
         self._drag_start = None
         self._drag_end = None
-        self.clear_test_overlays()
+        self._ocr_hits = []
+        self._match_boxes = []
+        self._point_markers = []
+        self._rebuild_base_pixmap()
 
     def image(self) -> Optional[np.ndarray]:
         return None if self._origin is None else self._origin.copy()
@@ -125,8 +129,9 @@ class ScreenshotLabel(QLabel):
     def selection(self) -> Optional[Tuple[int, int, int, int]]:
         return self._selection
 
-    def _refresh(self) -> None:
+    def _rebuild_base_pixmap(self) -> None:
         if self._origin is None:
+            self._base_pixmap = None
             self.setText("点击左侧「ADB 截图」获取画面")
             self.setPixmap(QPixmap())
             return
@@ -150,6 +155,18 @@ class ScreenshotLabel(QLabel):
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
+        self._base_pixmap = pix
+        self._paint_overlay()
+
+    def _paint_overlay(self) -> None:
+        if self._origin is None or self._base_pixmap is None:
+            if self._origin is None:
+                self.setText("点击左侧「ADB 截图」获取画面")
+                self.setPixmap(QPixmap())
+            return
+        self.setText("")
+        pix = self._base_pixmap.copy()
+        h, w = self._origin.shape[:2]
 
         painter = QPainter(pix)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -182,9 +199,12 @@ class ScreenshotLabel(QLabel):
         painter.end()
         self.setPixmap(pix)
 
+    def _refresh(self) -> None:
+        self._rebuild_base_pixmap()
+
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
-        self._refresh()
+        self._rebuild_base_pixmap()
 
     def _to_image_xy(self, pos: QPoint) -> Tuple[int, int]:
         if self._origin is None or self.pixmap() is None:
@@ -216,7 +236,7 @@ class ScreenshotLabel(QLabel):
             x1, y1 = self._to_image_xy(self._drag_start)
             x2, y2 = x, y
             self._selection = (min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
-            self._refresh()
+            self._paint_overlay()
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802

@@ -15,7 +15,12 @@ data class ScreenFrame(
     val height: Int,
     /** BGR row-major bytes, length = width * height * 3 */
     val bgr: ByteArray,
+    /** True when [bgr] is reused by the capture pipeline; call [copy] before retaining. */
+    val sharedBuffer: Boolean = false,
 ) {
+    /** Deep-copies pixel data for consumers that outlive the next capture. */
+    fun copy(): ScreenFrame = ScreenFrame(width, height, bgr.copyOf(), sharedBuffer = false)
+
     fun bgrAt(x: Int, y: Int): Triple<Int, Int, Int> {
         val i = (y * width + x) * 3
         return Triple(

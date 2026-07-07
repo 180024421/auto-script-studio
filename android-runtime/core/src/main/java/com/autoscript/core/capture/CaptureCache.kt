@@ -21,8 +21,9 @@ class CaptureCache(private val ttlMs: Long = 80) {
             return cached
         }
         val fresh = capture()
-        frame = fresh
+        val stored = if (fresh.sharedBuffer) fresh.copy() else fresh
+        frame = stored
         capturedAt = now
-        return fresh
+        return stored
     }
 }
