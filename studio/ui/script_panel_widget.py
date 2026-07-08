@@ -65,7 +65,12 @@ class ScriptPanelWidget(QWidget):
         all_btn = QPushButton("全部值")
         set_button_role(all_btn, "ghost")
         all_btn.clicked.connect(lambda: self.insert_lua.emit(lua_all_values()))
+        refresh_btn = QPushButton("刷新")
+        set_button_role(refresh_btn, "ghost")
+        refresh_btn.setToolTip("重新加载 ui/layout.json 并刷新预览")
+        refresh_btn.clicked.connect(self._refresh_from_disk)
         bar.addWidget(example_btn)
+        bar.addWidget(refresh_btn)
         bar.addWidget(all_btn)
         root.addLayout(bar)
 
@@ -74,8 +79,10 @@ class ScriptPanelWidget(QWidget):
         self.preview_free.set_editable(False)
         self.preview_free.set_selectable(True)
         self.preview_free.set_interactive_preview(True)
-        self.preview_free.set_compact_preview(False)
+        self.preview_free.set_phone_style(True)
+        self.preview_free.set_compact_preview(True)
         self.preview_free.set_fit_viewport(True)
+        self.preview_free.set_min_scale(0.15)
         self.preview_grid = LayoutPreviewWidget()
         self.preview_grid.set_zoom_auto(True)
         self.preview_grid.set_design_mode(False)
@@ -137,6 +144,9 @@ class ScriptPanelWidget(QWidget):
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         self.refresh_viewport()
+
+    def _refresh_from_disk(self) -> None:
+        self.on_project_opened()
 
     def apply_layout(self, layout: dict[str, Any]) -> None:
         old = PanelState.all()

@@ -22,7 +22,8 @@
 ## 下一步
 
 ### P1 — 体验
-- [ ] 实机 free 布局拖动保存（APK 设计模式）
+- [x] 实机 free 布局拖动保存（APK 设计模式：`FreeOverlayDesignFrame` + `LayoutEditorOps.setWidgetRect`）
+- [x] Studio 展示模式 UI、布局修复手动化、PC/Android 坐标与表单行对齐
 - [ ] SCC Web UI 集成 jiaoben 发版按钮
 
 ### P2 — 性能

@@ -22,7 +22,9 @@ VALUE_WIDGET_TYPES = frozenset(
 )
 
 
-def list_value_widgets(layout: dict[str, Any]) -> list[dict[str, Any]]:
+def list_value_widgets(
+    layout: dict[str, Any], *, screen_index: int | None = None
+) -> list[dict[str, Any]]:
     """返回带 id 的表单控件（供脚本页插入 panel.get 等）。"""
     out: list[dict[str, Any]] = []
 
@@ -47,8 +49,12 @@ def list_value_widgets(layout: dict[str, Any]) -> list[dict[str, Any]]:
                     walk(tab.get("widgets") or [])
 
     if layout.get("screens"):
-        for sc in screens(layout):
-            walk(sc.get("widgets") or [])
+        sc_list = screens(layout)
+        if screen_index is not None and 0 <= screen_index < len(sc_list):
+            walk(sc_list[screen_index].get("widgets") or [])
+        else:
+            for sc in sc_list:
+                walk(sc.get("widgets") or [])
     else:
         walk(layout.get("widgets") or layout.get("buttons") or [])
     return out

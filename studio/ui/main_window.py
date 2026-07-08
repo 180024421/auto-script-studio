@@ -793,17 +793,31 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "发版成功", f"已发布 v{manifest.get('version_code')}")
 
     def _run_pack_preflight(self) -> bool:
-        issues = validate_before_pack(self.project_dir)
-        if not issues:
+        errors, warnings = validate_before_pack(self.project_dir)
+        if not errors and not warnings:
             return True
-        msg = "\n".join(f"• {x}" for x in issues)
-        ans = QMessageBox.question(
-            self,
-            "打包预检",
-            f"发现以下问题，仍要继续打包吗？\n\n{msg}",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
+        parts: list[str] = []
+        if errors:
+            parts.append("错误（建议修复后再打包）：\n" + "\n".join(f"• {x}" for x in errors))
+        if warnings:
+            parts.append("提示（可忽略）：\n" + "\n".join(f"• {x}" for x in warnings))
+        msg = "\n\n".join(parts)
+        if errors:
+            ans = QMessageBox.question(
+                self,
+                "打包预检",
+                f"{msg}\n\n存在错误，仍要继续打包吗？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+        else:
+            ans = QMessageBox.question(
+                self,
+                "打包预检",
+                f"{msg}\n\n仍要继续打包吗？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
         return ans == QMessageBox.StandardButton.Yes
 
     def _load_pack_fields(self) -> None:

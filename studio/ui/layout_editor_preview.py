@@ -21,7 +21,8 @@ from PySide6.QtWidgets import (
 from studio.runtime.panel_state import PanelState
 from studio.ui.app_theme import set_button_role
 from studio.ui.layout_preview_widget import LayoutPreviewWidget
-from studio.ui.phone_canvas_widget import PhoneCanvasWidget
+from studio.ui.minimal_bar_preview import MinimalBarPreviewWidget
+from studio.ui.phone_canvas_widget import DEFAULT_PHONE_SCREEN_PX, PhoneCanvasWidget
 from studio.services.layout_clone import clone_layout, clone_widget
 from studio.services.free_layout import is_free_mode
 from studio.services.screen_layout import (
@@ -76,13 +77,23 @@ class LayoutEditorPreviewMixin:
         preview_add_btn.setToolTip("向当前界面添加控件（与左侧「＋ 添加控件」相同）")
         preview_header.addWidget(preview_add_btn)
 
-        preview_header.addWidget(QLabel("缩放"))
+        preview_header.addWidget(QLabel("手机尺寸"))
         self.zoom_combo = QComboBox()
-        self.zoom_combo.addItem("适应宽度", None)
-        for label, val in [("150%", 1.5), ("175%", 1.75), ("200%", 2.0), ("250%", 2.5)]:
-            self.zoom_combo.addItem(label, val)
-        self.zoom_combo.setCurrentIndex(0)
-        self.zoom_combo.setToolTip("适应宽度：按中间区域自动放大；固定比例仅影响 PC 预览")
+        self._grid_zoom_items = [
+            ("适应宽度", None),
+            ("150%", 1.5),
+            ("175%", 1.75),
+            ("200%", 2.0),
+            ("250%", 2.5),
+        ]
+        self._phone_zoom_items = [
+            ("小 · 280", 280),
+            ("中 · 320", DEFAULT_PHONE_SCREEN_PX),
+            ("大 · 360", 360),
+            ("特大 · 400", 400),
+        ]
+        self._populate_zoom_combo(free_mode=True)
+        self.zoom_combo.setToolTip("自由布局：预览手机屏宽；网格布局：卡片缩放")
         self.zoom_combo.currentIndexChanged.connect(self._on_preview_zoom_changed)
         preview_header.addWidget(self.zoom_combo)
 
@@ -100,14 +111,26 @@ class LayoutEditorPreviewMixin:
 
         self.canvas_stack = QStackedWidget()
         self.phone_canvas = PhoneCanvasWidget()
-        self.phone_canvas.setMinimumHeight(480)
+        self.phone_canvas.set_phone_style(True)
+        self.phone_canvas.set_target_screen_width(DEFAULT_PHONE_SCREEN_PX)
+        self.phone_canvas.set_compact_preview(True)
+        self.phone_canvas.setMinimumHeight(240)
         self.preview = LayoutPreviewWidget()
         self.preview.setMinimumHeight(420)
         self.canvas_stack.addWidget(self.phone_canvas)
         self.canvas_stack.addWidget(self.preview)
         center_layout.addWidget(self.canvas_stack, 1)
+        self.minimal_preview = MinimalBarPreviewWidget()
+        self.minimal_preview.hide()
+        center_layout.addWidget(self.minimal_preview)
         self.preview.set_zoom_auto(True)
         return center_wrap
+
+    def _sync_display_preview(self) -> None:
+        panel = self._layout.get("panel", {})
+        mode = str(panel.get("display_mode", "host"))
+        if hasattr(self, "minimal_preview"):
+            self.minimal_preview.setVisible(mode == "minimal")
 
     def _wire_preview_signals(self) -> None:
         self.phone_canvas.layout_changed.connect(self._on_phone_structure_changed)
@@ -166,11 +189,27 @@ class LayoutEditorPreviewMixin:
         self._mark_dirty()
         self._emit_layout_changed()
 
+    def _populate_zoom_combo(self, *, free_mode: bool) -> None:
+        self.zoom_combo.blockSignals(True)
+        self.zoom_combo.clear()
+        items = self._phone_zoom_items if free_mode else self._grid_zoom_items
+        for label, val in items:
+            self.zoom_combo.addItem(label, val)
+        self.zoom_combo.setCurrentIndex(1 if free_mode else 0)
+        self.zoom_combo.blockSignals(False)
+
     def _sync_canvas_mode(self) -> None:
         free = is_free_mode(self._layout)
         self.canvas_stack.setCurrentIndex(0 if free else 1)
         self.design_mode_cb.setVisible(not free)
-        self.zoom_combo.setVisible(not free)
+        self.zoom_combo.setVisible(True)
+        self._populate_zoom_combo(free_mode=free)
+        if free:
+            data = self.zoom_combo.currentData()
+            width = int(data) if data is not None else DEFAULT_PHONE_SCREEN_PX
+            self.phone_canvas.set_target_screen_width(width)
+        else:
+            self.preview.set_zoom_auto(True)
         self.interactive_preview_cb.setVisible(free)
         if not free:
             self.interactive_preview_cb.setChecked(False)
@@ -267,6 +306,10 @@ class LayoutEditorPreviewMixin:
 
     def _on_preview_zoom_changed(self, _index: int = 0) -> None:
         data = self.zoom_combo.currentData()
+        if is_free_mode(self._layout):
+            width = int(data) if data is not None else DEFAULT_PHONE_SCREEN_PX
+            self.phone_canvas.set_target_screen_width(width)
+            return
         if data is None:
             self.preview.set_zoom_auto(True)
         else:
@@ -357,6 +400,7 @@ class LayoutEditorPreviewMixin:
 
     def _update_preview(self, *, force: bool = False) -> None:
         self._apply_header()
+        self._sync_display_preview()
         payload = clone_layout(self._layout)
         if is_free_mode(self._layout):
             self.phone_canvas.set_layout(

@@ -7,19 +7,19 @@
     "layout_mode": "free",
     "design_width": 720,
     "design_height": 1280,
-    "active_screen": 0,
+    "active_screen": 1,
     "width_mode": "auto",
     "width_dp": 220,
     "height_mode": "wrap",
     "display_mode": "host",
     "auto_collapse_idle_ms": 0,
-    "show_on_launch": true,
-    "opacity": 0.98,
+    "show_on_launch": false,
+    "opacity": 0.5,
     "position": "left_center",
     "start_x": 0,
     "start_y": 0,
     "columns": 2,
-    "ball_size_dp": 48,
+    "ball_size_dp": 32,
     "show_log": true,
     "log_height_dp": 96,
     "draggable": true,
@@ -40,19 +40,7 @@
           "layout_x": 24,
           "layout_y": 24,
           "layout_w": 164,
-          "layout_h": 40,
-          "label": "",
-          "color": "#2563EB",
-          "width": 1,
-          "placeholder": "",
-          "default": "",
-          "x": 0,
-          "y": 0,
-          "x1": 0,
-          "y1": 0,
-          "x2": 0,
-          "y2": 0,
-          "lua": ""
+          "layout_h": 40
         },
         {
           "id": "account",
@@ -89,9 +77,9 @@
           "text": "脚本功能选择：",
           "text_style": "hint",
           "layout_x": 24,
-          "layout_y": 228,
-          "layout_w": 112,
-          "layout_h": 36
+          "layout_y": 232,
+          "layout_w": 304,
+          "layout_h": 80
         }
       ]
     },
@@ -99,9 +87,9 @@
       "title": "界面1",
       "widgets": [
         {
-          "id": "mode",
+          "id": "w_0",
           "type": "select",
-          "label": "模式",
+          "label": "",
           "options": [
             "普通",
             "极速"
@@ -110,7 +98,18 @@
           "layout_x": 24,
           "layout_y": 24,
           "layout_w": 672,
-          "layout_h": 64
+          "layout_h": 64,
+          "text": "",
+          "color": "#2563EB",
+          "width": 1,
+          "placeholder": "",
+          "x": 0,
+          "y": 0,
+          "x1": 0,
+          "y1": 0,
+          "x2": 0,
+          "y2": 0,
+          "lua": ""
         }
       ]
     }

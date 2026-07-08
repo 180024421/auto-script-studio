@@ -40,6 +40,23 @@ object LayoutEditorOps {
         return updateWidgetAt(layout, widgetPath) { it.copy(width = span) }
     }
 
+    fun setWidgetRect(
+        layout: LayoutConfig,
+        widgetPath: List<Int>,
+        x: Int,
+        y: Int,
+        w: Int,
+        h: Int,
+    ): LayoutConfig =
+        updateWidgetAt(layout, widgetPath) {
+            it.copy(
+                layoutX = x.coerceAtLeast(0),
+                layoutY = y.coerceAtLeast(0),
+                layoutW = w.coerceAtLeast(48),
+                layoutH = h.coerceAtLeast(20),
+            )
+        }
+
     fun setPanelWidthDp(layout: LayoutConfig, dp: Int): LayoutConfig =
         layout.copy(panel = layout.panel.copy(widthDp = dp.coerceIn(120, 480)))
 

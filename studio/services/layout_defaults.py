@@ -44,6 +44,14 @@ PANEL_THEMES = [
     ("dark", "深色经典"),
 ]
 
+PANEL_DISPLAY_MODES = [
+    ("host", "主页面表单"),
+    ("minimal", "悬浮球+条"),
+    ("form", "悬浮窗表单"),
+]
+
+DEFAULT_WIDGET_OPTIONS = ["选项A", "选项B"]
+
 DEFAULT_LAYOUT: dict[str, Any] = {
     "version": 3,
     "enabled": True,

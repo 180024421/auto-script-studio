@@ -122,6 +122,17 @@ class OverlayService : Service() {
         }
     }
 
+    private val freeDesignCallbacks = object : FreeOverlayDesignCallbacks {
+        override fun onSelect(widgetPath: List<Int>) {
+            selectedWidgetPath = widgetPath
+        }
+
+        override fun onRectChange(widgetPath: List<Int>, x: Int, y: Int, w: Int, h: Int) {
+            layoutConfig = LayoutEditorOps.setWidgetRect(layoutConfig, widgetPath, x, y, w, h)
+            rebuildPanel()
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -484,6 +495,8 @@ class OverlayService : Service() {
                         panel = layoutConfig.panel.copy(activeScreen = idx),
                     )
                 },
+                freeDesignMode = designMode,
+                freeDesignCallbacks = if (designMode) freeDesignCallbacks else null,
             ).build()
             gridWrap.addView(screenPanel)
         } else {

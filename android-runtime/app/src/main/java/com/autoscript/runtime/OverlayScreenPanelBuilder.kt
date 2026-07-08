@@ -2,10 +2,11 @@ package com.autoscript.runtime
 
 import android.content.Context
 import android.view.Gravity
-import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.HorizontalScrollView
+import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
+import android.widget.LinearLayout
 import com.autoscript.core.overlay.LayoutConfig
 import com.autoscript.core.overlay.OverlayTabButton
 import com.autoscript.core.overlay.OverlayTheme
@@ -23,6 +24,8 @@ class OverlayScreenPanelBuilder(
     private val panelWidthPx: Int,
     private val onActiveScreenChange: (Int) -> Unit,
     private val includeChrome: Boolean = true,
+    private val freeDesignMode: Boolean = false,
+    private val freeDesignCallbacks: FreeOverlayDesignCallbacks? = null,
 ) {
     private var activeScreen: Int = layoutConfig.activeScreenIndex()
     private lateinit var contentFrame: FrameLayout
@@ -155,21 +158,19 @@ class OverlayScreenPanelBuilder(
     ): Int {
         val scaleX = scaleFactorX()
         val scaleY = scaleFactorY(hostDesignH)
-        val gap = dp(4)
-        var cursorY = 0
         var maxBottom = 0
         widgetBuilder.freeLayoutPlacement = true
         try {
-            widgets.sortedBy { it.layoutY }.forEachIndexed { index, cfg ->
+            widgets.forEachIndexed { index, cfg ->
                 val minH = dp(minWidgetHeightDp(cfg.type))
                 val w = (cfg.layoutW * scaleX).toInt().coerceIn(dp(40), panelWidthPx)
-                var h = (cfg.layoutH * scaleY).toInt().coerceAtLeast(minH)
-                var top = (cfg.layoutY * scaleY).toInt()
-                if (top < cursorY) top = cursorY
+                val h = (cfg.layoutH * scaleY).toInt().coerceAtLeast(minH)
+                val top = (cfg.layoutY * scaleY).toInt().coerceAtLeast(0)
                 val left = (cfg.layoutX * scaleX).toInt().coerceAtLeast(0)
 
                 val inner = widgetBuilder.buildWidget(cfg, 2, listOf(activeScreen, index))
-                val slot = FrameLayout(context).apply {
+                val widgetPath = listOf(activeScreen, index)
+                val contentHost = FrameLayout(context).apply {
                     clipChildren = true
                     addView(
                         inner,
@@ -178,6 +179,21 @@ class OverlayScreenPanelBuilder(
                             FrameLayout.LayoutParams.MATCH_PARENT,
                         ),
                     )
+                }
+                val slot: View = if (freeDesignMode && freeDesignCallbacks != null) {
+                    FreeOverlayDesignFrame(
+                        context = context,
+                        widgetPath = widgetPath,
+                        designW = layoutConfig.panel.designWidth,
+                        designH = layoutConfig.panel.designHeight,
+                        scaleX = scaleX,
+                        scaleY = scaleY,
+                        callbacks = freeDesignCallbacks,
+                        dp = dp,
+                        content = contentHost,
+                    )
+                } else {
+                    contentHost
                 }
                 host.addView(
                     slot,
@@ -188,7 +204,6 @@ class OverlayScreenPanelBuilder(
                     },
                 )
                 maxBottom = maxOf(maxBottom, top + h)
-                cursorY = top + h + gap
             }
         } finally {
             widgetBuilder.freeLayoutPlacement = false

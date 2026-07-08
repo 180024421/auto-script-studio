@@ -22,7 +22,10 @@ end
 
 ## 显示模式
 
-- `display_mode: form` — 完整面板
-- `display_mode: minimal` — 悬浮猫 + 紧凑控制条（demo-game 默认）
+- `display_mode: host` — **demo-game 默认**：主 Activity 填表，启停由悬浮球控制
+- `display_mode: minimal` — 悬浮猫 + 紧凑控制条
+- `display_mode: form` — 悬浮窗内完整表单
 
-详见 [ui-layout.md](../ui-layout.md)。
+在 Studio **浮动面板** 页顶栏「展示」下拉可切换，无需手改 JSON。
+
+详见 [ui-layout.md](../ui-layout.md) 与 [layout-parity.md](../layout-parity.md)。

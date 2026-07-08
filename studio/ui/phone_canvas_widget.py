@@ -60,6 +60,49 @@ CHROME_ICONS: dict[str, str] = {
   "lua": "{}",
 }
 
+DEFAULT_PHONE_SCREEN_PX = 320
+
+
+def compute_preview_scale(
+  *,
+  design_w: int,
+  design_h: int,
+  viewport_w: int,
+  viewport_h: int,
+  target_screen_px: int | None = None,
+  fit_viewport: bool = False,
+  min_scale: float = 0.35,
+  hint_reserve: int = 0,
+) -> float:
+  """计算手机画布预览缩放（纯函数，便于单测）。"""
+  gutter = 20
+  vw = max(160, viewport_w - 48 - gutter)
+  scale_w = vw / max(1, design_w)
+  if target_screen_px is not None:
+    target_scale = target_screen_px / max(1, design_w)
+    if fit_viewport:
+      vh = max(160, viewport_h - hint_reserve - 20)
+      scale_h = vh / max(1, design_h)
+      return max(min_scale, min(1.0, target_scale, scale_w, scale_h))
+    return max(min_scale, min(1.0, target_scale, scale_w))
+  if not fit_viewport:
+    return max(min_scale, min(1.0, scale_w))
+  vh = max(160, viewport_h - hint_reserve - 20)
+  scale_h = vh / max(1, design_h)
+  return max(min_scale, min(1.0, scale_w, scale_h))
+
+
+def _bezel_px(scale: float, *, phone_style: bool) -> int:
+  if not phone_style:
+    return 2
+  return max(6, int(8 * max(0.35, scale)))
+
+
+def _phone_frame_radius(scale: float, *, phone_style: bool) -> int:
+  if not phone_style:
+    return 8
+  return max(18, int(24 * max(0.35, scale)))
+
 
 def _screen_tab_stylesheet(scale: float, *, checked: bool) -> str:
   """脚本页窄栏缩放时覆盖全局 QPushButton min-height，避免标签文字被裁切。"""
@@ -208,13 +251,19 @@ class FreeDesignItem(QFrame):
     self._relayout_content()
     self._update_style()
 
+  def _container_height(self) -> int:
+    return max(20, int(self._spec.get("layout_h", 48) * self._scale))
+
   def _mount_preview(self, spec: dict[str, Any]) -> None:
     wtype = spec.get("type", "")
+    container_h = self._container_height()
     preview = None
     if self._interactive and wtype in INTERACTIVE_TYPES:
-      preview = build_interactive_widget(spec, self._on_values_changed, scale=self._scale)
+      preview = build_interactive_widget(
+        spec, self._on_values_changed, scale=self._scale, container_h=container_h
+      )
     elif wtype == "divider" or wtype in FORM_PREVIEW_TYPES:
-      preview = build_design_preview(spec, scale=self._scale)
+      preview = build_design_preview(spec, scale=self._scale, container_h=container_h)
     if preview is not None:
       lay = self._content_host.layout()
       if lay is None:
@@ -484,6 +533,7 @@ class _PhoneShell:
     screen_count: int
     compact_preview: bool
     interactive_preview: bool
+    phone_style: bool
 
 
 class PhoneCanvasWidget(QScrollArea):
@@ -522,6 +572,9 @@ class PhoneCanvasWidget(QScrollArea):
     self._selectable = False
     self._compact_preview = False
     self._fit_viewport = False
+    self._min_scale = 0.35
+    self._phone_style = False
+    self._target_screen_px: int | None = None
     self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
     self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
     self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -565,6 +618,29 @@ class PhoneCanvasWidget(QScrollArea):
       if enabled
       else Qt.ScrollBarPolicy.ScrollBarAlwaysOn
     )
+    self._rebuild(full=True)
+
+  def set_min_scale(self, value: float) -> None:
+    """预览最小缩放（脚本页窄栏可设高一些，避免表单控件被裁切）。"""
+    clamped = max(0.15, min(1.0, float(value)))
+    if abs(clamped - self._min_scale) < 0.001:
+      return
+    self._min_scale = clamped
+    self._rebuild(full=True)
+
+  def set_phone_style(self, enabled: bool) -> None:
+    """手机外框样式（圆角深色边框，编辑器紧凑预览）。"""
+    if self._phone_style == enabled:
+      return
+    self._phone_style = enabled
+    self._rebuild(full=True)
+
+  def set_target_screen_width(self, px: int | None) -> None:
+    """固定屏幕宽度（设计像素换算后的目标 px；None 表示按视口自适应）。"""
+    target = None if px is None else max(180, int(px))
+    if target == self._target_screen_px:
+      return
+    self._target_screen_px = target
     self._rebuild(full=True)
 
   def refresh_viewport(self) -> None:
@@ -627,6 +703,8 @@ class PhoneCanvasWidget(QScrollArea):
       return True
     if self._interactive_preview != self._shell.interactive_preview:
       return True
+    if self._phone_style != self._shell.phone_style:
+      return True
     new_scale = self._effective_scale(dw, dh)
     if abs(new_scale - self._shell.scale) >= 0.01:
       return True
@@ -636,14 +714,17 @@ class PhoneCanvasWidget(QScrollArea):
     return 0 if self._compact_preview else 56
 
   def _effective_scale(self, design_w: int, design_h: int) -> float:
-    gutter = 20
-    vw = max(200, self.viewport().width() - 48 - gutter)
-    scale_w = vw / max(1, design_w)
-    if not self._fit_viewport:
-      return max(0.35, min(1.0, scale_w))
-    vh = max(160, self.viewport().height() - self._hint_reserve_px() - 20)
-    scale_h = vh / max(1, design_h)
-    return max(0.2, min(1.0, scale_w, scale_h))
+    vp = self.viewport()
+    return compute_preview_scale(
+      design_w=design_w,
+      design_h=design_h,
+      viewport_w=vp.width(),
+      viewport_h=vp.height(),
+      target_screen_px=self._target_screen_px,
+      fit_viewport=self._fit_viewport,
+      min_scale=self._min_scale,
+      hint_reserve=self._hint_reserve_px(),
+    )
 
   def resizeEvent(self, event) -> None:  # noqa: N802
     super().resizeEvent(event)
@@ -699,6 +780,8 @@ class PhoneCanvasWidget(QScrollArea):
     self._scale = self._effective_scale(dw, dh)
     self._last_scale = self._scale
     sw = int(dw * self._scale)
+    bezel = _bezel_px(self._scale, phone_style=self._phone_style)
+    frame_radius = _phone_frame_radius(self._scale, phone_style=self._phone_style)
     active = active_screen_index(self._layout)
     sc_list = screens(self._layout)
 
@@ -707,14 +790,26 @@ class PhoneCanvasWidget(QScrollArea):
 
     phone = QFrame()
     phone.setObjectName("PhoneFrame")
-    phone.setFixedWidth(sw + 4)
     phone_lay = QVBoxLayout(phone)
-    phone_lay.setContentsMargins(2, 2, 2, 2)
+    phone_lay.setContentsMargins(bezel, bezel, bezel, bezel)
     phone_lay.setSpacing(0)
+    if self._phone_style:
+      phone.setStyleSheet(
+        f"QFrame#PhoneFrame {{ background:#0F172A; border:2px solid #334155; "
+        f"border-radius:{frame_radius}px; }}"
+      )
+    else:
+      phone.setFixedWidth(sw + 4)
+      phone_lay.setContentsMargins(2, 2, 2, 2)
 
     inner = QWidget()
     inner.setObjectName("PhoneScreen")
     inner.setFixedWidth(sw)
+    if self._phone_style:
+      inner_radius = max(4, frame_radius - bezel)
+      inner.setStyleSheet(
+        f"QWidget#PhoneScreen {{ background:#FFFFFF; border-radius:{inner_radius}px; }}"
+      )
     inner_lay = QVBoxLayout(inner)
     inner_lay.setContentsMargins(0, 0, 0, 0)
     inner_lay.setSpacing(0)
@@ -722,8 +817,11 @@ class PhoneCanvasWidget(QScrollArea):
     title_h = int(TITLE_DP * self._scale)
     title = QLabel(panel.get("title", "脚本助手"))
     title.setFixedHeight(title_h)
+    title_fs = max(9, int(13 * self._scale))
+    title_radius = max(0, frame_radius - bezel) if self._phone_style else 0
     title.setStyleSheet(
-      "background:#2563EB;color:white;font-weight:600;font-size:13px;"
+      f"background:#2563EB;color:white;font-weight:600;font-size:{title_fs}px;"
+      + (f"border-top-left-radius:{title_radius}px;border-top-right-radius:{title_radius}px;" if title_radius else "")
     )
     title.setAlignment(Qt.AlignmentFlag.AlignCenter)
     inner_lay.addWidget(title)
@@ -769,6 +867,9 @@ class PhoneCanvasWidget(QScrollArea):
       hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
       hint.setWordWrap(True)
 
+    phone_outer_w = sw + bezel * 2
+    phone.setFixedWidth(phone_outer_w)
+
     return _PhoneShell(
       wrap=wrap,
       phone=phone,
@@ -785,6 +886,7 @@ class PhoneCanvasWidget(QScrollArea):
       screen_count=len(sc_list),
       compact_preview=self._compact_preview,
       interactive_preview=self._interactive_preview,
+      phone_style=self._phone_style,
     )
 
   def _hint_text(self, dw: int, dh: int) -> str:
@@ -809,12 +911,20 @@ class PhoneCanvasWidget(QScrollArea):
     dw, dh = shell.design_wh
     self._scale = shell.scale
     sw = int(dw * self._scale)
+    bezel = _bezel_px(self._scale, phone_style=self._phone_style)
+    frame_radius = _phone_frame_radius(self._scale, phone_style=self._phone_style)
     active = active_screen_index(self._layout)
     sc_list = screens(self._layout)
 
     shell.title.setText(panel.get("title", "脚本助手"))
     title_h = int(TITLE_DP * self._scale)
     shell.title.setFixedHeight(title_h)
+    title_fs = max(9, int(13 * self._scale))
+    title_radius = max(0, frame_radius - bezel) if self._phone_style else 0
+    shell.title.setStyleSheet(
+      f"background:#2563EB;color:white;font-weight:600;font-size:{title_fs}px;"
+      + (f"border-top-left-radius:{title_radius}px;border-top-right-radius:{title_radius}px;" if title_radius else "")
+    )
     tab_h = _screen_tab_bar_height(self._scale)
     shell.tab_bar.setFixedHeight(tab_h)
     for i, tb in enumerate(shell.tab_buttons):
@@ -831,7 +941,7 @@ class PhoneCanvasWidget(QScrollArea):
     content_h_design = content_height(
       self._layout,
       active,
-      min_canvas=0 if self._fit_viewport else 800,
+      min_canvas=0 if (self._fit_viewport or self._target_screen_px) else 800,
     )
     view_h = int((dh - TITLE_DP - TAB_BAR_DP - _chrome_dp(self._layout)) * self._scale)
     shell.scroll.setFixedHeight(max(200, view_h))
@@ -844,8 +954,9 @@ class PhoneCanvasWidget(QScrollArea):
     phone_h = title_h + tab_h + shell.scroll.height() + chrome_h
     shell.inner.setFixedWidth(sw)
     shell.inner.setFixedHeight(phone_h)
-    shell.phone.setFixedWidth(sw + 4)
-    shell.phone.setFixedHeight(phone_h + 4)
+    phone_outer_w = sw + bezel * 2
+    shell.phone.setFixedWidth(phone_outer_w)
+    shell.phone.setFixedHeight(phone_h + bezel * 2)
 
     screen_widgets = sc_list[active].get("widgets") or [] if sc_list else []
     self._sync_widget_layer(shell.canvas, screen_widgets, active)
@@ -854,7 +965,7 @@ class PhoneCanvasWidget(QScrollArea):
     if shell.hint is not None:
       shell.hint.setText(self._hint_text(dw, dh))
     hint_h = 0 if shell.hint is None else shell.hint.sizeHint().height() + 24
-    total_h = phone_h + 4 + hint_h
+    total_h = phone_h + bezel * 2 + hint_h
     if self._fit_viewport:
       self._viewport.setMinimumHeight(0)
     else:
@@ -864,12 +975,14 @@ class PhoneCanvasWidget(QScrollArea):
     if self._shell is None:
       return
     shell = self._shell
+    align_top = not self._fit_viewport or self._target_screen_px is not None
+    v_align = Qt.AlignmentFlag.AlignTop if align_top else Qt.AlignmentFlag.AlignVCenter
     if self._fit_viewport:
-      self._root.addWidget(shell.wrap, 0, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+      self._root.addWidget(shell.wrap, 0, Qt.AlignmentFlag.AlignHCenter | v_align)
       if shell.hint is not None:
         self._root.addWidget(shell.hint, 0, Qt.AlignmentFlag.AlignHCenter)
     else:
-      self._root.addWidget(shell.wrap, 0, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+      self._root.addWidget(shell.wrap, 0, Qt.AlignmentFlag.AlignHCenter | v_align)
       if shell.hint is not None:
         self._root.addWidget(shell.hint, 0, Qt.AlignmentFlag.AlignHCenter)
 

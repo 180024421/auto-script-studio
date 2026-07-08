@@ -84,38 +84,46 @@ QComboBox::down-arrow {
 """
 )
 
-_SWITCH_STYLE = """
-QCheckBox { spacing: 0; background: transparent; }
-QCheckBox::indicator {
-    width: 44px;
-    height: 24px;
-    border-radius: 12px;
+def _switch_style(scale: float = 1.0) -> str:
+    s = max(0.45, min(1.0, float(scale)))
+    w = max(28, int(44 * s))
+    h = max(16, int(24 * s))
+    radius = max(8, h // 2)
+    return f"""
+#PanelSwitch {{ spacing: 0; background: transparent; }}
+#PanelSwitch::indicator {{
+    width: {w}px;
+    height: {h}px;
+    border-radius: {radius}px;
     border: 1px solid #94A3B8;
     background: #E2E8F0;
-}
-QCheckBox::indicator:checked {
+}}
+#PanelSwitch::indicator:checked {{
     background: #2563EB;
     border-color: #1D4ED8;
-}
-QCheckBox::indicator:disabled {
+}}
+#PanelSwitch::indicator:disabled {{
     background: #F1F5F9;
     border-color: #CBD5E1;
-}
+}}
 """
 
 
 def _options_list(spec: dict[str, Any]) -> list[str]:
     raw = spec.get("options")
     if raw is None:
-        return ["选项A", "选项B"]
+        from studio.services.layout_defaults import DEFAULT_WIDGET_OPTIONS
+
+        return list(DEFAULT_WIDGET_OPTIONS)
     return [str(o) for o in raw]
 
 
-def _make_switch(*, checked: bool = False, enabled: bool = True) -> QCheckBox:
+def _make_switch(*, checked: bool = False, enabled: bool = True, scale: float = 1.0) -> QCheckBox:
     sw = QCheckBox()
+    sw.setObjectName("PanelSwitch")
     sw.setText("")
-    sw.setStyleSheet(_SWITCH_STYLE)
-    sw.setFixedWidth(48)
+    sw.setStyleSheet(_switch_style(scale))
+    sw.setFixedWidth(max(28, int(48 * max(0.45, min(1.0, float(scale))))))
     sw.setChecked(checked)
     sw.setEnabled(enabled)
     return sw
@@ -175,12 +183,229 @@ def _label_width(text: str, scale: float = 1.0) -> int:
     return _scaled_px(raw, scale, floor=28)
 
 
+def _default_row_h(scale: float, container_h: int | None = None) -> int:
+    h = _scaled_px(32, scale, floor=24)
+    if container_h is not None and container_h > 0:
+        return min(h, container_h)
+    return h
+
+
+def _style_line_edit(edit: QLineEdit, *, scale: float, row_h: int) -> None:
+    edit.setObjectName("PanelField")
+    fs = _font_px(12, scale)
+    edit.setMinimumHeight(row_h)
+    edit.setMaximumHeight(row_h)
+    edit.setStyleSheet(
+        f"QLineEdit#PanelField {{ font-size:{fs}px; padding:0 4px; "
+        f"border:1px solid #CBD5E1; border-radius:3px; background:#FFF; }}"
+    )
+
+
+def _style_combo(cb: QComboBox, *, scale: float, row_h: int) -> None:
+    cb.setObjectName("PanelField")
+    fs = _font_px(12, scale)
+    cb.setMinimumHeight(row_h)
+    cb.setMaximumHeight(row_h)
+    cb.setStyleSheet(
+        f"QComboBox#PanelField {{ font-size:{fs}px; padding:0 4px; "
+        f"border:1px solid #CBD5E1; border-radius:3px; background:#FFF; }}"
+        "QComboBox#PanelField::drop-down { width:22px; border:none; "
+        "border-left:1px solid #CBD5E1; background:#F8FAFC; }"
+    )
+
+
+def _style_spin(sp: QSpinBox, *, scale: float, row_h: int) -> None:
+    sp.setObjectName("PanelField")
+    fs = _font_px(12, scale)
+    sp.setMinimumHeight(row_h)
+    sp.setMaximumHeight(row_h)
+    sp.setStyleSheet(
+        f"QSpinBox#PanelField {{ font-size:{fs}px; padding:0 4px; "
+        f"border:1px solid #CBD5E1; border-radius:3px; background:#FFF; }}"
+    )
+
+
+def _style_radio(rb: QRadioButton, *, scale: float) -> None:
+    fs = _font_px(12, scale)
+    ind = max(12, int(14 * max(0.45, min(1.0, scale))))
+    rb.setStyleSheet(
+        f"QRadioButton {{ font-size:{fs}px; spacing:4px; color:#334155; }}"
+        f"QRadioButton::indicator {{ width:{ind}px; height:{ind}px; }}"
+    )
+
+
+def _style_slider(slider: QSlider, *, scale: float, row_h: int) -> None:
+    slider.setFixedHeight(row_h)
+
+
+def _build_radio_group(
+    spec: dict[str, Any],
+    *,
+    scale: float,
+    container_h: int | None,
+    current: str,
+    interactive: bool,
+    wid: str = "",
+    on_change: OnChange = None,
+) -> QWidget:
+    opts = [str(o) for o in (spec.get("options") or ["选项A", "选项B"])]
+    row_h = _default_row_h(scale, container_h)
+    group_host = QWidget()
+    group_lay = QHBoxLayout(group_host)
+    group_lay.setContentsMargins(0, 0, 0, 0)
+    group_lay.setSpacing(max(4, _scaled_px(8, scale, floor=4)))
+    for opt in opts:
+        rb = QRadioButton(opt)
+        _style_radio(rb, scale=scale)
+        rb.setFixedHeight(row_h)
+        rb.setChecked(opt == current or (not current and opt == opts[0]))
+        rb.setEnabled(interactive)
+        if interactive and wid:
+            rb.toggled.connect(
+                lambda on, i=wid, o=opt: (PanelState.set(i, o), on_change()) if on and on_change else None
+            )
+        group_lay.addWidget(rb)
+    group_lay.addStretch(1)
+    return group_host
+
+
+def _build_time_range(
+    spec: dict[str, Any],
+    *,
+    scale: float,
+    container_h: int | None,
+    start_text: str,
+    end_text: str,
+    interactive: bool,
+    wid: str = "",
+    on_change: OnChange = None,
+) -> QWidget:
+    row_h = _default_row_h(scale, container_h)
+    start = QLineEdit(start_text)
+    end = QLineEdit(end_text)
+    start.setReadOnly(not interactive)
+    end.setReadOnly(not interactive)
+    _style_line_edit(start, scale=scale, row_h=row_h)
+    _style_line_edit(end, scale=scale, row_h=row_h)
+    fs = _font_px(11, scale)
+
+    def sync() -> None:
+        if wid:
+            PanelState.set(wid, f"{start.text().strip()}-{end.text().strip()}")
+        if on_change:
+            on_change()
+
+    if interactive and wid:
+        start.textChanged.connect(lambda _t: sync())
+        end.textChanged.connect(lambda _t: sync())
+
+    host = QWidget()
+    inner = QHBoxLayout(host)
+    inner.setContentsMargins(0, 0, 0, 0)
+    inner.setSpacing(max(2, _scaled_px(4, scale, floor=2)))
+    for text, widget in (("从", start), ("到", end)):
+        lbl = QLabel(text)
+        lbl.setStyleSheet(f"color:#64748B;font-size:{fs}px;background:transparent;")
+        inner.addWidget(lbl)
+        inner.addWidget(widget, 1)
+    return host
+
+
+def _build_slider(
+    spec: dict[str, Any],
+    *,
+    scale: float,
+    container_h: int | None,
+    value: int,
+    interactive: bool,
+    wid: str = "",
+    on_change: OnChange = None,
+) -> QSlider:
+    lo = int(spec.get("min", 0) or 0)
+    hi = int(spec.get("max", 100) or 100)
+    row_h = _default_row_h(scale, container_h)
+    slider = QSlider(Qt.Orientation.Horizontal)
+    slider.setRange(lo, hi)
+    slider.setValue(max(lo, min(hi, value)))
+    slider.setEnabled(interactive)
+    _style_slider(slider, scale=scale, row_h=row_h)
+    if interactive and wid:
+        slider.valueChanged.connect(lambda v, i=wid: (PanelState.set(i, str(v)), on_change()))
+    return slider
+
+
+def _build_stepper(
+    spec: dict[str, Any],
+    *,
+    scale: float,
+    container_h: int | None,
+    value: int,
+    interactive: bool,
+    wid: str = "",
+    on_change: OnChange = None,
+) -> QSpinBox:
+    lo = int(spec.get("min", 0) or 0)
+    hi = int(spec.get("max", 99) or 99)
+    row_h = _default_row_h(scale, container_h)
+    sp = QSpinBox()
+    sp.setRange(lo, hi)
+    sp.setValue(max(lo, min(hi, value)))
+    sp.setEnabled(interactive)
+    sp.setButtonSymbols(
+        QSpinBox.ButtonSymbols.UpDownArrows if interactive else QSpinBox.ButtonSymbols.NoButtons
+    )
+    _style_spin(sp, scale=scale, row_h=row_h)
+    if interactive and wid:
+        sp.valueChanged.connect(lambda v, i=wid: (PanelState.set(i, str(v)), on_change()))
+    return sp
+
+
+def _build_textarea(
+    spec: dict[str, Any],
+    *,
+    scale: float,
+    container_h: int | None,
+    text: str,
+    interactive: bool,
+    wid: str = "",
+    on_change: OnChange = None,
+) -> QTextEdit:
+    te = QTextEdit()
+    te.setObjectName("PanelField")
+    te.setPlaceholderText(str(spec.get("placeholder", "")))
+    te.setPlainText(text)
+    te.setReadOnly(not interactive)
+    if container_h is not None and container_h > 0:
+        te.setMaximumHeight(container_h)
+        te.setMinimumHeight(min(container_h, _default_row_h(scale, container_h)))
+    else:
+        rows = int(spec.get("rows", 3) or 3)
+        te.setMaximumHeight(max(_scaled_px(48, scale, floor=24), rows * _scaled_px(22, scale, floor=14)))
+    fs = _font_px(12, scale)
+    te.setStyleSheet(
+        f"QTextEdit#PanelField {{ font-size:{fs}px; padding:2px 4px; "
+        f"border:1px solid #CBD5E1; border-radius:3px; background:#FFF; }}"
+    )
+    if interactive and wid:
+        te.textChanged.connect(lambda i=wid, w=te: (PanelState.set(i, w.toPlainText()), on_change()))
+    return te
+
+
+def _row_height(scale: float, control: QWidget, container_h: int | None = None) -> int:
+    base = _default_row_h(scale, container_h)
+    hint = control.sizeHint().height()
+    if hint > 0:
+        base = min(base, hint) if container_h is None else min(base, hint, container_h)
+    return base
+
+
 def _form_row(
     label: str,
     control: QWidget,
     *,
     label_width: int | None = None,
     scale: float = 1.0,
+    container_h: int | None = None,
 ) -> QWidget:
     host = QWidget()
     host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -188,8 +413,10 @@ def _form_row(
     m = max(0, _scaled_px(4, scale, floor=0))
     lay.setContentsMargins(m, 0, m, 0)
     lay.setSpacing(max(2, _scaled_px(4, scale, floor=2)))
-    row_h = _scaled_px(32, scale, floor=12)
+    row_h = _row_height(scale, control, container_h)
     host.setMinimumHeight(row_h)
+    if container_h is not None and container_h > 0:
+        host.setMaximumHeight(container_h)
     if label:
         lbl = QLabel(label)
         lbl.setFixedWidth(label_width if label_width is not None else _label_width(label, scale))
@@ -198,21 +425,35 @@ def _form_row(
         lbl.setStyleSheet(f"color:#475569;font-size:{fs}px;background:transparent;padding:0;")
         lay.addWidget(lbl)
     control.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-    control.setMinimumHeight(row_h)
-    control.setMaximumHeight(row_h)
-    if isinstance(control, (QLineEdit, QComboBox, QTextEdit)):
-        fs = _font_px(12, scale)
-        control.setStyleSheet(
-            f"QLineEdit,QComboBox,QTextEdit {{ font-size:{fs}px; padding:0 4px; "
-            f"border:1px solid #CBD5E1; border-radius:3px; background:#FFF; }}"
-        )
+    fixed_height = isinstance(control, (QLineEdit, QComboBox, QFrame, QSpinBox, QSlider))
+    if fixed_height:
+        if not isinstance(control, (QSlider,)):
+            if isinstance(control, QLineEdit):
+                _style_line_edit(control, scale=scale, row_h=row_h)
+            elif isinstance(control, QComboBox):
+                _style_combo(control, scale=scale, row_h=row_h)
+            elif isinstance(control, QSpinBox):
+                _style_spin(control, scale=scale, row_h=row_h)
+            else:
+                control.setMinimumHeight(row_h)
+                control.setMaximumHeight(row_h)
+        else:
+            _style_slider(control, scale=scale, row_h=row_h)
+    elif isinstance(control, QTextEdit):
+        if container_h is not None and container_h > 0:
+            control.setMaximumHeight(container_h)
+        control.setMinimumHeight(min(row_h, container_h or row_h))
+    else:
+        control.setMinimumHeight(min(row_h, container_h or row_h))
+        if container_h is not None and container_h > 0:
+            control.setMaximumHeight(container_h)
     lay.addWidget(control, 1)
     return host
 
 
 def _control_box(text: str = "", *, scale: float = 1.0) -> QFrame:
     box = QFrame()
-    row_h = _scaled_px(32, scale, floor=12)
+    row_h = _scaled_px(32, scale, floor=24)
     box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     box.setStyleSheet(
         "QFrame { background:#FFFFFF; border:1px solid #CBD5E1; border-radius:4px; }"
@@ -233,14 +474,8 @@ def _input_preview_widget(placeholder: str = "", *, scale: float = 1.0) -> QLine
     edit = QLineEdit()
     edit.setPlaceholderText(placeholder or "请输入…")
     edit.setReadOnly(True)
-    row_h = _scaled_px(32, scale, floor=12)
-    edit.setMinimumHeight(row_h)
-    edit.setMaximumHeight(row_h)
-    fs = _font_px(12, scale)
-    edit.setStyleSheet(
-        f"QLineEdit {{ font-size:{fs}px; padding:0 4px; border:1px solid #CBD5E1; "
-        f"border-radius:3px; background:#FFF; }}"
-    )
+    row_h = _default_row_h(scale)
+    _style_line_edit(edit, scale=scale, row_h=row_h)
     return edit
 
 
@@ -255,14 +490,8 @@ def _select_preview_widget(spec: dict[str, Any], *, scale: float = 1.0) -> QComb
     if idx >= 0:
         cb.setCurrentIndex(idx)
     cb.setEnabled(False)
-    row_h = _scaled_px(32, scale, floor=12)
-    cb.setMinimumHeight(row_h)
-    cb.setMaximumHeight(row_h)
-    fs = _font_px(12, scale)
-    cb.setStyleSheet(
-        f"QComboBox {{ font-size:{fs}px; padding:0 4px; border:1px solid #CBD5E1; "
-        f"border-radius:3px; background:#FFF; }}"
-    )
+    row_h = _default_row_h(scale)
+    _style_combo(cb, scale=scale, row_h=row_h)
     return cb
 
 
@@ -285,7 +514,7 @@ def _text_display_widget(spec: dict[str, Any], *, scale: float = 1.0) -> QLabel:
     style = str(spec.get("text_style") or "normal").lower()
     host = QLabel(content)
     host.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-    host.setWordWrap(False)
+    host.setWordWrap(True)
     align = str(spec.get("align") or "left").lower()
     qt_align = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
     if align == "center":
@@ -313,8 +542,10 @@ def _text_display_widget(spec: dict[str, Any], *, scale: float = 1.0) -> QLabel:
     return host
 
 
-def build_design_preview(spec: dict[str, Any], *, scale: float = 1.0) -> QWidget | None:
-    """非交互画布：左标签右控件占位预览。"""
+def build_design_preview(
+    spec: dict[str, Any], *, scale: float = 1.0, container_h: int | None = None
+) -> QWidget | None:
+    """非交互画布：与交互预览同结构，只读/禁用。"""
     wtype = spec.get("type", "")
     if wtype == "divider":
         return _divider_line_widget(scale=scale)
@@ -325,23 +556,102 @@ def build_design_preview(spec: dict[str, Any], *, scale: float = 1.0) -> QWidget
         return _text_display_widget(spec, scale=scale)
     if wtype == "input":
         hint = str(spec.get("placeholder") or "请输入…")
-        return _form_row(label, _input_preview_widget(hint, scale=scale), scale=scale)
+        return _form_row(
+            label, _input_preview_widget(hint, scale=scale), scale=scale, container_h=container_h
+        )
     if wtype == "select":
-        return _form_row(label, _select_preview_widget(spec, scale=scale), scale=scale)
+        return _form_row(
+            label, _select_preview_widget(spec, scale=scale), scale=scale, container_h=container_h
+        )
     if wtype == "multiselect":
         opts = _options_list(spec)
         selected = {x.strip() for x in str(spec.get("default", "")).split(",") if x.strip()}
-        return _form_row(label, _multiselect_options(opts, selected, interactive=False), scale=scale)
+        return _form_row(
+            label,
+            _multiselect_options(opts, selected, interactive=False),
+            scale=scale,
+            container_h=container_h,
+        )
     if wtype == "switch":
         cur = str(spec.get("default", "false")).lower()
         row = QWidget()
         lay = QHBoxLayout(row)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addStretch(1)
-        lay.addWidget(_make_switch(checked=cur in ("true", "1", "yes", "on"), enabled=False))
-        return _form_row(label, row, scale=scale)
+        lay.addWidget(
+            _make_switch(checked=cur in ("true", "1", "yes", "on"), enabled=False, scale=scale)
+        )
+        return _form_row(label, row, scale=scale, container_h=container_h)
+    if wtype == "radio":
+        current = str(spec.get("default", ""))
+        return _form_row(
+            label,
+            _build_radio_group(
+                spec, scale=scale, container_h=container_h, current=current, interactive=False
+            ),
+            scale=scale,
+            container_h=container_h,
+        )
+    if wtype == "time_range":
+        raw = str(spec.get("default", ""))
+        if raw and "-" in raw:
+            a, b = raw.split("-", 1)
+            start_text, end_text = a.strip(), b.strip()
+        else:
+            start_text = str(spec.get("default_start", "09:00"))
+            end_text = str(spec.get("default_end", "18:00"))
+        return _form_row(
+            label,
+            _build_time_range(
+                spec,
+                scale=scale,
+                container_h=container_h,
+                start_text=start_text,
+                end_text=end_text,
+                interactive=False,
+            ),
+            scale=scale,
+            container_h=container_h,
+        )
+    if wtype == "slider":
+        lo = int(spec.get("min", 0) or 0)
+        cur = int(float(spec.get("default", lo) or lo))
+        return _form_row(
+            label,
+            _build_slider(
+                spec, scale=scale, container_h=container_h, value=cur, interactive=False
+            ),
+            scale=scale,
+            container_h=container_h,
+        )
+    if wtype == "stepper":
+        lo = int(spec.get("min", 0) or 0)
+        cur = int(float(spec.get("default", lo) or lo))
+        row = QWidget()
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addStretch(1)
+        lay.addWidget(
+            _build_stepper(
+                spec, scale=scale, container_h=container_h, value=cur, interactive=False
+            )
+        )
+        return _form_row(label, row, scale=scale, container_h=container_h)
+    if wtype == "textarea":
+        return _form_row(
+            label,
+            _build_textarea(
+                spec,
+                scale=scale,
+                container_h=container_h,
+                text=str(spec.get("default", "")),
+                interactive=False,
+            ),
+            scale=scale,
+            container_h=container_h,
+        )
     hint = _CONTROL_HINTS.get(wtype, wtype)
-    return _form_row(label, _control_box(hint, scale=scale), scale=scale)
+    return _form_row(label, _control_box(hint, scale=scale), scale=scale, container_h=container_h)
 
 
 def build_interactive_widget(
@@ -349,6 +659,7 @@ def build_interactive_widget(
     on_change: OnChange = None,
     *,
     scale: float = 1.0,
+    container_h: int | None = None,
 ) -> QWidget | None:
     wtype = spec.get("type", "")
     if wtype not in INTERACTIVE_TYPES:
@@ -364,9 +675,11 @@ def build_interactive_widget(
         edit = QLineEdit()
         edit.setPlaceholderText(str(spec.get("placeholder", "")))
         edit.setText(PanelState.get(wid) or str(spec.get("default", "")))
+        row_h = _default_row_h(scale, container_h)
+        _style_line_edit(edit, scale=scale, row_h=row_h)
         if wid:
             edit.textChanged.connect(lambda t, i=wid: (PanelState.set(i, t), emit()))
-        return _form_row(label, edit, scale=scale)
+        return _form_row(label, edit, scale=scale, container_h=container_h)
 
     if wtype == "select":
         cb = QComboBox()
@@ -376,26 +689,28 @@ def build_interactive_widget(
         idx = cb.findText(cur)
         if idx >= 0:
             cb.setCurrentIndex(idx)
+        row_h = _default_row_h(scale, container_h)
+        _style_combo(cb, scale=scale, row_h=row_h)
         if wid:
             cb.currentTextChanged.connect(lambda t, i=wid: (PanelState.set(i, t), emit()))
-        return _form_row(label, cb, scale=scale)
+        return _form_row(label, cb, scale=scale, container_h=container_h)
 
     if wtype == "radio":
-        opts = [str(o) for o in (spec.get("options") or ["选项A", "选项B"])]
         current = PanelState.get(wid) or str(spec.get("default", ""))
-        group_host = QWidget()
-        group_lay = QVBoxLayout(group_host)
-        group_lay.setContentsMargins(0, 0, 0, 0)
-        group_lay.setSpacing(2)
-        for opt in opts:
-            rb = QRadioButton(opt)
-            rb.setChecked(opt == current or (not current and opt == opts[0]))
-            if wid:
-                rb.toggled.connect(
-                    lambda on, i=wid, o=opt: (PanelState.set(i, o), emit()) if on else None
-                )
-            group_lay.addWidget(rb)
-        return _form_row(label, group_host, scale=scale)
+        return _form_row(
+            label,
+            _build_radio_group(
+                spec,
+                scale=scale,
+                container_h=container_h,
+                current=current,
+                interactive=True,
+                wid=wid,
+                on_change=emit,
+            ),
+            scale=scale,
+            container_h=container_h,
+        )
 
     if wtype == "multiselect":
         opts = _options_list(spec)
@@ -408,11 +723,12 @@ def build_interactive_widget(
             label,
             _multiselect_options(opts, selected, wid=wid, on_change=emit, interactive=True),
             scale=scale,
+            container_h=container_h,
         )
 
     if wtype == "switch":
         cur = (PanelState.get(wid) or str(spec.get("default", "false"))).lower()
-        sw = _make_switch(checked=cur in ("true", "1", "yes", "on"), enabled=True)
+        sw = _make_switch(checked=cur in ("true", "1", "yes", "on"), enabled=True, scale=scale)
         if wid:
             sw.toggled.connect(
                 lambda on, i=wid: (PanelState.set(i, "true" if on else "false"), emit())
@@ -422,76 +738,72 @@ def build_interactive_widget(
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addStretch(1)
         lay.addWidget(sw)
-        return _form_row(label, row, scale=scale)
+        return _form_row(label, row, scale=scale, container_h=container_h)
 
     if wtype == "time_range":
-        row = QHBoxLayout()
-        row.setSpacing(4)
-        start = QLineEdit()
-        end = QLineEdit()
         raw = PanelState.get(wid) or str(spec.get("default", ""))
         if raw and "-" in raw:
             a, b = raw.split("-", 1)
-            start.setText(a.strip())
-            end.setText(b.strip())
+            start_text, end_text = a.strip(), b.strip()
         else:
-            start.setText(str(spec.get("default_start", "09:00")))
-            end.setText(str(spec.get("default_end", "18:00")))
-
-        def sync(i=wid, s=start, e=end) -> None:
-            if i:
-                PanelState.set(i, f"{s.text().strip()}-{e.text().strip()}")
-            emit()
-
-        if wid:
-            start.textChanged.connect(lambda _t: sync())
-            end.textChanged.connect(lambda _t: sync())
-        host = QWidget()
-        inner = QHBoxLayout(host)
-        inner.setContentsMargins(0, 0, 0, 0)
-        inner.addWidget(QLabel("从"))
-        inner.addWidget(start, 1)
-        inner.addWidget(QLabel("到"))
-        inner.addWidget(end, 1)
-        return _form_row(label, host, scale=scale)
+            start_text = str(spec.get("default_start", "09:00"))
+            end_text = str(spec.get("default_end", "18:00"))
+        return _form_row(
+            label,
+            _build_time_range(
+                spec,
+                scale=scale,
+                container_h=container_h,
+                start_text=start_text,
+                end_text=end_text,
+                interactive=True,
+                wid=wid,
+                on_change=emit,
+            ),
+            scale=scale,
+            container_h=container_h,
+        )
 
     if wtype == "slider":
         lo = int(spec.get("min", 0) or 0)
-        hi = int(spec.get("max", 100) or 100)
-        slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setRange(lo, hi)
         cur = int(float(PanelState.get(wid) or spec.get("default", lo) or lo))
-        slider.setValue(max(lo, min(hi, cur)))
-        if wid:
-            slider.valueChanged.connect(lambda v, i=wid: (PanelState.set(i, str(v)), emit()))
-        return _form_row(label, slider, scale=scale)
+        return _form_row(
+            label,
+            _build_slider(
+                spec, scale=scale, container_h=container_h, value=cur, interactive=True, wid=wid, on_change=emit
+            ),
+            scale=scale,
+            container_h=container_h,
+        )
 
     if wtype == "stepper":
         lo = int(spec.get("min", 0) or 0)
-        hi = int(spec.get("max", 99) or 99)
-        sp = QSpinBox()
-        sp.setRange(lo, hi)
         cur = int(float(PanelState.get(wid) or spec.get("default", lo) or lo))
-        sp.setValue(max(lo, min(hi, cur)))
-        if wid:
-            sp.valueChanged.connect(lambda v, i=wid: (PanelState.set(i, str(v)), emit()))
         row = QWidget()
         lay = QHBoxLayout(row)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addStretch(1)
-        lay.addWidget(sp)
-        return _form_row(label, row, scale=scale)
+        lay.addWidget(
+            _build_stepper(
+                spec, scale=scale, container_h=container_h, value=cur, interactive=True, wid=wid, on_change=emit
+            )
+        )
+        return _form_row(label, row, scale=scale, container_h=container_h)
 
     if wtype == "textarea":
-        te = QTextEdit()
-        te.setPlaceholderText(str(spec.get("placeholder", "")))
-        te.setPlainText(PanelState.get(wid) or str(spec.get("default", "")))
-        rows = int(spec.get("rows", 3) or 3)
-        te.setMaximumHeight(max(_scaled_px(48, scale, floor=24), rows * _scaled_px(22, scale, floor=14)))
-        if wid:
-            te.textChanged.connect(
-                lambda i=wid, w=te: (PanelState.set(i, w.toPlainText()), emit())
-            )
-        return _form_row(label, te, scale=scale)
+        return _form_row(
+            label,
+            _build_textarea(
+                spec,
+                scale=scale,
+                container_h=container_h,
+                text=PanelState.get(wid) or str(spec.get("default", "")),
+                interactive=True,
+                wid=wid,
+                on_change=emit,
+            ),
+            scale=scale,
+            container_h=container_h,
+        )
 
     return None

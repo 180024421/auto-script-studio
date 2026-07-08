@@ -158,6 +158,37 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         top.addWidget(self.start_confirm_cb)
         root.addWidget(header)
 
+        adv_header, adv_lay = card_frame(compact=True)
+        adv_row = QHBoxLayout()
+        adv_row.setSpacing(8)
+        adv_lay.addLayout(adv_row)
+        from studio.services.layout_defaults import PANEL_DISPLAY_MODES
+
+        adv_row.addWidget(QLabel("展示"))
+        self.display_mode_combo = QComboBox()
+        for mode_id, mode_label in PANEL_DISPLAY_MODES:
+            self.display_mode_combo.addItem(mode_label, mode_id)
+        self.display_mode_combo.setToolTip("host=主 Activity 填表+悬浮球；minimal=仅悬浮条；form=悬浮窗内表单")
+        adv_row.addWidget(self.display_mode_combo)
+        self.mode_hint_label = QLabel()
+        self.mode_hint_label.setObjectName("InfoBar")
+        adv_row.addWidget(self.mode_hint_label, 1)
+        self.show_log_cb = QCheckBox("显示日志")
+        self.show_on_launch_cb = QCheckBox("启动时显示")
+        adv_row.addWidget(self.show_log_cb)
+        adv_row.addWidget(self.show_on_launch_cb)
+        adv_row.addWidget(QLabel("透明度"))
+        self.opacity_spin = QSpinBox()
+        self.opacity_spin.setRange(50, 100)
+        self.opacity_spin.setSuffix("%")
+        adv_row.addWidget(self.opacity_spin)
+        adv_row.addWidget(QLabel("球大小"))
+        self.ball_size_spin = QSpinBox()
+        self.ball_size_spin.setRange(32, 72)
+        self.ball_size_spin.setSuffix("dp")
+        adv_row.addWidget(self.ball_size_spin)
+        root.addWidget(adv_header)
+
         # —— 左：添加控件 + 标签页 + 列表（可滚动） ——
         left_card, left_card_lay = side_column(300, None)
         left_scroll = QScrollArea()
@@ -234,6 +265,7 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
             left_layout,
             [
                 ("模板", self.apply_template, "accent"),
+                ("修复布局", self.repair_layout_manual, "ghost"),
                 ("恢复默认", self.reset_default, "ghost"),
             ],
             columns=2,
@@ -268,6 +300,11 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         # layout_mode 由 _on_layout_mode_changed 单独处理，避免重复 rebuild
 
         self.start_confirm_cb.toggled.connect(self._on_header_changed)
+        self.display_mode_combo.currentIndexChanged.connect(self._on_display_mode_changed)
+        self.show_log_cb.toggled.connect(self._on_header_changed)
+        self.show_on_launch_cb.toggled.connect(self._on_header_changed)
+        self.opacity_spin.valueChanged.connect(self._on_header_changed)
+        self.ball_size_spin.valueChanged.connect(self._on_header_changed)
 
         self.layout_mode_combo.blockSignals(True)
         mode_idx = self.layout_mode_combo.findData(self._layout.get("panel", {}).get("layout_mode", "free"))
@@ -615,7 +652,50 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self._commit_history()
         self._emit_layout_changed()
 
+    def _on_display_mode_changed(self, _index: int = 0) -> None:
+        self._apply_header()
+        self._update_mode_hint()
+        self._update_preview()
+        self._mark_dirty()
+        self._emit_layout_changed()
+
+    def _update_mode_hint(self) -> None:
+        mode = self.display_mode_combo.currentData() or "host"
+        hints = {
+            "host": "主页面填表 · 启停由悬浮球控制",
+            "minimal": "仅悬浮球/条 · 无内嵌表单",
+            "form": "悬浮窗内完整表单",
+        }
+        self.mode_hint_label.setText(hints.get(str(mode), ""))
+
+    def repair_layout_manual(self) -> None:
+        if not is_free_mode(self._layout):
+            QMessageBox.information(self, "提示", "仅「手机自由」布局支持修复坐标")
+            return
+        ans = QMessageBox.question(
+            self,
+            "修复布局",
+            "将修正重叠、过小控件坐标（按自上而下重排）。是否继续？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+        repair_all_screens(self._layout)
+        self._refresh_ui()
+        self._mark_dirty()
+        self._update_preview(force=True)
+        self._emit_layout_changed()
+        QMessageBox.information(self, "完成", "布局坐标已修复，请保存后同步到脚本页。")
+
     def reset_default(self) -> None:
+        ans = QMessageBox.question(
+            self,
+            "恢复默认",
+            "将覆盖当前布局为默认模板，是否继续？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            return
         self._layout = clone_layout(DEFAULT_LAYOUT)
         self._history.clear()
         self._refresh_ui()
@@ -644,6 +724,11 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         panel["allow_design"] = self.allow_design_cb.isChecked()
         panel["start_confirm_collapse"] = self.start_confirm_cb.isChecked()
         panel["layout_mode"] = self.layout_mode_combo.currentData() or "free"
+        panel["display_mode"] = self.display_mode_combo.currentData() or "host"
+        panel["show_log"] = self.show_log_cb.isChecked()
+        panel["show_on_launch"] = self.show_on_launch_cb.isChecked()
+        panel["opacity"] = round(self.opacity_spin.value() / 100.0, 2)
+        panel["ball_size_dp"] = self.ball_size_spin.value()
         panel["design_width"] = int(panel.get("design_width", 720))
         panel["design_height"] = int(panel.get("design_height", 1280))
         if is_free_mode(self._layout):
@@ -674,8 +759,6 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
 
     def _refresh_ui(self) -> None:
         self._layout = migrate_layout(self._layout)
-        if is_free_mode(self._layout):
-            repair_all_screens(self._layout)
         panel = self._layout.get("panel", {})
         self.enabled_cb.setCurrentIndex(0 if self._layout.get("enabled", True) else 1)
         theme_idx = self.theme_combo.findData(panel.get("theme", "light"))
@@ -695,6 +778,23 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self.start_confirm_cb.blockSignals(True)
         self.start_confirm_cb.setChecked(panel.get("start_confirm_collapse", True))
         self.start_confirm_cb.blockSignals(False)
+        dm_idx = self.display_mode_combo.findData(panel.get("display_mode", "host"))
+        self.display_mode_combo.blockSignals(True)
+        self.display_mode_combo.setCurrentIndex(max(0, dm_idx))
+        self.display_mode_combo.blockSignals(False)
+        self.show_log_cb.blockSignals(True)
+        self.show_log_cb.setChecked(bool(panel.get("show_log", True)))
+        self.show_log_cb.blockSignals(False)
+        self.show_on_launch_cb.blockSignals(True)
+        self.show_on_launch_cb.setChecked(bool(panel.get("show_on_launch", False)))
+        self.show_on_launch_cb.blockSignals(False)
+        self.opacity_spin.blockSignals(True)
+        self.opacity_spin.setValue(int(float(panel.get("opacity", 0.96)) * 100))
+        self.opacity_spin.blockSignals(False)
+        self.ball_size_spin.blockSignals(True)
+        self.ball_size_spin.setValue(int(panel.get("ball_size_dp", 48)))
+        self.ball_size_spin.blockSignals(False)
+        self._update_mode_hint()
         mode_idx = self.layout_mode_combo.findData(panel.get("layout_mode", "free"))
         self.layout_mode_combo.blockSignals(True)
         self.layout_mode_combo.setCurrentIndex(max(0, mode_idx))
@@ -787,6 +887,7 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
 
     def _update_preview(self, *, force: bool = False) -> None:
         self._apply_header()
+        self._sync_display_preview()
         payload = clone_layout(self._layout)
         if is_free_mode(self._layout):
             self.phone_canvas.set_layout(
