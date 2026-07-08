@@ -191,6 +191,7 @@ class OverlayScreenPanelBuilder(
                         callbacks = freeDesignCallbacks,
                         dp = dp,
                         content = contentHost,
+                        showDragHandle = !FreeOverlayDesignFrame.isFormLikeWidget(cfg.type),
                     )
                 } else {
                     contentHost

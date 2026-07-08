@@ -24,7 +24,9 @@
 ### P1 — 体验
 - [x] 实机 free 布局拖动保存（APK 设计模式：`FreeOverlayDesignFrame` + `LayoutEditorOps.setWidgetRect`）
 - [x] Studio 展示模式 UI、布局修复手动化、PC/Android 坐标与表单行对齐
+- [x] 打包 layout 校验、minimal 预览、实机覆盖拉取、主题/几何对齐
 - [ ] SCC Web UI 集成 jiaoben 发版按钮
+- [ ] Android 双指捏合缩放面板
 
 ### P2 — 性能
 - [ ] OpenCV Mobile NDK 加速大模板（可选）

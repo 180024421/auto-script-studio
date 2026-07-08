@@ -28,44 +28,29 @@ def _paint_free_layout_overlay(
     scale: float = 1.0,
 ) -> None:
     """自由布局：面板外框 + 当前界面控件虚线框。"""
-    from studio.services.screen_layout import (
-        active_screen_index,
-        active_screen_widgets,
-        chrome_widgets,
-        content_height,
-        is_host_display,
-    )
-    from studio.services.free_layout import panel_design_size
+    from studio.services.panel_geometry import compute_free_panel_overlay_metrics
+    from studio.services.screen_layout import active_screen_widgets
 
     panel = layout.get("panel", {})
-    dw, _dh = panel_design_size(panel)
-    width_dp = int(panel.get("width_dp", 320))
     start_x = int(panel.get("start_x", 20))
     start_y = int(panel.get("start_y", 200))
     title = str(panel.get("title", "脚本助手"))
     theme = str(panel.get("theme", "light")).lower()
     is_dark = theme == "dark"
 
-    active = active_screen_index(layout)
-    body_h = content_height(layout, active, min_canvas=0)
-    chrome_list = chrome_widgets(layout)
-    if is_host_display(panel) or not chrome_list:
-        chrome_h = 0
-    else:
-        chrome_h = max(int(w.get("layout_y", 0) + w.get("layout_h", 52)) for w in chrome_list) + 16
-    design_h = 48 + 44 + body_h + chrome_h
-    panel_w = dp_to_px(width_dp, image_w)
-    panel_h = int(panel_w * design_h / max(1, dw))
-
-    panel_h = min(int(panel_h), max(1, image_h - start_y))
-    panel_w = min(int(panel_w), max(1, image_w - start_x))
+    metrics = compute_free_panel_overlay_metrics(
+        layout, image_w, image_h, dp_to_px_fn=dp_to_px
+    )
+    panel_w = metrics.panel_w_px
+    panel_h = metrics.panel_h_px
+    inner_scale = metrics.inner_scale
+    header_off = metrics.header_off_design * inner_scale
 
     sx = start_x * scale
     sy = start_y * scale
     pw = panel_w * scale
     ph = panel_h * scale
     pad = max(4, int(8 * scale))
-    inner_scale = pw / max(1, dw)
 
     border_color = "#4caf50" if is_dark else "#2563eb"
     painter.setBrush(Qt.NoBrush)
@@ -87,7 +72,6 @@ def _paint_free_layout_overlay(
 
     widget_pen = QPen(_parse_color("#94A3B8", 160), max(1, int(1 * scale)), Qt.PenStyle.DotLine)
     painter.setPen(widget_pen)
-    header_off = (48 + 44) * inner_scale
     for w in active_screen_widgets(layout):
         wx = sx + pad + int(w.get("layout_x", 0)) * inner_scale
         wy = sy + pad + header_off + int(w.get("layout_y", 0)) * inner_scale

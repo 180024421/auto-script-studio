@@ -17,6 +17,7 @@ def test_pack_preflight_demo_game():
         errors, warnings = validate_before_pack(demo)
         assert isinstance(errors, list)
         assert isinstance(warnings, list)
+        assert not any("layout:" in e for e in errors)
 
 
 def test_repair_all_screens_does_not_run_on_migrate_only():

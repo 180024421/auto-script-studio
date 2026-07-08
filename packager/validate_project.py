@@ -45,9 +45,19 @@ def validate_assets(project_dir: Path, cfg: dict) -> list[str]:
     layout = project_dir / "ui" / "layout.json"
     if layout.is_file():
         try:
+            import json
+
             data = json.loads(layout.read_text(encoding="utf-8"))
-            if "buttons" not in data:
-                warnings.append("ui/layout.json 缺少 buttons 数组")
+            version = int(data.get("version", 1))
+            if version < 3 and "buttons" not in data and not data.get("widgets"):
+                warnings.append("ui/layout.json 缺少 widgets/buttons")
+            try:
+                from studio.services.layout_validate import validate_layout
+
+                for msg in validate_layout(data):
+                    errors.append(f"layout: {msg}")
+            except ImportError:
+                pass
         except json.JSONDecodeError as exc:
             errors.append(f"ui/layout.json JSON 无效: {exc}")
 

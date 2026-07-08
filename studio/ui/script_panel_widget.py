@@ -25,11 +25,14 @@ from studio.services.free_layout import is_free_mode
 from studio.services.layout_defaults import load_layout
 from studio.services.panel_lua_snippets import (
     lua_all_values,
+    lua_all_values_for_layout,
     lua_panel_example,
     lua_read_snippet,
     resolve_layout_widget,
     widget_lua_spec,
 )
+from studio.services.screen_layout import active_screen_index
+from studio.ui.minimal_bar_preview import MinimalBarPreviewWidget
 from studio.ui.app_theme import set_button_role
 from studio.ui.layout_preview_widget import LayoutPreviewWidget
 from studio.ui.page_shell import hint_label, section_title
@@ -64,7 +67,7 @@ class ScriptPanelWidget(QWidget):
         example_btn.clicked.connect(lambda: self.insert_lua.emit(lua_panel_example()))
         all_btn = QPushButton("全部值")
         set_button_role(all_btn, "ghost")
-        all_btn.clicked.connect(lambda: self.insert_lua.emit(lua_all_values()))
+        all_btn.clicked.connect(self._insert_all_values)
         refresh_btn = QPushButton("刷新")
         set_button_role(refresh_btn, "ghost")
         refresh_btn.setToolTip("重新加载 ui/layout.json 并刷新预览")
@@ -87,8 +90,10 @@ class ScriptPanelWidget(QWidget):
         self.preview_grid.set_zoom_auto(True)
         self.preview_grid.set_design_mode(False)
         self.preview_grid.set_selection_mode(True)
+        self.preview_minimal = MinimalBarPreviewWidget()
         self.preview_stack.addWidget(self.preview_free)
         self.preview_stack.addWidget(self.preview_grid)
+        self.preview_stack.addWidget(self.preview_minimal)
         self.preview_stack.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
@@ -158,7 +163,12 @@ class ScriptPanelWidget(QWidget):
             self._refresh_value_summary()
             return
         self.preview_stack.setVisible(True)
-        if is_free_mode(layout):
+        panel = layout.get("panel", {})
+        mode = str(panel.get("display_mode", "host"))
+        if mode == "minimal":
+            self.preview_stack.setCurrentWidget(self.preview_minimal)
+            self.preview_minimal.apply_panel(panel)
+        elif is_free_mode(layout):
             self.preview_stack.setCurrentWidget(self.preview_free)
             self.preview_free.set_layout(layout)
         else:
@@ -222,6 +232,13 @@ class ScriptPanelWidget(QWidget):
             self._show_insert_hint()
             return
         self._show_insert_for(lua_spec)
+
+    def _insert_all_values(self) -> None:
+        if not self._layout:
+            self.insert_lua.emit(lua_all_values())
+            return
+        idx = active_screen_index(self._layout) if is_free_mode(self._layout) else None
+        self.insert_lua.emit(lua_all_values_for_layout(self._layout, screen_index=idx))
 
     def _insert_selected(self) -> None:
         if self._selected_spec:

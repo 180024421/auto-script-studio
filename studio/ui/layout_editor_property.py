@@ -456,8 +456,8 @@ class LayoutEditorPropertyMixin:
         w["y2"] = self.y2_spin.value()
         w["lua"] = self.lua_edit.toPlainText().strip()
         if is_free_mode(self._layout):
-            w["layout_x"] = self.layout_x_spin.value()
-            w["layout_y"] = self.layout_y_spin.value()
+            from studio.services.snap_design import snap_design
+
             sender = self.sender()
             geom_spin = sender in (
                 self.layout_x_spin,
@@ -477,16 +477,19 @@ class LayoutEditorPropertyMixin:
             else:
                 w["layout_w"] = self.layout_w_spin.value()
             w["layout_h"] = self.layout_h_spin.value()
+            w["layout_x"] = self.layout_x_spin.value()
+            w["layout_y"] = self.layout_y_spin.value()
+            lx = snap_design(int(w["layout_x"]))
+            ly = snap_design(int(w["layout_y"]))
+            lw = snap_design(int(w["layout_w"]))
+            lh = snap_design(int(w["layout_h"]))
+            w["layout_x"] = lx
+            w["layout_y"] = ly
+            w["layout_w"] = lw
+            w["layout_h"] = lh
             from studio.services.screen_layout import set_widget_rect
 
-            set_widget_rect(
-                self._layout,
-                path,
-                int(w["layout_x"]),
-                int(w["layout_y"]),
-                int(w["layout_w"]),
-                int(w["layout_h"]),
-            )
+            set_widget_rect(self._layout, path, lx, ly, lw, lh)
             dw, _ = panel_design_size(self._layout.get("panel", {}))
             for sp, key in (
                 (self.layout_x_spin, "layout_x"),

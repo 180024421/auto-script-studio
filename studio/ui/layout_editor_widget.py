@@ -187,6 +187,16 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self.ball_size_spin.setRange(32, 72)
         self.ball_size_spin.setSuffix("dp")
         adv_row.addWidget(self.ball_size_spin)
+        adv_row.addWidget(QLabel("设计宽"))
+        self.design_width_spin = QSpinBox()
+        self.design_width_spin.setRange(320, 1440)
+        self.design_width_spin.setSuffix("px")
+        adv_row.addWidget(self.design_width_spin)
+        adv_row.addWidget(QLabel("设计高"))
+        self.design_height_spin = QSpinBox()
+        self.design_height_spin.setRange(480, 2560)
+        self.design_height_spin.setSuffix("px")
+        adv_row.addWidget(self.design_height_spin)
         root.addWidget(adv_header)
 
         # —— 左：添加控件 + 标签页 + 列表（可滚动） ——
@@ -266,6 +276,7 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
             [
                 ("模板", self.apply_template, "accent"),
                 ("修复布局", self.repair_layout_manual, "ghost"),
+                ("拉取实机布局", self.pull_device_layout, "ghost"),
                 ("恢复默认", self.reset_default, "ghost"),
             ],
             columns=2,
@@ -305,6 +316,8 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self.show_on_launch_cb.toggled.connect(self._on_header_changed)
         self.opacity_spin.valueChanged.connect(self._on_header_changed)
         self.ball_size_spin.valueChanged.connect(self._on_header_changed)
+        self.design_width_spin.valueChanged.connect(self._on_header_changed)
+        self.design_height_spin.valueChanged.connect(self._on_header_changed)
 
         self.layout_mode_combo.blockSignals(True)
         mode_idx = self.layout_mode_combo.findData(self._layout.get("panel", {}).get("layout_mode", "free"))
@@ -662,11 +675,17 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
     def _update_mode_hint(self) -> None:
         mode = self.display_mode_combo.currentData() or "host"
         hints = {
-            "host": "主页面填表 · 启停由悬浮球控制",
+            "host": "主页面填表 · 启停由悬浮球控制 · 实机设计模式仅 form 模式",
             "minimal": "仅悬浮球/条 · 无内嵌表单",
-            "form": "悬浮窗内完整表单",
+            "form": "悬浮窗内完整表单 · 可长按标题栏进入设计模式",
         }
         self.mode_hint_label.setText(hints.get(str(mode), ""))
+        if str(mode) == "host":
+            self.allow_design_cb.setToolTip(
+                "host 模式下表单在 MainActivity，实机 free 拖动请切到 form 或 minimal+悬浮窗"
+            )
+        else:
+            self.allow_design_cb.setToolTip("APK 浮动面板长按标题栏 1.2 秒进入布局设计模式")
 
     def repair_layout_manual(self) -> None:
         if not is_free_mode(self._layout):
@@ -686,6 +705,44 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self._update_preview(force=True)
         self._emit_layout_changed()
         QMessageBox.information(self, "完成", "布局坐标已修复，请保存后同步到脚本页。")
+
+    def pull_device_layout(self) -> None:
+        project = self._project_dir_getter()
+        if not project:
+            QMessageBox.warning(self, "提示", "请先打开工程")
+            return
+        project_dir = Path(project)
+        cfg_path = project_dir / "project.json"
+        if not cfg_path.is_file():
+            QMessageBox.warning(self, "提示", "缺少 project.json")
+            return
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            QMessageBox.warning(self, "提示", f"project.json 无效: {exc}")
+            return
+        package_id = str(cfg.get("package_id") or "").strip()
+        if not package_id:
+            QMessageBox.warning(self, "提示", "未配置 package_id")
+            return
+        ans = QMessageBox.question(
+            self,
+            "拉取实机布局",
+            "将从已连接设备读取 layout-overrides 并覆盖工程 ui/layout.json（自动备份 .bak）。是否继续？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            from studio.services.adb_service import AdbService
+            from studio.services.layout_override_sync import pull_and_merge_to_project
+
+            pull_and_merge_to_project(AdbService(), project_dir, package_id)
+        except Exception as exc:
+            QMessageBox.warning(self, "拉取失败", str(exc))
+            return
+        self.load_from_project()
+        QMessageBox.information(self, "完成", "已合并设备 layout 覆盖到工程，请检查并保存。")
 
     def reset_default(self) -> None:
         ans = QMessageBox.question(
@@ -729,8 +786,8 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         panel["show_on_launch"] = self.show_on_launch_cb.isChecked()
         panel["opacity"] = round(self.opacity_spin.value() / 100.0, 2)
         panel["ball_size_dp"] = self.ball_size_spin.value()
-        panel["design_width"] = int(panel.get("design_width", 720))
-        panel["design_height"] = int(panel.get("design_height", 1280))
+        panel["design_width"] = self.design_width_spin.value()
+        panel["design_height"] = self.design_height_spin.value()
         if is_free_mode(self._layout):
             panel["active_screen"] = self.screen_tabs_editor.active_index()
             editor_screens = self.screen_tabs_editor.get_screens()
@@ -794,6 +851,12 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self.ball_size_spin.blockSignals(True)
         self.ball_size_spin.setValue(int(panel.get("ball_size_dp", 48)))
         self.ball_size_spin.blockSignals(False)
+        self.design_width_spin.blockSignals(True)
+        self.design_width_spin.setValue(int(panel.get("design_width", 720)))
+        self.design_width_spin.blockSignals(False)
+        self.design_height_spin.blockSignals(True)
+        self.design_height_spin.setValue(int(panel.get("design_height", 1280)))
+        self.design_height_spin.blockSignals(False)
         self._update_mode_hint()
         mode_idx = self.layout_mode_combo.findData(panel.get("layout_mode", "free"))
         self.layout_mode_combo.blockSignals(True)

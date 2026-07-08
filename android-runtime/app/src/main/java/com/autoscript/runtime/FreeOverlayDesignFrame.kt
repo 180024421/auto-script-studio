@@ -8,7 +8,6 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.TextView
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 interface FreeOverlayDesignCallbacks {
@@ -18,6 +17,7 @@ interface FreeOverlayDesignCallbacks {
 
 /**
  * 自由布局设计模式：拖动移动控件，右下角缩放。
+ * 表单类控件默认无顶栏手柄（与 PC FreeDesignItem 一致）。
  */
 @SuppressLint("ViewConstructor")
 class FreeOverlayDesignFrame(
@@ -30,9 +30,10 @@ class FreeOverlayDesignFrame(
     private val callbacks: FreeOverlayDesignCallbacks,
     private val dp: (Int) -> Int,
     content: View,
+    private val showDragHandle: Boolean = true,
 ) : FrameLayout(context) {
 
-    private val handleHeight = dp(16)
+    private val handleHeight = if (showDragHandle) dp(16) else 0
     private var selected = false
 
     init {
@@ -42,15 +43,20 @@ class FreeOverlayDesignFrame(
                 topMargin = handleHeight
             },
         )
-        val handle = TextView(context).apply {
-            text = "⋮⋮"
-            gravity = Gravity.CENTER
-            textSize = 9f
-            setTextColor(Color.parseColor("#64748B"))
-            setBackgroundColor(Color.parseColor("#E2E8F0"))
-            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, handleHeight, Gravity.TOP)
+        if (showDragHandle) {
+            val handle = TextView(context).apply {
+                text = "⋮⋮"
+                gravity = Gravity.CENTER
+                textSize = 9f
+                setTextColor(Color.parseColor("#64748B"))
+                setBackgroundColor(Color.parseColor("#E2E8F0"))
+                layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, handleHeight, Gravity.TOP)
+            }
+            addView(handle)
+            attachDrag(handle)
+        } else {
+            attachDrag(content)
         }
-        addView(handle)
         val grip = View(context).apply {
             setBackgroundColor(Color.parseColor("#93C5FD"))
             alpha = 0.7f
@@ -58,7 +64,6 @@ class FreeOverlayDesignFrame(
         }
         addView(grip)
         setBackgroundColor(Color.parseColor("#F8FAFC"))
-        attachDrag(handle)
         attachResize(grip)
         setOnClickListener { selectSelf() }
     }
@@ -70,6 +75,11 @@ class FreeOverlayDesignFrame(
 
     private fun selectSelf() {
         callbacks.onSelect(widgetPath)
+    }
+
+    private fun snapDesign(v: Int): Int {
+        val g = SNAP_GRID
+        return ((v.toDouble() / g).roundToInt() * g).coerceAtLeast(0)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -99,12 +109,7 @@ class FreeOverlayDesignFrame(
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    val lp = layoutParams as? MarginLayoutParams ?: return@setOnTouchListener true
-                    val x = (lp.leftMargin / scaleX).roundToInt().coerceIn(0, designW)
-                    val y = (lp.topMargin / scaleY).roundToInt().coerceIn(0, designH)
-                    val w = (lp.width / scaleX).roundToInt().coerceAtLeast(48)
-                    val h = (lp.height / scaleY).roundToInt().coerceAtLeast(20)
-                    callbacks.onRectChange(widgetPath, x, y, w, h)
+                    emitRect()
                     true
                 }
                 else -> false
@@ -139,16 +144,32 @@ class FreeOverlayDesignFrame(
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    val lp = layoutParams as? MarginLayoutParams ?: return@setOnTouchListener true
-                    val x = (lp.leftMargin / scaleX).roundToInt().coerceIn(0, designW)
-                    val y = (lp.topMargin / scaleY).roundToInt().coerceIn(0, designH)
-                    val w = (lp.width / scaleX).roundToInt().coerceAtLeast(48)
-                    val h = (lp.height / scaleY).roundToInt().coerceAtLeast(20)
-                    callbacks.onRectChange(widgetPath, x, y, w, h)
+                    emitRect()
                     true
                 }
                 else -> false
             }
         }
+    }
+
+    private fun emitRect() {
+        val lp = layoutParams as? MarginLayoutParams ?: return
+        val x = snapDesign((lp.leftMargin / scaleX).roundToInt().coerceIn(0, designW))
+        val y = snapDesign((lp.topMargin / scaleY).roundToInt().coerceIn(0, designH))
+        val w = snapDesign((lp.width / scaleX).roundToInt().coerceAtLeast(48))
+        val h = snapDesign((lp.height / scaleY).roundToInt().coerceAtLeast(20))
+        callbacks.onRectChange(widgetPath, x, y, w, h)
+    }
+
+    companion object {
+        private const val SNAP_GRID = 8
+
+        fun isFormLikeWidget(type: String): Boolean = type in FORM_LIKE_TYPES
+
+        private val FORM_LIKE_TYPES = setOf(
+            "input", "select", "radio", "multiselect", "switch",
+            "time_range", "slider", "stepper", "textarea",
+            "text", "label", "divider",
+        )
     }
 }

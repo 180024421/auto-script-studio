@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from PySide6.QtCore import QPoint, QRect, Qt, Signal
-from PySide6.QtGui import QCursor, QMouseEvent
+from PySide6.QtGui import QCursor, QMouseEvent, QWheelEvent
 from PySide6.QtWidgets import (
   QFrame,
   QHBoxLayout,
@@ -41,11 +41,12 @@ from studio.services.screen_layout import (
 )
 from studio.services.free_layout import DESIGN_W, panel_design_size
 from studio.services.layout_clone import clone_layout, clone_widget
+from studio.services.panel_theme import panel_theme_colors
+from studio.services.snap_design import SNAP_GRID, snap_design as _snap_design
 
 TITLE_DP = 48
 TAB_BAR_DP = 44
 CHROME_DP = 64
-SNAP_GRID = 8
 DRAG_THRESHOLD = 5
 
 
@@ -166,11 +167,6 @@ def _build_screen_tab_bar(
     tab_buttons.append(tb)
   tab_scroll.setWidget(tab_row)
   return tab_scroll, tab_buttons
-
-
-def _snap_design(v: int) -> int:
-    g = SNAP_GRID
-    return int(round(v / g) * g)
 
 
 def _layout_rect(spec: dict[str, Any], scale: float) -> tuple[int, int, int, int]:
@@ -776,6 +772,7 @@ class PhoneCanvasWidget(QScrollArea):
 
   def _build_shell(self) -> _PhoneShell:
     panel = self._layout.get("panel", {})
+    theme = panel_theme_colors(str(panel.get("theme", "light")))
     dw, dh = panel_design_size(panel)
     self._scale = self._effective_scale(dw, dh)
     self._last_scale = self._scale
@@ -808,7 +805,7 @@ class PhoneCanvasWidget(QScrollArea):
     if self._phone_style:
       inner_radius = max(4, frame_radius - bezel)
       inner.setStyleSheet(
-        f"QWidget#PhoneScreen {{ background:#FFFFFF; border-radius:{inner_radius}px; }}"
+        f"QWidget#PhoneScreen {{ background:{theme.screen_bg}; border-radius:{inner_radius}px; }}"
       )
     inner_lay = QVBoxLayout(inner)
     inner_lay.setContentsMargins(0, 0, 0, 0)
@@ -820,7 +817,7 @@ class PhoneCanvasWidget(QScrollArea):
     title_fs = max(9, int(13 * self._scale))
     title_radius = max(0, frame_radius - bezel) if self._phone_style else 0
     title.setStyleSheet(
-      f"background:#2563EB;color:white;font-weight:600;font-size:{title_fs}px;"
+      f"background:{theme.title_bg};color:{theme.title_fg};font-weight:600;font-size:{title_fs}px;"
       + (f"border-top-left-radius:{title_radius}px;border-top-right-radius:{title_radius}px;" if title_radius else "")
     )
     title.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -836,7 +833,7 @@ class PhoneCanvasWidget(QScrollArea):
     scroll.setWidgetResizable(True)
     scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     scroll.setFixedHeight(max(200, view_h))
-    scroll.setStyleSheet("QScrollArea { border: none; background: #FFFFFF; }")
+    scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {theme.screen_bg}; }}")
 
     canvas = InterfaceCanvas()
     canvas.context_menu_requested.connect(self.context_menu_requested.emit)
@@ -847,7 +844,9 @@ class PhoneCanvasWidget(QScrollArea):
     chrome_host = QWidget()
     chrome_host.setFixedHeight(max(0, chrome_h))
     chrome_host.setVisible(chrome_h > 0)
-    chrome_host.setStyleSheet("background:#F8FAFC;border-top:1px solid #E2E8F0;")
+    chrome_host.setStyleSheet(
+      f"background:{theme.chrome_bg};border-top:1px solid {theme.chrome_border};"
+    )
     chrome_host.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
     chrome_host.customContextMenuRequested.connect(
       lambda pos, host=chrome_host: self.context_menu_requested.emit(host.mapToGlobal(pos))
@@ -908,6 +907,7 @@ class PhoneCanvasWidget(QScrollArea):
       return
     shell = self._shell
     panel = self._layout.get("panel", {})
+    theme = panel_theme_colors(str(panel.get("theme", "light")))
     dw, dh = shell.design_wh
     self._scale = shell.scale
     sw = int(dw * self._scale)
@@ -922,7 +922,7 @@ class PhoneCanvasWidget(QScrollArea):
     title_fs = max(9, int(13 * self._scale))
     title_radius = max(0, frame_radius - bezel) if self._phone_style else 0
     shell.title.setStyleSheet(
-      f"background:#2563EB;color:white;font-weight:600;font-size:{title_fs}px;"
+      f"background:{theme.title_bg};color:{theme.title_fg};font-weight:600;font-size:{title_fs}px;"
       + (f"border-top-left-radius:{title_radius}px;border-top-right-radius:{title_radius}px;" if title_radius else "")
     )
     tab_h = _screen_tab_bar_height(self._scale)
@@ -1067,6 +1067,21 @@ class PhoneCanvasWidget(QScrollArea):
   def _on_item_clicked(self, path: tuple[int, ...]) -> None:
     self.set_selected_path(path)
     self.widget_selected.emit(path)
+
+  def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
+    if event.modifiers() & Qt.KeyboardModifier.ControlModifier and self._target_screen_px:
+      delta = event.angleDelta().y()
+      if delta == 0:
+        super().wheelEvent(event)
+        return
+      step = 20 if delta > 0 else -20
+      nw = max(240, min(480, self._target_screen_px + step))
+      if nw != self._target_screen_px:
+        self._target_screen_px = nw
+        self._rebuild(full=True)
+      event.accept()
+      return
+    super().wheelEvent(event)
 
   def keyPressEvent(self, event) -> None:  # noqa: N802
     key = event.key()

@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 from studio.runtime.panel_state import PanelState
 from studio.services.layout_clone import clone_layout
 from studio.services.layout_defaults import is_action_type, validate_widget_value
+from studio.ui.panel_widget_factory import INTERACTIVE_TYPES
 from studio.services.widget_path import (
     container_prefix,
     remap_path_after_reorder,
@@ -374,6 +375,15 @@ class LayoutPreviewWidget(QScrollArea):
 
     def _build_widget(self, spec: dict[str, Any], cols: int, zoom: float = 1.0) -> QWidget:
         wtype = spec.get("type", "tap")
+        panel_theme = str(self._layout.get("panel", {}).get("theme", "light"))
+
+        if wtype in ("label", "text", "divider") or wtype in INTERACTIVE_TYPES:
+            from studio.ui.panel_widget_factory import build_grid_cell_widget
+
+            cell = build_grid_cell_widget(spec, self._emit_values, scale=zoom, theme=panel_theme)
+            if cell is not None:
+                return cell
+
         wid = str(spec.get("id", ""))
         btn_h = max(32, int(36 * zoom))
         btn_pad = max(6, int(8 * zoom))

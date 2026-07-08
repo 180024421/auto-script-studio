@@ -129,8 +129,13 @@ class LayoutEditorPreviewMixin:
     def _sync_display_preview(self) -> None:
         panel = self._layout.get("panel", {})
         mode = str(panel.get("display_mode", "host"))
+        is_minimal = mode == "minimal"
         if hasattr(self, "minimal_preview"):
-            self.minimal_preview.setVisible(mode == "minimal")
+            self.minimal_preview.setVisible(is_minimal)
+            if is_minimal:
+                self.minimal_preview.apply_panel(panel)
+        if hasattr(self, "canvas_stack"):
+            self.canvas_stack.setVisible(not is_minimal)
 
     def _wire_preview_signals(self) -> None:
         self.phone_canvas.layout_changed.connect(self._on_phone_structure_changed)

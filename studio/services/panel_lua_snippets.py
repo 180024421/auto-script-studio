@@ -186,3 +186,20 @@ def lua_all_values() -> str:
         '  bot.log(k .. "=" .. tostring(v))\n'
         "end"
     )
+
+
+def lua_all_values_for_layout(
+    layout: dict[str, Any], *, screen_index: int | None = None
+) -> str:
+    """按界面过滤的 panel.get 批量读取。"""
+    widgets = list_value_widgets(layout, screen_index=screen_index)
+    if not widgets:
+        return lua_all_values()
+    lines = [
+        "-- 按 layout 控件 id 读取（当前界面）" if screen_index is not None else "-- 全部表单控件",
+    ]
+    for w in widgets:
+        wid = w["id"]
+        label = w.get("label") or wid
+        lines.append(f'bot.log("{label}=" .. tostring(panel.get("{wid}")))')
+    return "\n".join(lines)

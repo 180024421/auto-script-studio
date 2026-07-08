@@ -57,8 +57,10 @@ JSON Schema：`schemas/layout.schema.json`
 | 保存前校验 | ✅ | ID 唯一、坐标/尺寸 |
 | 脚本读取控件值 | ✅ | `panel.*` Lua API |
 | 实机设计模式（网格） | ✅ | 长按标题栏 |
-| 实机 free 布局拖动保存 | 🔜 | PC 已支持，APK 设计模式待接 |
-| 双指捏合缩放面板 | 🔜 | 规划中 |
+| 实机 free 布局拖动保存 | ✅ | form 悬浮窗 + `FreeOverlayDesignFrame`；host 主 Activity 暂无设计模式 |
+| 实机 layout 覆盖拉取 | ✅ | Studio「拉取实机布局」→ merge 工程 |
+| PC Ctrl+滚轮缩放预览 | ✅ | 紧凑手机预览宽度 |
+| 双指捏合缩放面板 | 🔜 | Android 规划中 |
 
 ## 控件类型
 

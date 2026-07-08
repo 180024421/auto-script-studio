@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
 )
 
 from studio.runtime.panel_state import PanelState
+from studio.services.layout_defaults import validate_widget_value
+from studio.services.panel_theme import panel_theme_colors
 
 OnChange = Callable[[], None] | None
 
@@ -323,14 +325,31 @@ def _build_slider(
 ) -> QSlider:
     lo = int(spec.get("min", 0) or 0)
     hi = int(spec.get("max", 100) or 100)
+    step = max(1, int(spec.get("step", 1) or 1))
     row_h = _default_row_h(scale, container_h)
     slider = QSlider(Qt.Orientation.Horizontal)
-    slider.setRange(lo, hi)
-    slider.setValue(max(lo, min(hi, value)))
+    cur = max(lo, min(hi, value))
+    if step > 1 and hi > lo:
+        ticks = max(1, (hi - lo) // step + 1)
+        slider.setRange(0, ticks - 1)
+        slider.setSingleStep(1)
+        slider.setPageStep(max(1, ticks // 5))
+        slider.setValue(min(ticks - 1, max(0, (cur - lo) // step)))
+
+        def tick_to_value(tick: int) -> int:
+            return min(hi, lo + tick * step)
+
+        if interactive and wid:
+            slider.valueChanged.connect(
+                lambda t, i=wid: (PanelState.set(i, str(tick_to_value(t))), on_change())
+            )
+    else:
+        slider.setRange(lo, hi)
+        slider.setValue(cur)
+        if interactive and wid:
+            slider.valueChanged.connect(lambda v, i=wid: (PanelState.set(i, str(v)), on_change()))
     slider.setEnabled(interactive)
     _style_slider(slider, scale=scale, row_h=row_h)
-    if interactive and wid:
-        slider.valueChanged.connect(lambda v, i=wid: (PanelState.set(i, str(v)), on_change()))
     return slider
 
 
@@ -543,7 +562,11 @@ def _text_display_widget(spec: dict[str, Any], *, scale: float = 1.0) -> QLabel:
 
 
 def build_design_preview(
-    spec: dict[str, Any], *, scale: float = 1.0, container_h: int | None = None
+    spec: dict[str, Any],
+    *,
+    scale: float = 1.0,
+    container_h: int | None = None,
+    theme: str = "light",
 ) -> QWidget | None:
     """非交互画布：与交互预览同结构，只读/禁用。"""
     wtype = spec.get("type", "")
@@ -660,6 +683,7 @@ def build_interactive_widget(
     *,
     scale: float = 1.0,
     container_h: int | None = None,
+    theme: str = "light",
 ) -> QWidget | None:
     wtype = spec.get("type", "")
     if wtype not in INTERACTIVE_TYPES:
@@ -679,6 +703,7 @@ def build_interactive_widget(
         _style_line_edit(edit, scale=scale, row_h=row_h)
         if wid:
             edit.textChanged.connect(lambda t, i=wid: (PanelState.set(i, t), emit()))
+            _attach_field_validation(edit, spec, on_valid=emit)
         return _form_row(label, edit, scale=scale, container_h=container_h)
 
     if wtype == "select":
@@ -807,3 +832,30 @@ def build_interactive_widget(
         )
 
     return None
+
+
+def _attach_field_validation(edit: QLineEdit, spec: dict[str, Any], *, on_valid: OnChange = None) -> None:
+    def apply() -> None:
+        err = validate_widget_value(spec, edit.text())
+        if err:
+            edit.setStyleSheet("QLineEdit { border: 1px solid #DC2626; border-radius: 3px; }")
+        else:
+            edit.setStyleSheet("")
+        if on_valid and not err:
+            on_valid()
+
+    edit.editingFinished.connect(apply)
+
+
+def build_grid_cell_widget(
+    spec: dict[str, Any],
+    on_change: OnChange = None,
+    *,
+    scale: float = 1.0,
+    theme: str = "light",
+) -> QWidget | None:
+    """网格预览单元格（复用 factory 控件）。"""
+    w = build_interactive_widget(spec, on_change, scale=scale, theme=theme)
+    if w is not None:
+        return w
+    return build_design_preview(spec, scale=scale, theme=theme)

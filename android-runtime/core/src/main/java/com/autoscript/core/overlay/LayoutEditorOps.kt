@@ -1,5 +1,7 @@
 package com.autoscript.core.overlay
 
+import kotlin.math.roundToInt
+
 /**
  * 不可变布局编辑操作。
  *
@@ -16,6 +18,10 @@ package com.autoscript.core.overlay
 object LayoutEditorOps {
 
     private const val CHROME_SCREEN = -1
+    private const val SNAP_GRID = 8
+
+    private fun snapDesign(v: Int): Int =
+        ((v.toDouble() / SNAP_GRID).roundToInt() * SNAP_GRID).coerceAtLeast(0)
 
     fun reorderInContainer(
         layout: LayoutConfig,
@@ -50,10 +56,10 @@ object LayoutEditorOps {
     ): LayoutConfig =
         updateWidgetAt(layout, widgetPath) {
             it.copy(
-                layoutX = x.coerceAtLeast(0),
-                layoutY = y.coerceAtLeast(0),
-                layoutW = w.coerceAtLeast(48),
-                layoutH = h.coerceAtLeast(20),
+                layoutX = snapDesign(x.coerceAtLeast(0)),
+                layoutY = snapDesign(y.coerceAtLeast(0)),
+                layoutW = snapDesign(w.coerceAtLeast(48)),
+                layoutH = snapDesign(h.coerceAtLeast(20)),
             )
         }
 

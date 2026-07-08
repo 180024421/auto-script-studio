@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from packager.pack_metadata import read_project_cfg
+from studio.services.layout_defaults import load_layout
+from studio.services.layout_validate import validate_layout
 
 
 def validate_before_pack(project_dir: Path) -> tuple[list[str], list[str]]:
@@ -45,5 +47,14 @@ def validate_before_pack(project_dir: Path) -> tuple[list[str], list[str]]:
     entry = str(cfg.get("entry") or "main.lua")
     if not (project_dir / entry).is_file():
         errors.append(f"入口脚本不存在: {entry}")
+
+    layout_path = project_dir / "ui" / "layout.json"
+    if layout_path.is_file():
+        try:
+            layout = load_layout(project_dir)
+            for msg in validate_layout(layout):
+                errors.append(f"layout: {msg}")
+        except Exception as exc:
+            errors.append(f"ui/layout.json 无效: {exc}")
 
     return (errors, warnings)
