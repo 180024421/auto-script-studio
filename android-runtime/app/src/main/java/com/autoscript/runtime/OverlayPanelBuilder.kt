@@ -41,6 +41,14 @@ class OverlayPanelBuilder(
 ) {
     /** 自由坐标布局：与 PC 预览一致，标签左、控件右（横向）。 */
     var freeLayoutPlacement: Boolean = false
+    /** 自由布局下随面板宽度相对 design_width 的 UI 缩放（字号/内边距）。 */
+    var uiScale: Float = 1f
+
+    private fun textSp(base: Float): Float =
+        if (freeLayoutPlacement) (base * uiScale).coerceIn(8f, 28f) else base
+
+    private fun padDp(v: Int): Int =
+        if (freeLayoutPlacement) dp((v * uiScale).toInt().coerceAtLeast(1)) else dp(v)
     fun buildContentGrid(
         widgets: List<WidgetConfig>,
         cols: Int,
@@ -105,10 +113,10 @@ class OverlayPanelBuilder(
             EditText(context).apply {
                 hint = cfg.placeholder.ifBlank { cfg.label }
                 setText(OverlayWidgetStore.get(cfg.id).ifBlank { cfg.default })
-                textSize = 12f
+                textSize = textSp(12f)
                 setTextColor(theme.titleText)
-                setPadding(dp(4), dp(4), dp(6), dp(4))
-                background = theme.logDrawable(dp(6).toFloat())
+                setPadding(padDp(4), padDp(4), padDp(6), padDp(4))
+                background = theme.logDrawable(padDp(6).toFloat())
                 isEnabled = !designMode
                 addTextChangedListener(object : TextWatcher {
                     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
@@ -132,7 +140,7 @@ class OverlayPanelBuilder(
             opts.forEach { opt ->
                 val rb = RadioButton(context).apply {
                     text = opt
-                    textSize = 11f
+                    textSize = textSp(11f)
                     isChecked = opt == current || (current.isBlank() && opt == opts.first())
                     isEnabled = !designMode
                 }
@@ -176,7 +184,7 @@ class OverlayPanelBuilder(
             opts.forEach { opt ->
                 val cb = CheckBox(context).apply {
                     text = opt
-                    textSize = 11f
+                    textSize = textSp(11f)
                     isChecked = opt in selected
                     isEnabled = !designMode
                     setOnCheckedChangeListener { _, checked ->
@@ -219,14 +227,14 @@ class OverlayPanelBuilder(
             }
             val start = EditText(context).apply {
                 hint = "09:00"
-                textSize = 11f
+                textSize = textSp(11f)
                 setTextColor(theme.titleText)
                 isEnabled = !designMode
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             val end = EditText(context).apply {
                 hint = "18:00"
-                textSize = 11f
+                textSize = textSp(11f)
                 setTextColor(theme.titleText)
                 isEnabled = !designMode
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -246,9 +254,9 @@ class OverlayPanelBuilder(
             start.addTextChangedListener(simpleWatcher { sync() })
             end.addTextChangedListener(simpleWatcher { sync() })
             if (OverlayWidgetStore.get(cfg.id).isBlank()) sync()
-            row.addView(TextView(context).apply { text = "从"; textSize = 10f })
+            row.addView(TextView(context).apply { text = "从"; textSize = textSp(10f) })
             row.addView(start)
-            row.addView(TextView(context).apply { text = "到"; textSize = 10f; setPadding(dp(4), 0, dp(4), 0) })
+            row.addView(TextView(context).apply { text = "到"; textSize = textSp(10f); setPadding(padDp(4), 0, padDp(4), 0) })
             row.addView(end)
             row
         }
@@ -287,7 +295,7 @@ class OverlayPanelBuilder(
             }
             val valueTv = TextView(context).apply {
                 text = value.toString()
-                textSize = 13f
+                textSize = textSp(13f)
                 gravity = Gravity.CENTER
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
@@ -318,13 +326,13 @@ class OverlayPanelBuilder(
             EditText(context).apply {
                 hint = cfg.placeholder.ifBlank { cfg.label }
                 setText(OverlayWidgetStore.get(cfg.id).ifBlank { cfg.default })
-                textSize = 12f
+                textSize = textSp(12f)
                 setTextColor(theme.titleText)
                 minLines = cfg.rows.coerceAtLeast(2)
                 gravity = Gravity.TOP
                 inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-                setPadding(dp(4), dp(4), dp(6), dp(4))
-                background = theme.logDrawable(dp(6).toFloat())
+                setPadding(padDp(4), padDp(4), padDp(6), padDp(4))
+                background = theme.logDrawable(padDp(6).toFloat())
                 isEnabled = !designMode
                 addTextChangedListener(object : TextWatcher {
                     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
@@ -349,16 +357,16 @@ class OverlayPanelBuilder(
             val style = cfg.textStyle.lowercase()
             when (style) {
                 "title" -> {
-                    textSize = 14f
+                    textSize = textSp(14f)
                     setTypeface(typeface, Typeface.BOLD)
                     setTextColor(theme.titleText)
                 }
                 "hint" -> {
-                    textSize = 11f
+                    textSize = textSp(11f)
                     setTextColor(theme.logText)
                 }
                 else -> {
-                    textSize = 12f
+                    textSize = textSp(12f)
                     setTextColor(theme.titleText)
                 }
             }
@@ -367,7 +375,7 @@ class OverlayPanelBuilder(
                 "right" -> Gravity.END or Gravity.CENTER_VERTICAL
                 else -> Gravity.START or Gravity.CENTER_VERTICAL
             }
-            setPadding(dp(8), dp(4), dp(8), dp(4))
+            setPadding(padDp(8), padDp(4), padDp(8), padDp(4))
             if (freeLayoutPlacement) {
                 maxLines = 3
                 ellipsize = android.text.TextUtils.TruncateAt.END
@@ -382,19 +390,19 @@ class OverlayPanelBuilder(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.MATCH_PARENT,
             )
-            setPadding(dp(4), dp(2), dp(4), dp(2))
+            setPadding(padDp(4), padDp(2), padDp(4), padDp(2))
             if (cfg.label.isNotBlank()) {
                 addView(TextView(context).apply {
                     text = cfg.label
-                    textSize = 11f
+                    textSize = textSp(11f)
                     setTextColor(theme.titleText)
                     gravity = Gravity.END or Gravity.CENTER_VERTICAL
-                    maxWidth = dp(80)
-                    minWidth = dp(40)
+                    maxWidth = padDp(80)
+                    minWidth = padDp(40)
                     layoutParams = LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.WRAP_CONTENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT,
-                    ).apply { marginEnd = dp(4) }
+                    ).apply { marginEnd = padDp(4) }
                 })
             }
             addView(
@@ -466,14 +474,14 @@ class OverlayPanelBuilder(
     private fun makeActionButton(cfg: WidgetConfig): Button =
         Button(context).apply {
             text = actionButtonIcon(cfg)
-            textSize = if (cfg.type == "start_script" || cfg.type == "collapse") 18f else 12f
+            textSize = if (cfg.type == "start_script" || cfg.type == "collapse") textSp(18f) else textSp(12f)
             setTextColor(theme.buttonTextColor(cfg.color))
             isAllCaps = false
             stateListAnimator = null
             elevation = 0f
             minHeight = dp(40)
             background = theme.buttonDrawable(cfg.color, dp(8).toFloat())
-            setPadding(dp(4), dp(4), dp(4), dp(4))
+            setPadding(padDp(4), padDp(4), padDp(4), padDp(4))
             isEnabled = !designMode
             contentDescription = cfg.label.ifBlank { cfg.type }
             setOnClickListener { if (!designMode) onAction(cfg) }

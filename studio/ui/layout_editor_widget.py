@@ -100,6 +100,11 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self._layout_emit_timer.setSingleShot(True)
         self._layout_emit_timer.setInterval(100)
         self._layout_emit_timer.timeout.connect(self._flush_layout_changed)
+        panel0 = self._layout.get("panel", {})
+        self._last_design_wh = (
+            int(panel0.get("design_width", 720)),
+            int(panel0.get("design_height", 1280)),
+        )
 
         root = QVBoxLayout(self)
         root.setSpacing(6)
@@ -772,6 +777,15 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
 
     def _apply_header(self) -> None:
         panel = self._layout.setdefault("panel", {})
+        new_dw = self.design_width_spin.value()
+        new_dh = self.design_height_spin.value()
+        if is_free_mode(self._layout):
+            old_dw, old_dh = self._last_design_wh
+            if new_dw != old_dw or new_dh != old_dh:
+                from studio.services.free_layout import rescale_layout_for_design_change
+
+                rescale_layout_for_design_change(self._layout, old_dw, old_dh, new_dw, new_dh)
+                self._last_design_wh = (new_dw, new_dh)
         panel["title"] = self.title_edit.text().strip() or "脚本助手"
         panel["columns"] = self.cols_spin.value()
         panel["width_dp"] = self.width_dp_spin.value()
@@ -857,6 +871,10 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self.design_height_spin.blockSignals(True)
         self.design_height_spin.setValue(int(panel.get("design_height", 1280)))
         self.design_height_spin.blockSignals(False)
+        self._last_design_wh = (
+            int(panel.get("design_width", 720)),
+            int(panel.get("design_height", 1280)),
+        )
         self._update_mode_hint()
         mode_idx = self.layout_mode_combo.findData(panel.get("layout_mode", "free"))
         self.layout_mode_combo.blockSignals(True)

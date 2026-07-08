@@ -28,6 +28,30 @@ def validate_project(project_dir: Path) -> dict:
     return result["cfg"]
 
 
+def _normalize_pack_layout(staging: Path) -> None:
+    """打包前规范化 layout：host/form 去掉 chrome 与界面内动作按钮。"""
+    layout_path = staging / "ui" / "layout.json"
+    if not layout_path.is_file():
+        return
+    data = json.loads(layout_path.read_text(encoding="utf-8"))
+    from studio.services.screen_layout import (
+        ensure_migrated,
+        is_host_display,
+        normalize_chrome_widgets,
+        strip_action_widgets_from_screens,
+    )
+
+    ensure_migrated(data)
+    panel = data.get("panel") or {}
+    data["widgets"] = normalize_chrome_widgets(data.get("widgets") or [], panel)
+    if is_host_display(panel):
+        strip_action_widgets_from_screens(data)
+    layout_path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def sync_assets(project_dir: Path) -> None:
     staging, _cfg = prepare_staging_dir(project_dir)
     cfg = read_project_cfg(project_dir)
@@ -38,6 +62,7 @@ def sync_assets(project_dir: Path) -> None:
         print(f"图标: {icon_src} → mipmap + ui/ball.png")
         if ASSETS.exists():
             shutil.rmtree(ASSETS)
+        _normalize_pack_layout(staging)
         shutil.copytree(staging, ASSETS)
     finally:
         cleanup_staging(staging)

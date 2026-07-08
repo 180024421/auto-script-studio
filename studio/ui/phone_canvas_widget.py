@@ -43,6 +43,7 @@ from studio.services.free_layout import DESIGN_W, panel_design_size
 from studio.services.layout_clone import clone_layout, clone_widget
 from studio.services.panel_theme import panel_theme_colors
 from studio.services.snap_design import SNAP_GRID, snap_design as _snap_design
+from studio.services.widget_interior_scale import effective_content_scale
 
 TITLE_DP = 48
 TAB_BAR_DP = 44
@@ -243,23 +244,34 @@ class FreeDesignItem(QFrame):
     if self._form_like:
       self._drag_strip.hide()
     self._content_host = QWidget(self)
+    self._last_content_scale = 0.0
     self._mount_preview(self._spec)
     self._relayout_content()
     self._update_style()
 
+  def _content_pixel_height(self) -> int:
+    strip_h = self.DRAG_STRIP if self._interactive and not self._form_like else 0
+    return max(20, self.height() - strip_h)
+
+  def _effective_content_scale(self) -> float:
+    layout_h = int(self._spec.get("layout_h", 48))
+    return effective_content_scale(self._scale, layout_h, self._content_pixel_height())
+
   def _container_height(self) -> int:
-    return max(20, int(self._spec.get("layout_h", 48) * self._scale))
+    return self._content_pixel_height()
 
   def _mount_preview(self, spec: dict[str, Any]) -> None:
     wtype = spec.get("type", "")
+    eff_scale = self._effective_content_scale()
+    self._last_content_scale = eff_scale
     container_h = self._container_height()
     preview = None
     if self._interactive and wtype in INTERACTIVE_TYPES:
       preview = build_interactive_widget(
-        spec, self._on_values_changed, scale=self._scale, container_h=container_h
+        spec, self._on_values_changed, scale=eff_scale, container_h=container_h
       )
     elif wtype == "divider" or wtype in FORM_PREVIEW_TYPES:
-      preview = build_design_preview(spec, scale=self._scale, container_h=container_h)
+      preview = build_design_preview(spec, scale=eff_scale, container_h=container_h)
     if preview is not None:
       lay = self._content_host.layout()
       if lay is None:
@@ -359,6 +371,10 @@ class FreeDesignItem(QFrame):
   def resizeEvent(self, event) -> None:  # noqa: N802
     super().resizeEvent(event)
     self._relayout_content()
+    if self._form_like or self._interactive:
+      new_scale = self._effective_content_scale()
+      if abs(new_scale - self._last_content_scale) > 0.04:
+        self._mount_preview(self._spec)
 
   def _update_style(self) -> None:
     if self._form_like:
@@ -1037,7 +1053,11 @@ class PhoneCanvasWidget(QScrollArea):
         item._scale = scale
         if _widget_content_signature(item._spec) != _widget_content_signature(spec):
           item.reload_content(spec)
-        if item.geometry() != geom:
+        elif item.geometry() != geom:
+          item.setGeometry(geom)
+          if item._form_like or item._interactive:
+            item._mount_preview(item._spec)
+        else:
           item.setGeometry(geom)
         item.set_selected(path == self._selected_path)
         kept.append(item)

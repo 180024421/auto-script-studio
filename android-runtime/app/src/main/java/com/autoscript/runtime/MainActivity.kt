@@ -99,6 +99,15 @@ class MainActivity : AppCompatActivity() {
         runCatching { LayoutOverrideStore.load(this) }
             .getOrElse { LayoutConfig.DEFAULT }
 
+    private fun reloadLayoutUi() {
+        layoutConfig = loadLayoutConfig()
+        OverlayWidgetStore.seedFromLayout(layoutConfig)
+        setupHostPanel()
+        startService(Intent(this, OverlayService::class.java).apply {
+            action = OverlayService.ACTION_RELOAD
+        })
+    }
+
     private fun setupHostPanel() {
         val container = findViewById<FrameLayout>(R.id.hostPanelContainer)
         val title = findViewById<TextView>(R.id.hostPanelTitle)
@@ -140,6 +149,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        val latest = loadLayoutConfig()
+        if (latest != layoutConfig) {
+            layoutConfig = latest
+            OverlayWidgetStore.seedFromLayout(layoutConfig)
+            setupHostPanel()
+        }
         refreshStatus()
         scheduleAutoRun()
         scheduleBuiltinUpdateCheck()
@@ -328,6 +343,7 @@ class MainActivity : AppCompatActivity() {
             val ok = runCatching { assets.applyAvailableUpdate(manifest) }.getOrDefault(false)
             runOnUiThread {
                 appendLog(if (ok) "已自动安装脚本更新 v$remoteVer" else "自动更新失败")
+                if (ok) reloadLayoutUi()
                 refreshStatus()
             }
             return
@@ -369,7 +385,10 @@ class MainActivity : AppCompatActivity() {
                     }.getOrDefault(false)
                     runOnUiThread {
                         appendLog(if (ok) "脚本已更新到 v$remoteVer" else "更新失败")
-                        if (ok) UpdatePreferences.setPendingUpdateBadge(this, false)
+                        if (ok) {
+                            UpdatePreferences.setPendingUpdateBadge(this, false)
+                            reloadLayoutUi()
+                        }
                         refreshStatus()
                     }
                 }.start()

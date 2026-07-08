@@ -1,8 +1,8 @@
 {
   "name": "Demo 助手",
   "package_id": "com.autoscript.demo",
-  "version_code": 1,
-  "version_name": "1.0.0",
+  "version_code": 2,
+  "version_name": "1.0.1",
   "entry": "main.lua",
   "script_language": "lua",
   "permissions": {

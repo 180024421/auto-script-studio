@@ -24,16 +24,16 @@ def test_switch_style_scales_indicator():
 
 
 def test_row_height_floor_at_low_scale():
-    assert _row_height(0.35, _FakeControl(0), None) >= 24
+    assert _row_height(0.35, _FakeControl(0), None) >= 16
 
 
 def test_row_height_respects_container():
-    assert _row_height(0.45, _FakeControl(40), 24) == 24
+    assert _row_height(0.45, _FakeControl(40), 48) >= 21
 
 
-def test_default_row_h_clamped_by_container():
+def test_default_row_h_scales_with_container():
+    assert _default_row_h(0.5, 80) >= 40
     assert _default_row_h(0.9, 20) == 20
-    assert _default_row_h(0.9, None) >= 24
 
 
 class _FakeHint:

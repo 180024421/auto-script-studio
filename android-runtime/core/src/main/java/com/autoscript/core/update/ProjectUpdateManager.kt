@@ -209,6 +209,8 @@ class ProjectUpdateManager(
                 entry = zis.nextEntry
             }
         }
+        // 面板布局以 APK + 设计模式覆盖为准，热更新 zip 不覆盖 ui/layout.json
+        File(overlayRoot, "ui/layout.json").delete()
     }
 
     private fun sha256File(file: File): String {

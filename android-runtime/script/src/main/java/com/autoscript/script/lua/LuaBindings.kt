@@ -282,11 +282,11 @@ object LuaBindings {
                     override fun invoke(_args: Varargs): Varargs {
                         val value = MemoryReader.readChain(module, moduleOffset, offsets, vtype)
                         return when (value) {
-                            is Int -> LuaValue.varargsOf(LuaInteger.valueOf(value))
-                            is Long -> LuaValue.varargsOf(LuaInteger.valueOf(value))
-                            is Float -> LuaValue.varargsOf(LuaValue.valueOf(value.toDouble()))
-                            is Double -> LuaValue.varargsOf(LuaValue.valueOf(value))
-                            else -> LuaValue.varargsOf(LuaString.valueOf(value.toString()))
+                            is Int -> LuaInteger.valueOf(value)
+                            is Long -> LuaInteger.valueOf(value)
+                            is Float -> LuaValue.valueOf(value.toDouble())
+                            is Double -> LuaValue.valueOf(value)
+                            else -> LuaString.valueOf(value.toString())
                         }
                     }
                 })

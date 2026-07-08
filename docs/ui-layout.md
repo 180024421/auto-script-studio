@@ -59,7 +59,8 @@ JSON Schema：`schemas/layout.schema.json`
 | 实机设计模式（网格） | ✅ | 长按标题栏 |
 | 实机 free 布局拖动保存 | ✅ | form 悬浮窗 + `FreeOverlayDesignFrame`；host 主 Activity 暂无设计模式 |
 | 实机 layout 覆盖拉取 | ✅ | Studio「拉取实机布局」→ merge 工程 |
-| PC Ctrl+滚轮缩放预览 | ✅ | 紧凑手机预览宽度 |
+| PC 控件内容随框体缩放 | ✅ | 拖动缩放控件时字号/行高自适应 |
+| 设计分辨率变更 | ✅ | 控件 layout 坐标等比缩放 |
 | 双指捏合缩放面板 | 🔜 | Android 规划中 |
 
 ## 控件类型

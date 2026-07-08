@@ -118,3 +118,23 @@ def clamp_widget_rect(
         y = min(y, max(0, int(max_y) - h))
     w = min(w, dw - x)
     return x, y, w, h
+
+
+def rescale_layout_for_design_change(
+    layout: dict[str, Any],
+    old_dw: int,
+    old_dh: int,
+    new_dw: int,
+    new_dh: int,
+) -> None:
+    """设计分辨率变更时，等比缩放全部控件 layout 坐标。"""
+    if old_dw == new_dw and old_dh == new_dh:
+        return
+    sx = new_dw / max(1, old_dw)
+    sy = new_dh / max(1, old_dh)
+    from studio.services.screen_layout import chrome_widgets, screens
+    from studio.services.widget_interior_scale import scale_layout_widgets_for_design
+
+    for sc in screens(layout):
+        scale_layout_widgets_for_design(sc.get("widgets") or [], sx=sx, sy=sy)
+    scale_layout_widgets_for_design(chrome_widgets(layout), sx=sx, sy=sy)

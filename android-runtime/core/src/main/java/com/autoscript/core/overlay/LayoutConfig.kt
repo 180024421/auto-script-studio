@@ -121,10 +121,20 @@ data class LayoutConfig(
 
     fun isFreeMode(): Boolean = panel.layoutMode == "free"
 
-    /** 表单在主 Activity，悬浮窗仅保留开始/停止。 */
+    /** 表单在主 Activity，悬浮窗为紧凑工具条（▶/■/日志/悬浮球）。 */
     fun isHostDisplay(): Boolean =
         panel.displayMode.equals("host", ignoreCase = true) ||
             panel.displayMode.equals("form", ignoreCase = true)
+
+    fun normalizedForRuntime(): LayoutConfig {
+        if (!isHostDisplay()) return this
+        return copy(
+            widgets = emptyList(),
+            screens = resolvedScreens().map { sc ->
+                sc.copy(widgets = sc.widgets.filter { !it.isActionControl() })
+            },
+        )
+    }
 
     fun hasHostFormWidgets(): Boolean =
         resolvedScreens().any { sc -> sc.widgets.any { w -> w.type in WidgetConfig.FORM_VALUE_TYPES || w.type in setOf("text", "label", "divider") } }
@@ -172,7 +182,12 @@ data class LayoutConfig(
     companion object {
         val DEFAULT = LayoutConfig(
             enabled = true,
-            panel = PanelConfig(widthDp = 360, widthMode = "auto", layoutMode = "free"),
+            panel = PanelConfig(
+                widthDp = 360,
+                widthMode = "auto",
+                layoutMode = "free",
+                displayMode = "host",
+            ),
             screens = listOf(
                 ScreenConfig(
                     title = "标签页1",
@@ -188,15 +203,15 @@ data class LayoutConfig(
                     ),
                 ),
             ),
-            widgets = listOf(
-                WidgetConfig("start", "start_script", label = "开始", color = "#2563EB", layoutW = 672, layoutH = 52),
-            ),
+            widgets = emptyList(),
         )
 
         fun parse(json: String): LayoutConfig {
             if (json.isBlank()) return DEFAULT
             val root = JSONObject(json)
             val panel = parsePanel(root.optJSONObject("panel"))
+            val hostLike = panel.displayMode.equals("host", ignoreCase = true) ||
+                panel.displayMode.equals("form", ignoreCase = true)
             val screensArr = root.optJSONArray("screens")
             val widgetArr = when {
                 root.has("widgets") -> root.optJSONArray("widgets")
@@ -208,10 +223,11 @@ data class LayoutConfig(
             } else {
                 emptyList()
             }
-            val chrome = if (screens.isNotEmpty()) {
-                rawWidgets.filter { it.isActionControl() && it.type != "stop_script" }.ifEmpty { defaultChrome() }
-            } else {
-                rawWidgets
+            val chrome = when {
+                screens.isEmpty() -> rawWidgets
+                hostLike -> emptyList()
+                else -> rawWidgets.filter { it.isActionControl() && it.type != "stop_script" }
+                    .ifEmpty { defaultChrome() }
             }
             val resolvedScreens = screens.ifEmpty { legacyScreensFromWidgets(rawWidgets) }
             return LayoutConfig(
@@ -221,7 +237,11 @@ data class LayoutConfig(
                 screens = resolvedScreens,
                 widgets = if (screens.isNotEmpty()) chrome else emptyList(),
             ).let { cfg ->
-                if (cfg.screens.isNotEmpty() && cfg.widgets.isEmpty()) cfg.copy(widgets = defaultChrome()) else cfg
+                if (!hostLike && cfg.screens.isNotEmpty() && cfg.widgets.isEmpty()) {
+                    cfg.copy(widgets = defaultChrome())
+                } else {
+                    cfg
+                }
             }
         }
 

@@ -186,10 +186,11 @@ def _label_width(text: str, scale: float = 1.0) -> int:
 
 
 def _default_row_h(scale: float, container_h: int | None = None) -> int:
-    h = _scaled_px(32, scale, floor=24)
+    base = _scaled_px(32, scale, floor=16)
     if container_h is not None and container_h > 0:
-        return min(h, container_h)
-    return h
+        fitted = max(16, int(container_h * 0.88))
+        return max(base, fitted) if fitted > base else min(base, container_h)
+    return base
 
 
 def _style_line_edit(edit: QLineEdit, *, scale: float, row_h: int) -> None:

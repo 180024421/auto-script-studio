@@ -68,7 +68,6 @@ class OverlayService : Service() {
     private var ballUsesImage = false
     private var unifiedMinimalBar = false
     private var minimalControlsWrap: View? = null
-    private var minimalControlsFrame: FrameLayout? = null
     private var minimalLogWrap: View? = null
     private var minimalLogToggle: View? = null
     private var minimalToolbarRow: LinearLayout? = null
@@ -308,7 +307,7 @@ class OverlayService : Service() {
         }
         unifiedMinimalBar = isMinimalDisplay()
         if (unifiedMinimalBar && !restoreCollapsedAfterBuild) {
-            collapsed = true
+            collapsed = false
         }
         restoreCollapsedAfterBuild = false
         if (unifiedMinimalBar) {
@@ -534,7 +533,6 @@ class OverlayService : Service() {
     private fun buildMinimalFloatingBar(): View {
         val theme = OverlayTheme.from(layoutConfig.panel.theme)
         val ballSize = dp(layoutConfig.panel.ballSizeDp)
-        val gap = dp(4)
         val showLog = layoutConfig.panel.showLog
 
         val outer = LinearLayout(this).apply {
@@ -592,7 +590,7 @@ class OverlayService : Service() {
         val badge = TextView(this).apply {
             ballBadgeView = this
             gravity = Gravity.CENTER
-            textSize = 10f
+            textSize = 7f
             setTextColor(Color.WHITE)
             visibility = View.GONE
         }
@@ -601,56 +599,67 @@ class OverlayService : Service() {
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM or Gravity.END,
-            ).apply { setMargins(0, 0, dp(2), dp(2)) },
+                Gravity.CENTER,
+            ),
         )
         loadBallImage()
 
-        val chrome = minimalChromeControls()
-        val controlsFrame = if (chrome.isNotEmpty()) {
-            val frameW = chrome.maxOf { it.layoutX + it.layoutW }.coerceAtLeast(48)
-            val frameH = chrome.maxOf { it.layoutY + it.layoutH }.coerceAtLeast(32)
-            FrameLayout(this).apply {
+        val chromeTypes = minimalChromeControlTypes()
+        if (chromeTypes.isNotEmpty()) {
+            val ctrlSize = dp(MINIMAL_BTN_DP)
+            val controlsRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
                 visibility = View.GONE
                 setBackgroundColor(Color.TRANSPARENT)
-                layoutParams = LinearLayout.LayoutParams(dp(frameW), dp(frameH))
-            }.also { frame ->
-                minimalControlsFrame = frame
-                chrome.forEach { cfg ->
-                    val (icon, color, action) = when (cfg.type) {
-                        "stop_script" -> Triple("■", Color.parseColor("#EF4444")) { stopMainScript() }
-                        else -> Triple("▶", Color.parseColor("#22C55E")) { onStartButtonPressed() }
-                    }
-                    placeMinimalControl(frame, cfg, icon, color, action)
-                }
-                minimalControlsWrap = frame
-                toolbar.addView(frame)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ctrlSize,
+                )
             }
+            minimalControlsWrap = controlsRow
+            chromeTypes.forEachIndexed { index, type ->
+                val (icon, color, action) = when (type) {
+                    "stop_script" -> Triple("■", Color.parseColor("#EF4444")) { stopMainScript() }
+                    else -> Triple("▶", Color.parseColor("#22C55E")) { onStartButtonPressed() }
+                }
+                controlsRow.addView(
+                    createMinimalToolbarButton(icon, color, action),
+                    LinearLayout.LayoutParams(ctrlSize, ctrlSize).apply {
+                        marginStart = if (index == 0) 0 else dp(MINIMAL_GAP_DP)
+                    },
+                )
+            }
+            toolbar.addView(controlsRow)
         } else {
-            minimalControlsFrame = null
             minimalControlsWrap = null
-            null
         }
 
         if (showLog) {
-            val logBtnSize = dp(28)
+            val logBtnSize = dp(MINIMAL_LOG_BTN_DP)
             val logToggle = minimalIconButton("▤", Color.parseColor("#94A3B8")) { toggleMinimalLog() }.apply {
-                textSize = 14f
+                textSize = 12f
                 visibility = View.GONE
             }
             minimalLogToggle = logToggle
             toolbar.addView(
                 logToggle,
-                LinearLayout.LayoutParams(logBtnSize, logBtnSize).apply { marginStart = gap },
+                LinearLayout.LayoutParams(logBtnSize, logBtnSize).apply { marginStart = dp(MINIMAL_GAP_DP) },
             )
         }
 
         toolbar.addView(
             ballHost,
-            LinearLayout.LayoutParams(ballSize, ballSize).apply { marginStart = gap },
+            LinearLayout.LayoutParams(ballSize, ballSize).apply { marginStart = dp(MINIMAL_GAP_DP) },
         )
 
-        outer.addView(toolbar)
+        outer.addView(
+            toolbar,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
 
         if (showLog) {
             val logH = dp(layoutConfig.panel.logHeightDp.coerceIn(48, 200))
@@ -691,52 +700,16 @@ class OverlayService : Service() {
         return outer
     }
 
-    private fun minimalChromeControls(): List<WidgetConfig> {
-        // 主页面 host：启停由悬浮球承担，不再单独渲染开始/停止按钮
-        if (layoutConfig.isHostDisplay()) return emptyList()
-        val chrome = layoutConfig.chromeWidgets().filter {
-            it.type == "start_script" || it.type == "stop_script"
-        }
-        val start = chrome.firstOrNull { it.type == "start_script" }
-            ?: WidgetConfig(
-                id = "start",
-                type = "start_script",
-                layoutX = 0,
-                layoutY = 8,
-                layoutW = 32,
-                layoutH = 32,
-            )
-        val stop = chrome.firstOrNull { it.type == "stop_script" }
-            ?: WidgetConfig(
-                id = "stop",
-                type = "stop_script",
-                layoutX = 34,
-                layoutY = 8,
-                layoutW = 32,
-                layoutH = 32,
-            )
-        return listOf(start, stop)
-    }
+    private fun minimalChromeControlTypes(): List<String> =
+        listOf("start_script", "stop_script")
 
-    private fun placeMinimalControl(
-        host: FrameLayout,
-        cfg: WidgetConfig,
+    private fun createMinimalToolbarButton(
         icon: String,
         color: Int,
         onClick: () -> Unit,
-    ) {
-        val w = dp(cfg.layoutW.coerceIn(24, 44))
-        val h = dp(cfg.layoutH.coerceIn(24, 44))
-        val btn = minimalIconButton(icon, color, onClick).apply {
-            textSize = cfg.layoutH.coerceIn(24, 44) * 0.38f
-        }
-        host.addView(
-            btn,
-            FrameLayout.LayoutParams(w, h).apply {
-                leftMargin = dp(cfg.layoutX)
-                topMargin = dp(cfg.layoutY)
-            },
-        )
+    ): TextView = minimalIconButton(icon, color, onClick).apply {
+        textSize = 12f
+        setShadowLayer(3f, 0f, 1f, Color.BLACK)
     }
 
     private fun toggleMinimalLog() {
@@ -766,23 +739,10 @@ class OverlayService : Service() {
         }
     }
 
-    /** 轻点悬浮条（非拖动）时切换展开/收起；host 模式下点击悬浮球启停脚本。 */
+    /** 轻点悬浮条（非拖动）时切换展开/收起；启停请用 ▶/■ 按钮。 */
     private fun onMinimalDragTap() {
         if (!unifiedMinimalBar) return
-        if (layoutConfig.isHostDisplay()) {
-            onHostBallAction()
-            return
-        }
         onMinimalBallClick()
-    }
-
-    private fun onHostBallAction() {
-        bumpIdleTimer()
-        if (scriptRunning) {
-            stopMainScript()
-        } else {
-            startMainScript()
-        }
     }
 
     private fun onMinimalBallClick() {
@@ -798,8 +758,7 @@ class OverlayService : Service() {
 
     private fun applyMinimalCollapseUi() {
         if (!unifiedMinimalBar) return
-        val showControls = !collapsed && !layoutConfig.isHostDisplay()
-        minimalControlsFrame?.visibility = if (showControls) View.VISIBLE else View.GONE
+        val showControls = !collapsed
         minimalControlsWrap?.visibility = if (showControls) View.VISIBLE else View.GONE
         val showLogBtn = showControls && layoutConfig.panel.showLog
         minimalLogToggle?.visibility = if (showLogBtn) View.VISIBLE else View.GONE
@@ -1047,18 +1006,12 @@ class OverlayService : Service() {
                     scriptRunning -> {
                         iv.setColorFilter(Color.parseColor("#EF4444"), PorterDuff.Mode.SRC_ATOP)
                         iv.imageAlpha = 235
-                        badge?.apply {
-                            text = "■"
-                            visibility = View.VISIBLE
-                        }
+                        badge?.visibility = View.GONE
                     }
                     layoutConfig.isHostDisplay() -> {
                         iv.clearColorFilter()
                         iv.imageAlpha = if (startArmed) 255 else 200
-                        badge?.apply {
-                            text = "▶"
-                            visibility = View.VISIBLE
-                        }
+                        badge?.visibility = View.GONE
                     }
                     else -> {
                         iv.clearColorFilter()
@@ -1280,7 +1233,6 @@ class OverlayService : Service() {
         ballUsesImage = false
         unifiedMinimalBar = false
         minimalControlsWrap = null
-        minimalControlsFrame = null
         minimalLogWrap = null
         minimalLogToggle = null
         minimalToolbarRow = null
@@ -1316,6 +1268,9 @@ class OverlayService : Service() {
         const val ACTION_RELOAD = "com.autoscript.overlay.RELOAD"
         const val ACTION_STOP = "com.autoscript.overlay.STOP"
         private const val NOTIFICATION_ID = 1002
+        private const val MINIMAL_BTN_DP = 24
+        private const val MINIMAL_GAP_DP = 2
+        private const val MINIMAL_LOG_BTN_DP = 22
 
         fun start(context: android.content.Context) {
             val intent = Intent(context, OverlayService::class.java)

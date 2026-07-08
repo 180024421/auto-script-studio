@@ -15,6 +15,7 @@
 - grid 模式实机设计模式仅支持排序/列宽，free 模式支持拖动坐标（设计模式）
 - **host** 模式：表单在 MainActivity，实机 free 拖动需 **form** 展示模式或 PC 编辑器
 - 设备 design 覆盖存于 `layout-overrides/`，Studio「拉取实机布局」可 merge 回工程
+- 自由布局控件内容随 `panel.width_dp` / 面板宽度与 `design_width` 比例缩放（Android `uiScale`）
 
 ## 变更检查
 

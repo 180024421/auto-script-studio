@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import com.autoscript.core.overlay.LayoutConfig
 import com.autoscript.core.overlay.OverlayTabButton
 import com.autoscript.core.overlay.OverlayTheme
@@ -160,6 +161,7 @@ class OverlayScreenPanelBuilder(
         val scaleY = scaleFactorY(hostDesignH)
         var maxBottom = 0
         widgetBuilder.freeLayoutPlacement = true
+        widgetBuilder.uiScale = scaleX
         try {
             widgets.forEachIndexed { index, cfg ->
                 val minH = dp(minWidgetHeightDp(cfg.type))
@@ -208,6 +210,7 @@ class OverlayScreenPanelBuilder(
             }
         } finally {
             widgetBuilder.freeLayoutPlacement = false
+            widgetBuilder.uiScale = 1f
         }
         return maxBottom.coerceAtLeast(scaleY(hostDesignH))
     }

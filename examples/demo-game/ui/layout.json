@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "enabled": true,
   "panel": {
     "title": "Demo 助手",
@@ -7,7 +7,7 @@
     "layout_mode": "free",
     "design_width": 720,
     "design_height": 1280,
-    "active_screen": 1,
+    "active_screen": 0,
     "width_mode": "auto",
     "width_dp": 220,
     "height_mode": "wrap",
@@ -37,72 +37,15 @@
           "type": "text",
           "text": "请填写登陆账号信息",
           "text_style": "title",
-          "layout_x": 24,
-          "layout_y": 24,
-          "layout_w": 164,
-          "layout_h": 40
-        },
-        {
-          "id": "account",
-          "type": "input",
-          "label": "账号",
-          "placeholder": "请输入账号，多个用:号分隔",
-          "layout_x": 24,
-          "layout_y": 72,
-          "layout_w": 672,
-          "layout_h": 52
-        },
-        {
-          "id": "password",
-          "type": "input",
-          "label": "密码",
-          "placeholder": "请输入密码",
-          "layout_x": 24,
-          "layout_y": 132,
-          "layout_w": 672,
-          "layout_h": 52
-        },
-        {
-          "id": "section_div",
-          "type": "divider",
-          "text": "",
-          "layout_x": 24,
-          "layout_y": 192,
-          "layout_w": 672,
-          "layout_h": 12
-        },
-        {
-          "id": "func_hint",
-          "type": "text",
-          "text": "脚本功能选择：",
-          "text_style": "hint",
-          "layout_x": 24,
-          "layout_y": 232,
-          "layout_w": 304,
-          "layout_h": 80
-        }
-      ]
-    },
-    {
-      "title": "界面1",
-      "widgets": [
-        {
-          "id": "w_0",
-          "type": "select",
+          "layout_x": 0,
+          "layout_y": 0,
+          "layout_w": 312,
+          "layout_h": 72,
           "label": "",
-          "options": [
-            "普通",
-            "极速"
-          ],
-          "default": "普通",
-          "layout_x": 24,
-          "layout_y": 24,
-          "layout_w": 672,
-          "layout_h": 64,
-          "text": "",
           "color": "#2563EB",
           "width": 1,
           "placeholder": "",
+          "default": "",
           "x": 0,
           "y": 0,
           "x1": 0,
@@ -110,6 +53,76 @@
           "x2": 0,
           "y2": 0,
           "lua": ""
+        },
+        {
+          "id": "account",
+          "type": "input",
+          "label": "账号",
+          "placeholder": "请输入账号，多个用:号分隔",
+          "layout_x": 8,
+          "layout_y": 80,
+          "layout_w": 664,
+          "layout_h": 56
+        },
+        {
+          "id": "password",
+          "type": "input",
+          "label": "密码",
+          "placeholder": "请输入密码",
+          "layout_x": 16,
+          "layout_y": 152,
+          "layout_w": 664,
+          "layout_h": 56,
+          "text": "",
+          "color": "#2563EB",
+          "width": 1,
+          "default": "",
+          "required": false,
+          "x": 0,
+          "y": 0,
+          "x1": 0,
+          "y1": 0,
+          "x2": 0,
+          "y2": 0,
+          "lua": ""
+        },
+        {
+          "id": "section_div",
+          "type": "divider",
+          "text": "",
+          "layout_x": 16,
+          "layout_y": 224,
+          "layout_w": 664,
+          "layout_h": 56
+        },
+        {
+          "id": "func_hint",
+          "type": "text",
+          "text": "脚本功能选择：",
+          "text_style": "hint",
+          "layout_x": 16,
+          "layout_y": 280,
+          "layout_w": 408,
+          "layout_h": 56
+        }
+      ]
+    },
+    {
+      "title": "界面1",
+      "widgets": [
+        {
+          "id": "mode",
+          "type": "select",
+          "label": "模式",
+          "options": [
+            "普通",
+            "极速"
+          ],
+          "default": "普通",
+          "layout_x": 16,
+          "layout_y": 24,
+          "layout_w": 664,
+          "layout_h": 64
         }
       ]
     }
