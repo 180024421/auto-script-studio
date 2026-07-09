@@ -14,8 +14,8 @@ import com.autoscript.vision.ocr.OcrEngine
 import com.autoscript.vision.ocr.TextMatch
 import com.autoscript.vision.template.TemplateLoader
 import com.autoscript.vision.template.TemplateMatcher
-import com.autoscript.vision.yolo.OnnxYoloDetector
 import com.autoscript.vision.yolo.YoloDetector
+import com.autoscript.vision.yolo.YoloDetectorFactory
 import com.autoscript.vision.yolo.YoloPick
 import java.io.ByteArrayInputStream
 
@@ -26,8 +26,9 @@ class VisionEngine(
     yoloImgsz: Int = 320,
     perf: PerfConfig = PerfConfig(),
 ) {
+    private val perfConfig = perf
     private val templateCache = mutableMapOf<String, ScreenFrame>()
-    private val yolo: YoloDetector = OnnxYoloDetector(appContext, assets, yoloImgsz, useNnapi = perf.yoloNnapi)
+    private val yolo: YoloDetector = YoloDetectorFactory.create(appContext, assets, yoloImgsz, perf)
     private var ocr: OcrEngine? = when (ocrMode) {
         "disabled" -> null
         "eager" -> MlKitOcrEngine(appContext)
@@ -45,10 +46,22 @@ class VisionEngine(
         threshold: Float,
         roi: Rect?,
         step: Int = 2,
+        scaleMin: Float = 1.0f,
+        scaleMax: Float = 1.0f,
+        scaleStep: Float = 0.1f,
     ): MatchResult? {
         val tpl = loadTemplate(path)
-        return TemplateMatcher.findTemplate(frame, tpl, roi, threshold, step)
+        return TemplateMatcher.findTemplate(
+            frame, tpl, roi, threshold, step, scaleMin, scaleMax, scaleStep,
+        )
     }
+
+    fun findMultiPointColor(
+        frame: ScreenFrame,
+        points: List<Triple<Int, Int, Triple<Int, Int, Int>>>,
+        tol: Int,
+        roi: Rect?,
+    ): Pair<Int, Int>? = ColorFinder.findMultiPoint(frame, points, tol, roi)
 
     fun recognizeAll(frame: ScreenFrame, roi: Rect?, minConf: Float): List<TextHit> {
         val engine = ensureOcr()
@@ -66,13 +79,26 @@ class VisionEngine(
         conf: Float,
         className: String,
         roi: Rect?,
-    ): List<Detection> = yolo.detect(frame, modelPath, conf, className, roi)
+        maxMaskDecode: Int? = null,
+    ): List<Detection> {
+        val t0 = System.nanoTime()
+        val out = yolo.detect(
+            frame,
+            modelPath,
+            conf,
+            className,
+            roi,
+            maxMaskDecode = maxMaskDecode ?: perfConfig.yoloMaxMaskDecode,
+        )
+        PerfMonitor.recordYoloInfer((System.nanoTime() - t0) / 1_000_000)
+        return out
+    }
 
     fun pickYolo(detections: List<Detection>, policy: String, anchor: Pair<Int, Int>?): Detection? =
         YoloPick.pick(detections, policy, anchor)
 
-    fun yoloClickPoint(det: Detection, frac: Pair<Float, Float>): Pair<Int, Int> =
-        YoloPick.clickPoint(det, frac)
+    fun yoloClickPoint(det: Detection, frac: Pair<Float, Float>, useMaskCenter: Boolean = false): Pair<Int, Int> =
+        YoloPick.clickPoint(det, frac, useMaskCenter)
 
     fun release() {
         yolo.release()

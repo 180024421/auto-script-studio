@@ -194,20 +194,22 @@ flows:
 
 ## 6. YOLO 模型格式
 
-PC 训练导出：
+PC 训练导出（detect 与 seg 相同命令）：
 
 ```powershell
-python tools/export_yolo_ncnn.py --pt path/to/best.pt --out examples/demo-game/models/ui
+python tools/export_yolo_onnx.py --pt path/to/best.pt --out examples/demo-game/models/ui
 ```
 
 工程内放置：
 
 ```
-models/ui.ncnn.param
-models/ui.ncnn.bin
+models/ui.onnx
+models/ui.labels
 ```
 
-或在 `project.json` / yaml 中指定 `yolo_model: models/ui.ncnn`（不含扩展名）。
+或在 `project.json` / yaml 中指定 `default_yolo_model: models/ui.onnx`。
+
+seg 模型额外支持 `has_mask`、`mask_center_x/y`；`pick=largest_mask`；`use_mask_center` / `runtime.yolo_auto_mask_center`。
 
 ---
 
@@ -216,9 +218,11 @@ models/ui.ncnn.bin
 | 能力 | APK 运行时 | PC Studio 联调 |
 |------|-----------|----------------|
 | 找色 | ✅ Kotlin | ✅ OpenCV |
-| 找图 | ✅ NCC 模板匹配 | ✅ OpenCV |
+| 多点找色 | ✅ Kotlin | ✅ OpenCV |
+| 找图 | ✅ NCC 模板匹配（多尺度） | ✅ OpenCV |
 | 识字 | ✅ ML Kit 中文 | ✅ PaddleOCR（可选） |
-| YOLO | ✅ ONNX Runtime | ✅ Ultralytics（可选） |
+| YOLO detect/seg | ✅ ONNX Runtime | ✅ Ultralytics（可选） |
+| 等待稳定/消失 | ✅ Lua API | ✅ PC bot |
 | 点击 | ✅ 无障碍 / root | ✅ ADB input |
 
 ---

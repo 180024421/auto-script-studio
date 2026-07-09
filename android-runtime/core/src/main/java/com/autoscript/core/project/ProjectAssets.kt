@@ -17,6 +17,9 @@ data class ProjectConfig(
     val defaultYoloConf: Float,
     val ocrMode: String,
     val defaultYoloModel: String?,
+    /** seg 模型有掩码时，findYolo/yoloSwipe 默认点击掩码质心 */
+    val yoloAutoMaskCenter: Boolean = false,
+    val deviceProfile: DeviceProfile = DeviceProfile(),
     val autoRun: Boolean = false,
     val screenshotMode: String = "media_projection",
     val inputMode: String = "auto",
@@ -58,6 +61,8 @@ class ProjectAssets(private val context: Context) {
             defaultYoloConf = runtime?.optDouble("default_yolo_conf", 0.35)?.toFloat() ?: 0.35f,
             ocrMode = runtime?.optString("ocr_mode", "lazy") ?: "lazy",
             defaultYoloModel = runtime?.optString("default_yolo_model")?.takeIf { it.isNotBlank() },
+            yoloAutoMaskCenter = runtime?.optBoolean("yolo_auto_mask_center", false) ?: false,
+            deviceProfile = parseDeviceProfile(runtime?.optJSONObject("device_profile")),
             autoRun = runtime?.optBoolean("auto_run", false) ?: false,
             screenshotMode = runtime?.optString("screenshot_mode", "media_projection") ?: "media_projection",
             inputMode = runtime?.optString("input_mode", "auto") ?: "auto",
@@ -86,7 +91,21 @@ class ProjectAssets(private val context: Context) {
                 yoloNnapi = perfObj?.optBoolean("yolo_nnapi", true) ?: true,
                 yoloImgsz = perfObj?.optInt("yolo_imgsz", 320) ?: 320,
                 captureCacheTtlMs = perfObj?.optLong("capture_cache_ttl_ms", 80L) ?: 80L,
+                yoloWarmup = perfObj?.optBoolean("yolo_warmup", true) ?: true,
+                yoloSegFast = perfObj?.optBoolean("yolo_seg_fast", false) ?: false,
+                yoloMaxMaskDecode = perfObj?.optInt("yolo_max_mask_decode", 50) ?: 50,
+                yoloBackend = perfObj?.optString("yolo_backend", "onnx") ?: "onnx",
             ),
+        )
+    }
+
+    private fun parseDeviceProfile(obj: org.json.JSONObject?): DeviceProfile {
+        if (obj == null) return DeviceProfile()
+        return DeviceProfile(
+            serial = obj.optString("serial", ""),
+            width = obj.optInt("width", 0),
+            height = obj.optInt("height", 0),
+            label = obj.optString("label", "default"),
         )
     }
 

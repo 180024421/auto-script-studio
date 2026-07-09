@@ -17,7 +17,7 @@ def models_dir(project_dir: Path) -> Path:
     return project_dir / "models"
 
 
-def normalize_detection(det: dict) -> dict[str, int | float | str]:
+def normalize_detection(det: dict) -> dict[str, int | float | str | bool]:
     """统一 bot.yoloDetect 返回结构（PC / 文档 / Lua 片段一致）。"""
     x = int(det.get("x", 0))
     y = int(det.get("y", 0))
@@ -25,7 +25,8 @@ def normalize_detection(det: dict) -> dict[str, int | float | str]:
     h = int(det.get("h", 0))
     cx = int(det.get("center_x", x + w // 2))
     cy = int(det.get("center_y", y + h // 2))
-    return {
+    has_mask = bool(det.get("has_mask", False))
+    out: dict[str, int | float | str | bool] = {
         "class_name": str(det.get("class_name") or ""),
         "confidence": float(det.get("confidence", 0.0)),
         "x": x,
@@ -34,7 +35,13 @@ def normalize_detection(det: dict) -> dict[str, int | float | str]:
         "h": h,
         "center_x": cx,
         "center_y": cy,
+        "has_mask": has_mask,
     }
+    if has_mask:
+        out["mask_center_x"] = int(det.get("mask_center_x", cx))
+        out["mask_center_y"] = int(det.get("mask_center_y", cy))
+        out["mask_area"] = int(det.get("mask_area", 0))
+    return out
 
 
 def normalize_detections(dets: Iterable[dict]) -> list[dict[str, int | float | str]]:
@@ -153,14 +160,36 @@ def set_default_model(project_dir: Path, rel: str) -> None:
     cfg.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def import_models(project_dir: Path, sources: list[Path]) -> list[Path]:
-    """复制 .onnx / .pt 及同 stem 的 .labels 到工程 models/。"""
+def import_models(
+    project_dir: Path,
+    sources: list[Path],
+    *,
+    export_onnx_imgsz: int | None = None,
+) -> list[Path]:
+    """复制 .onnx / .pt 及同 stem 的 .labels 到工程 models/。
+
+    export_onnx_imgsz：若导入 .pt 且未指定，则自动导出同名 ONNX（移动端 imgsz）。
+    """
     dest_root = models_dir(project_dir)
     dest_root.mkdir(parents=True, exist_ok=True)
     imported: list[Path] = []
     for src in sources:
         src = Path(src)
         if not src.is_file() or src.suffix.lower() not in YOLO_EXTS:
+            continue
+        if src.suffix.lower() == ".pt" and export_onnx_imgsz is not None:
+            from studio.services.adb_ide_import import export_pt_to_onnx
+
+            out_prefix = dest_root / src.stem
+            onnx_path, _task, class_names = export_pt_to_onnx(src, out_prefix, export_onnx_imgsz)
+            imported.append(onnx_path)
+            labels = src.with_suffix(".labels")
+            if labels.is_file():
+                shutil.copy2(labels, out_prefix.with_suffix(".labels"))
+            elif class_names:
+                out_prefix.with_suffix(".labels").write_text(
+                    "\n".join(class_names) + "\n", encoding="utf-8"
+                )
             continue
         out = dest_root / src.name
         shutil.copy2(src, out)

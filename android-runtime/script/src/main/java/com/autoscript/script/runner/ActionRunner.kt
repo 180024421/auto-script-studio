@@ -145,6 +145,7 @@ class ActionRunner(
         val timeout = flt(action["timeout"], 20f)
         val roi = parseRoi(action["roi"]) ?: parseRoi(workflow["yolo_roi"])
         val frac = parseFrac(action["frac"])
+        val useMaskCenter = bool(action["use_mask_center"], false)
         val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
         while (System.currentTimeMillis() < deadline) {
             val frame = backend.capture()
@@ -153,7 +154,7 @@ class ActionRunner(
             if (det != null) {
                 onLog("YOLO 命中 ${det.className} conf=${det.confidence}")
                 if (click) {
-                    val pt = vision.yoloClickPoint(det, frac)
+                    val pt = vision.yoloClickPoint(det, frac, useMaskCenter)
                     backend.tap(pt.first, pt.second)
                 }
                 return
@@ -173,13 +174,14 @@ class ActionRunner(
         val roi = parseRoi(action["roi"]) ?: parseRoi(workflow["yolo_roi"])
         val distance = num(action["distance"], 400)
         val direction = str(action["direction"], "up").lowercase()
+        val useMaskCenter = bool(action["use_mask_center"], false)
         val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
         while (System.currentTimeMillis() < deadline) {
             val frame = backend.capture()
             val dets = vision.yoloDetect(frame, model, conf, className, roi)
             val det = vision.pickYolo(dets, pick, null)
             if (det != null) {
-                val (cx, cy) = vision.yoloClickPoint(det, parseFrac(action["frac"]))
+                val (cx, cy) = vision.yoloClickPoint(det, parseFrac(action["frac"]), useMaskCenter)
                 val (x2, y2) = when (direction) {
                     "down" -> cx to (cy + distance)
                     "left" -> (cx - distance) to cy
@@ -282,6 +284,12 @@ class ActionRunner(
     }
     private fun flt(v: Any?, default: Float = 0f): Float = when (v) {
         is Number -> v.toFloat()
+        else -> default
+    }
+    private fun bool(v: Any?, default: Boolean = false): Boolean = when (v) {
+        is Boolean -> v
+        is Number -> v.toInt() != 0
+        is String -> v.equals("true", ignoreCase = true) || v == "1"
         else -> default
     }
 }

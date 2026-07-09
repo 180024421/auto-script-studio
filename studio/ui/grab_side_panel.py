@@ -49,6 +49,7 @@ class GrabSidePanel(QWidget):
     copy_script = Signal()
     insert_script = Signal()
     copy_color_script = Signal()
+    copy_multi_color_script = Signal()
     copy_template_script = Signal()
     copy_text_script = Signal()
     copy_tap_script = Signal()
@@ -64,6 +65,12 @@ class GrabSidePanel(QWidget):
     copy_yolo_detect_script = Signal()
     copy_find_yolo_script = Signal()
     copy_yolo_swipe_script = Signal()
+    export_yolo_training = Signal()
+    export_dataset_yaml = Signal()
+    start_action_record = Signal()
+    stop_action_record = Signal()
+    copy_action_record = Signal()
+    save_device_profile = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -166,6 +173,15 @@ class GrabSidePanel(QWidget):
         rec_row.addWidget(self._action_btn("删除", self.delete_color_record.emit))
         lay.addLayout(rec_row)
 
+        lay.addWidget(section_title("多点找色"))
+        lay.addWidget(hint_label("颜色记录 ≥2 条时可生成 findMultiColor 脚本"))
+        self._stack_buttons(
+            lay,
+            [
+                ("生成多点找色脚本", self.copy_multi_color_script.emit, "accent"),
+            ],
+        )
+
         lay.addWidget(section_title("找色脚本"))
         self._stack_buttons(
             lay,
@@ -193,6 +209,12 @@ class GrabSidePanel(QWidget):
         self.tol_edit = QLineEdit("15")
         param_form.addRow("相似度", self.threshold_edit)
         param_form.addRow("找色容差", self.tol_edit)
+        self.scale_min_edit = QLineEdit("1.0")
+        self.scale_max_edit = QLineEdit("1.0")
+        self.scale_step_edit = QLineEdit("0.1")
+        param_form.addRow("缩放 min", self.scale_min_edit)
+        param_form.addRow("缩放 max", self.scale_max_edit)
+        param_form.addRow("缩放 step", self.scale_step_edit)
         param_wrap = QWidget()
         param_wrap.setLayout(param_form)
         lay.addWidget(param_wrap)
@@ -275,13 +297,18 @@ class GrabSidePanel(QWidget):
         self.yolo_pick_combo = QComboBox()
         self.yolo_pick_combo.addItem("最高置信度", "best_conf")
         self.yolo_pick_combo.addItem("最大框", "largest")
+        self.yolo_pick_combo.addItem("最大掩码(seg)", "largest_mask")
         self.yolo_pick_combo.addItem("首个", "nearest")
         self.yolo_frac_x = QLineEdit("0.5")
         self.yolo_frac_y = QLineEdit("0.5")
+        self.yolo_use_mask_center_cb = QCheckBox("点击掩码质心 (seg)")
+        self.yolo_auto_mask_hint = hint_label("或在 project.json 设 runtime.yolo_auto_mask_center=true")
         yolo_form.addRow("置信度", self.yolo_conf_edit)
         yolo_form.addRow("选取策略", self.yolo_pick_combo)
         yolo_form.addRow("点击位置 X%", self.yolo_frac_x)
         yolo_form.addRow("点击位置 Y%", self.yolo_frac_y)
+        yolo_form.addRow("", self.yolo_use_mask_center_cb)
+        yolo_form.addRow("", self.yolo_auto_mask_hint)
         yolo_wrap = QWidget()
         yolo_wrap.setLayout(yolo_form)
         lay.addWidget(yolo_wrap)
@@ -323,6 +350,8 @@ class GrabSidePanel(QWidget):
             lay,
             [
                 ("YOLO 检测", self.run_yolo_detect.emit, "accent"),
+                ("导出训练样本", self.export_yolo_training.emit, "ghost"),
+                ("生成 data.yaml", self.export_dataset_yaml.emit, "ghost"),
                 ("生成检测脚本", self.copy_yolo_detect_script.emit, "ghost"),
                 ("生成 findYolo 脚本", self.copy_find_yolo_script.emit, "accent"),
                 ("生成找类并滑动", self.copy_yolo_swipe_script.emit, "ghost"),
@@ -363,6 +392,18 @@ class GrabSidePanel(QWidget):
                 ("生成点击脚本", self.copy_tap_script.emit, "ghost"),
             ],
         )
+
+        lay.addWidget(section_title("动作录制"))
+        self._stack_buttons(
+            lay,
+            [
+                ("开始录制", self.start_action_record.emit, "accent"),
+                ("停止录制", self.stop_action_record.emit, "ghost"),
+                ("生成录制脚本", self.copy_action_record.emit, "ghost"),
+            ],
+        )
+        lay.addWidget(hint_label("录制期间：ADB 点击→tap；滑动起终点→swipe；YOLO 检测→findYolo"))
+        lay.addWidget(self._action_btn("保存设备 Profile", self.save_device_profile.emit))
 
         lay.addWidget(section_title("附件目录"))
         dir_row = QHBoxLayout()
@@ -425,6 +466,13 @@ class GrabSidePanel(QWidget):
             return ""
         return text
 
+    def scale_params(self) -> tuple[float, float, float]:
+        return (
+            self._parse_float(self.scale_min_edit.text(), 1.0),
+            self._parse_float(self.scale_max_edit.text(), 1.0),
+            self._parse_float(self.scale_step_edit.text(), 0.1),
+        )
+
     def yolo_params(self) -> dict:
         return {
             "conf": self._parse_float(self.yolo_conf_edit.text(), 0.35),
@@ -440,6 +488,7 @@ class GrabSidePanel(QWidget):
             "direction": str(self.yolo_swipe_dir.currentData() or "up"),
             "distance": self._parse_int(self.yolo_swipe_dist.text(), 400),
             "duration_ms": self._parse_int(self.yolo_swipe_ms.text(), 350),
+            "use_mask_center": self.yolo_use_mask_center_cb.isChecked(),
         }
 
     @staticmethod

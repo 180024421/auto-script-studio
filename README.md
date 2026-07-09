@@ -110,7 +110,7 @@
 | 找图 | OpenCV NCC 模板匹配 | `bot.findImage` |
 | 找色 | 多点找色 | `bot.findColor` |
 | 识字 | ML Kit 中文离线 OCR | `bot.findText` / `bot.recognizeText` |
-| YOLO | ONNX Runtime | `bot.yoloDetect` / `bot.findYolo` |
+| YOLO | ONNX Runtime（detect + seg） | `bot.yoloDetect` / `bot.findYolo` |
 | 无障碍控件 | 节点查找与点击 | `bot.findNode` |
 
 ### 浮动面板（OverlayService）

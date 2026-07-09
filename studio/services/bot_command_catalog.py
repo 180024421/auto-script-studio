@@ -125,13 +125,60 @@ def _commands() -> list[BotCommand]:
             syntax='bot.findImage(path, opts)',
             description="模板匹配找图，返回匹配中心坐标。",
             params_help=(
-                "path：工程内模板路径，如 image/btn.png；opts：threshold、timeout、"
-                "roi、click=true、optional=true。"
+                "path：工程内模板路径；opts：threshold、timeout、roi、click=true、optional=true；"
+                "多尺度：scale_min、scale_max、scale_step（默认 1.0）。"
             ),
-            keywords="findImage 找图 template 模板 image",
+            keywords="findImage 找图 template 模板 image scale 多尺度",
             snippet=(
-                'local x, y = bot.findImage("image/模板.png", { threshold = 0.9, timeout = 15, optional = true })\n'
+                'local x, y = bot.findImage("image/模板.png", { threshold = 0.9, timeout = 15, '
+                "scale_min = 0.9, scale_max = 1.1, scale_step = 0.05, optional = true })\n"
                 "if x then bot.log(string.format(\"找图 (%d,%d)\", x, y)) end"
+            ),
+        ),
+        BotCommand(
+            id="bot.waitGoneImage",
+            category="图色命令",
+            name="等待模板消失",
+            api="bot.waitGoneImage",
+            syntax='bot.waitGoneImage(path, opts)',
+            description="轮询直到模板在屏幕上消失或超时。",
+            params_help="path：模板路径；opts：threshold、timeout、roi、optional=true。",
+            keywords="waitGoneImage 消失 gone 等待",
+            snippet=(
+                'bot.waitGoneImage("image/loading.png", { threshold = 0.9, timeout = 30, optional = true })'
+            ),
+        ),
+        BotCommand(
+            id="bot.waitStable",
+            category="图色命令",
+            name="等待画面稳定",
+            api="bot.waitStable",
+            syntax="bot.waitStable(opts)",
+            description="连续多帧画面差异低于阈值时认为稳定。",
+            params_help="opts：timeout、stable_frames、diff_threshold、roi。",
+            keywords="waitStable 稳定 stable 等待",
+            snippet="bot.waitStable({ timeout = 15, stable_frames = 3, diff_threshold = 8 })",
+        ),
+        BotCommand(
+            id="bot.findMultiColor",
+            category="颜色命令",
+            name="多点找色",
+            api="bot.findMultiColor",
+            syntax="bot.findMultiColor(opts)",
+            description="相对偏移的多点颜色同时匹配，返回锚点坐标。",
+            params_help=(
+                "opts.points：{{dx, dy, {{b,g,r}}}, ...} 相对首点偏移与 BGR；"
+                "tol、timeout、roi、click=true。"
+            ),
+            keywords="findMultiColor 多点 找色 multi color",
+            snippet=(
+                "local mx, my = bot.findMultiColor({\n"
+                "  points = {\n"
+                "    {0, 0, {0, 128, 255}},\n"
+                "    {10, 0, {0, 120, 250}},\n"
+                "  },\n"
+                "  tol = 15, timeout = 10, optional = true,\n"
+                "})"
             ),
         ),
         # —— 文字 ——
@@ -179,7 +226,8 @@ def _commands() -> list[BotCommand]:
             description="对当前屏幕做 YOLO 推理，返回检测框列表。",
             params_help=(
                 "opts：model、class_name、conf、roi、limit。\n"
-                "每项含 class_name、confidence、x、y、w、h、center_x、center_y。"
+                "每项含 class_name、confidence、x、y、w、h、center_x、center_y；"
+                "seg 模型另有 has_mask、mask_center_x/y、mask_area。"
             ),
             keywords="yoloDetect 检测 detect onnx",
             snippet=(
@@ -197,13 +245,14 @@ def _commands() -> list[BotCommand]:
             syntax="bot.findYolo(opts)",
             description="查找指定 YOLO 类别目标并返回点击坐标。",
             params_help=(
-                "opts：model、class_name、conf、pick（best_conf/largest）、frac、"
-                "tap_dx/tap_dy、delay_before_click、click=true、roi、optional。"
+                "opts：model、class_name、conf、pick（best_conf/largest/largest_mask）、frac、"
+                "use_mask_center / use_box_center（seg）、mask_decode_max、tap_dx/tap_dy、"
+                "click=true、roi、optional。largest_mask 比 best_conf 慢（需解码多个掩码）。"
             ),
-            keywords="findYolo yolo 找类 点击",
+            keywords="findYolo yolo 找类 点击 seg mask largest_mask",
             snippet=(
                 'local yx, yy = bot.findYolo({ model = "models/ui.onnx", class_name = "hand", '
-                "conf = 0.35, optional = true })\n"
+                "conf = 0.35, use_mask_center = true, pick = \"best_conf\", optional = true })\n"
                 "if yx then bot.tap(yx, yy) end"
             ),
         ),
@@ -350,6 +399,17 @@ def _commands() -> list[BotCommand]:
             params_help="message：字符串。",
             keywords="log 日志 print 输出",
             snippet='bot.log("hello")',
+        ),
+        BotCommand(
+            id="bot.trace",
+            category="其它",
+            name="调试 Trace",
+            api="bot.trace",
+            syntax='bot.trace(tag, message)',
+            description="写入带 tag 的 trace 日志，便于过滤调试。",
+            params_help="tag：分类标签；message：说明文字。",
+            keywords="trace 调试 debug",
+            snippet='bot.trace("loop", "进入主循环")',
         ),
     ]
 

@@ -2,9 +2,7 @@ package com.autoscript.script.lua
 
 import com.autoscript.core.model.Detection
 import com.autoscript.core.overlay.OverlayWidgetStore
-import kotlinx.coroutines.runBlocking
-import org.luaj.vm2.Globals
-import org.luaj.vm2.LuaInteger
+import org.luaj.vm2.Globalsimport org.luaj.vm2.LuaInteger
 import org.luaj.vm2.LuaString
 import org.luaj.vm2.LuaTable
 import org.luaj.vm2.LuaValue
@@ -35,6 +33,10 @@ object LuaBindings {
         bot.set("yoloDetect", YoloDetectFn(bridge))
         bot.set("findYolo", FindYoloFn(bridge))
         bot.set("yoloSwipe", YoloSwipeFn(bridge))
+        bot.set("waitGoneImage", WaitGoneImageFn(bridge))
+        bot.set("waitStable", WaitStableFn(bridge))
+        bot.set("findMultiColor", FindMultiColorFn(bridge))
+        bot.set("trace", TraceFn(bridge))
         bot.set("read_chain", ReadChainFn())
         bot.set("load_bases", LoadBasesFn())
         bot.set("set_memory_pid", SetMemoryPidFn())
@@ -140,14 +142,14 @@ object LuaBindings {
 
     private class DelayFn(private val bridge: AutoScriptBridge) : OneArgFunction() {
         override fun call(seconds: LuaValue): LuaValue {
-            runBlocking { bridge.delaySeconds(seconds.todouble()) }
+            LuaBridgeRunner.await { bridge.delaySeconds(seconds.todouble()) }
             return NIL
         }
     }
 
     private class TapFn(private val bridge: AutoScriptBridge) : TwoArgFunction() {
         override fun call(x: LuaValue, y: LuaValue): LuaValue {
-            runBlocking { bridge.tap(x.toint(), y.toint()) }
+            LuaBridgeRunner.await { bridge.tap(x.toint(), y.toint()) }
             return NIL
         }
     }
@@ -159,7 +161,7 @@ object LuaBindings {
             val x2 = args.arg(3).toint()
             val y2 = args.arg(4).toint()
             val dur = if (args.narg() >= 5) args.arg(5).toint() else 300
-            runBlocking { bridge.swipe(x1, y1, x2, y2, dur) }
+            LuaBridgeRunner.await { bridge.swipe(x1, y1, x2, y2, dur) }
             return NONE
         }
     }
@@ -169,7 +171,7 @@ object LuaBindings {
             val x = args.arg(1).toint()
             val y = args.arg(2).toint()
             val dur = if (args.narg() >= 3) args.arg(3).toint() else 500
-            runBlocking { bridge.longPress(x, y, dur) }
+            LuaBridgeRunner.await { bridge.longPress(x, y, dur) }
             return NONE
         }
     }
@@ -178,7 +180,7 @@ object LuaBindings {
         override fun invoke(args: Varargs): Varargs {
             val path = args.arg(1).checkjstring()
             val opts = LuaOpts.table(if (args.narg() >= 2) args.arg(2) else null)
-            val pt = runBlocking { bridge.findImage(path, opts) }
+            val pt = LuaBridgeRunner.await { bridge.findImage(path, opts) }
             return ptToVarargs(pt)
         }
     }
@@ -189,7 +191,7 @@ object LuaBindings {
             val g = args.arg(2).toint()
             val r = args.arg(3).toint()
             val opts = LuaOpts.table(if (args.narg() >= 4 && args.arg(4).istable()) args.arg(4) else null)
-            val pt = runBlocking { bridge.findColor(b, g, r, opts) }
+            val pt = LuaBridgeRunner.await { bridge.findColor(b, g, r, opts) }
             return ptToVarargs(pt)
         }
     }
@@ -198,7 +200,7 @@ object LuaBindings {
         override fun invoke(args: Varargs): Varargs {
             val target = args.arg(1).checkjstring()
             val opts = LuaOpts.table(if (args.narg() >= 2) args.arg(2) else null)
-            val pt = runBlocking { bridge.findText(target, opts) }
+            val pt = LuaBridgeRunner.await { bridge.findText(target, opts) }
             return ptToVarargs(pt)
         }
     }
@@ -206,7 +208,7 @@ object LuaBindings {
     private class FindNodeFn(private val bridge: AutoScriptBridge) : VarArgFunction() {
         override fun invoke(args: Varargs): Varargs {
             val opts = LuaOpts.table(if (args.narg() >= 1) args.arg(1) else null)
-            val pt = runBlocking { bridge.findNode(opts) }
+            val pt = LuaBridgeRunner.await { bridge.findNode(opts) }
             return ptToVarargs(pt)
         }
     }
@@ -214,7 +216,7 @@ object LuaBindings {
     private class RecognizeTextFn(private val bridge: AutoScriptBridge) : VarArgFunction() {
         override fun invoke(args: Varargs): Varargs {
             val opts = LuaOpts.table(if (args.narg() >= 1) args.arg(1) else null)
-            val hits = runBlocking { bridge.recognizeText(opts) }
+            val hits = LuaBridgeRunner.await { bridge.recognizeText(opts) }
             return LuaValue.varargsOf(arrayOf<LuaValue>(toLuaList(hits)))
         }
     }
@@ -222,7 +224,7 @@ object LuaBindings {
     private class YoloDetectFn(private val bridge: AutoScriptBridge) : VarArgFunction() {
         override fun invoke(args: Varargs): Varargs {
             val opts = LuaOpts.table(if (args.narg() >= 1) args.arg(1) else null)
-            val dets = runBlocking { bridge.yoloDetect(opts) }
+            val dets = LuaBridgeRunner.await { bridge.yoloDetect(opts) }
             return LuaValue.varargsOf(arrayOf<LuaValue>(detectionsToLua(dets)))
         }
     }
@@ -230,7 +232,7 @@ object LuaBindings {
     private class FindYoloFn(private val bridge: AutoScriptBridge) : VarArgFunction() {
         override fun invoke(args: Varargs): Varargs {
             val opts = LuaOpts.table(if (args.narg() >= 1) args.arg(1) else null)
-            val pt = runBlocking { bridge.findYolo(opts) }
+            val pt = LuaBridgeRunner.await { bridge.findYolo(opts) }
             return ptToVarargs(pt)
         }
     }
@@ -238,8 +240,41 @@ object LuaBindings {
     private class YoloSwipeFn(private val bridge: AutoScriptBridge) : VarArgFunction() {
         override fun invoke(args: Varargs): Varargs {
             val opts = LuaOpts.table(if (args.narg() >= 1) args.arg(1) else null)
-            runBlocking { bridge.yoloSwipe(opts) }
+            LuaBridgeRunner.await { bridge.yoloSwipe(opts) }
             return NONE
+        }
+    }
+
+    private class WaitGoneImageFn(private val bridge: AutoScriptBridge) : VarArgFunction() {
+        override fun invoke(args: Varargs): Varargs {
+            val path = args.arg(1).checkjstring()
+            val opts = LuaOpts.table(if (args.narg() >= 2) args.arg(2) else null)
+            val ok = LuaBridgeRunner.await { bridge.waitGoneImage(path, opts) }
+            return LuaValue.valueOf(ok)
+        }
+    }
+
+    private class WaitStableFn(private val bridge: AutoScriptBridge) : VarArgFunction() {
+        override fun invoke(args: Varargs): Varargs {
+            val opts = LuaOpts.table(if (args.narg() >= 1) args.arg(1) else null)
+            val ok = LuaBridgeRunner.await { bridge.waitStable(opts) }
+            return LuaValue.valueOf(ok)
+        }
+    }
+
+    private class FindMultiColorFn(private val bridge: AutoScriptBridge) : VarArgFunction() {
+        override fun invoke(args: Varargs): Varargs {
+            val opts = LuaOpts.table(if (args.narg() >= 1 && args.arg(1).istable()) args.arg(1) else null)
+            val points = LuaOpts.colorPoints(opts)
+            val pt = LuaBridgeRunner.await { bridge.findMultiColor(points, opts) }
+            return ptToVarargs(pt)
+        }
+    }
+
+    private class TraceFn(private val bridge: AutoScriptBridge) : TwoArgFunction() {
+        override fun call(tag: LuaValue, msg: LuaValue): LuaValue {
+            LuaBridgeRunner.await { bridge.trace(tag.checkjstring(), msg.tojstring()) }
+            return NIL
         }
     }
 
@@ -331,12 +366,22 @@ object LuaBindings {
             val t = LuaTable()
             t.set("class_name", d.className)
             t.set("confidence", d.confidence.toDouble())
-            t.set("x", d.rect.x + d.rect.w / 2)
-            t.set("y", d.rect.y + d.rect.h / 2)
+            t.set("x", d.rect.x)
+            t.set("y", d.rect.y)
+            t.set("w", d.rect.w)
+            t.set("h", d.rect.h)
+            t.set("center_x", d.rect.x + d.rect.w / 2)
+            t.set("center_y", d.rect.y + d.rect.h / 2)
             t.set("left", d.rect.x)
             t.set("top", d.rect.y)
             t.set("width", d.rect.w)
             t.set("height", d.rect.h)
+            t.set("has_mask", d.hasMask)
+            if (d.hasMask && d.maskCenterX != null && d.maskCenterY != null) {
+                t.set("mask_center_x", d.maskCenterX)
+                t.set("mask_center_y", d.maskCenterY)
+                t.set("mask_area", d.maskArea)
+            }
             arr.set(i + 1, t)
         }
         return arr

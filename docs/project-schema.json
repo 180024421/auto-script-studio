@@ -34,6 +34,16 @@
         "default_interval_ms": { "type": "integer", "default": 300 },
         "default_yolo_conf": { "type": "number", "default": 0.35 },
         "default_yolo_model": { "type": "string" },
+        "yolo_auto_mask_center": { "type": "boolean", "default": false },
+        "device_profile": {
+          "type": "object",
+          "properties": {
+            "serial": { "type": "string" },
+            "width": { "type": "integer" },
+            "height": { "type": "integer" },
+            "label": { "type": "string" }
+          }
+        },
         "ocr_mode": {
           "type": "string",
           "enum": ["lazy", "eager", "disabled"],
@@ -55,6 +65,10 @@
           "properties": {
             "yolo_nnapi": { "type": "boolean", "default": true },
             "yolo_imgsz": { "type": "integer", "default": 320 },
+            "yolo_warmup": { "type": "boolean", "default": true },
+            "yolo_seg_fast": { "type": "boolean", "default": false },
+            "yolo_max_mask_decode": { "type": "integer", "default": 50 },
+            "yolo_backend": { "type": "string", "enum": ["onnx", "ncnn"], "default": "onnx" },
             "capture_cache_ttl_ms": { "type": "integer", "default": 80 },
             "opencv_mobile": { "type": "boolean", "default": false }
           }

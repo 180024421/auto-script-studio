@@ -37,6 +37,15 @@ def paint_ocr_hits(
             painter.setPen(pen)
 
 
+def paint_mask_centers(
+    painter: QPainter,
+    markers: Sequence[Any],
+    scale: float = 1.0,
+) -> None:
+    """seg 掩码质心（绿色十字）。"""
+    paint_point_markers(painter, markers, scale=scale, color="#22C55E")
+
+
 def paint_match_boxes(
     painter: QPainter,
     boxes: Sequence[Any],

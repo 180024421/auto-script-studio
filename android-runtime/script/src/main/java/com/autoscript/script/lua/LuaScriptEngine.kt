@@ -3,9 +3,11 @@ package com.autoscript.script.lua
 import com.autoscript.core.backend.AutomationBackend
 import com.autoscript.core.project.ProjectAssets
 import com.autoscript.core.project.ProjectConfig
+import com.autoscript.core.script.ScriptTrace
 import com.autoscript.script.ScriptRuntime
 import com.autoscript.vision.VisionEngine
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.luaj.vm2.Globals
 import org.luaj.vm2.LuaError
@@ -41,12 +43,26 @@ class LuaScriptEngine(
         onLog("开始 Lua: ${config.entry}")
         try {
             withContext(Dispatchers.Default) {
-                val globals: Globals = JsePlatform.standardGlobals()
-                installLibLoader(globals)
-                LuaBindings.install(globals, bridge, onLog)
-                LuaBindings.installCoroutineYield(globals, bridge)
-                val chunk = globals.load(source, config.entry)
-                chunk.call()
+                coroutineScope {
+                    LuaBridgeRunner.bind(this)
+                    ScriptTrace.configure(
+                        enabled = true,
+                        tagFilter = null,
+                        log = onLog,
+                    )
+                    try {
+                        LuaBridgeRunner.await { bridge.warmupYolo() }
+                        val globals: Globals = JsePlatform.standardGlobals()
+                        installLibLoader(globals)
+                        LuaBindings.install(globals, bridge, onLog)
+                        LuaBindings.installCoroutineYield(globals, bridge)
+                        val chunk = globals.load(source, config.entry)
+                        chunk.call()
+                    } finally {
+                        LuaBridgeRunner.unbind()
+                        ScriptTrace.reset()
+                    }
+                }
             }
             onLog("Lua 脚本完成")
         } catch (e: LuaError) {

@@ -33,4 +33,19 @@ data class PerfConfig(
     val yoloNnapi: Boolean = true,
     val yoloImgsz: Int = 320,
     val captureCacheTtlMs: Long = 80,
+    /** 脚本启动时预热默认 YOLO 模型（加载 ONNX 会话） */
+    val yoloWarmup: Boolean = true,
+    /** seg 极速：限制掩码解码数量，配合 yoloMaxMaskDecode */
+    val yoloSegFast: Boolean = false,
+    /** 单次推理最多解码几个检测框的掩码质心（findYolo largest_mask 会适当放大） */
+    val yoloMaxMaskDecode: Int = 50,
+    /** onnx（默认）或 ncnn（导出 param/bin，运行时尚回退 ONNX） */
+    val yoloBackend: String = "onnx",
+)
+
+data class DeviceProfile(
+    val serial: String = "",
+    val width: Int = 0,
+    val height: Int = 0,
+    val label: String = "default",
 )

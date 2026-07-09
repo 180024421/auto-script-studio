@@ -68,6 +68,7 @@ def test_normalize_detection():
     d = normalize_detection({"class_name": "a", "confidence": 0.9, "x": 10, "y": 20, "w": 30, "h": 40})
     assert d["center_x"] == 25
     assert d["center_y"] == 40
+    assert d["has_mask"] is False
     assert len(normalize_detections([d])) == 1
 
 

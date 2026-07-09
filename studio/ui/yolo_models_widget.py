@@ -11,7 +11,10 @@ from typing import Callable, Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -19,6 +22,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSpinBox,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -56,7 +60,8 @@ class YoloModelsWidget(QWidget):
         root.addWidget(
             hint_label(
                 "APK 运行需 models/*.onnx + 同名 .labels。\n"
-                "导出：python tools/export_yolo_onnx.py --pt best.pt --out models/ui"
+                "adb-ide 训练的 seg：点「从 adb-ide 导入」或\n"
+                "python tools/import_adb_ide_yolo.py --project . --run D:/yolo/runs/xxx"
             )
         )
 
@@ -72,6 +77,7 @@ class YoloModelsWidget(QWidget):
             left_lay,
             [
                 ("导入模型", self._import_models, "accent"),
+                ("从 adb-ide 导入", self._import_from_adb_ide, "primary"),
                 ("删除", self._delete_selected, "ghost"),
                 ("导出", self._export_selected, "ghost"),
             ],
@@ -154,6 +160,64 @@ class YoloModelsWidget(QWidget):
             paths.append(Path(str(item.data(Qt.ItemDataRole.UserRole))))
         return paths
 
+    def _import_from_adb_ide(self) -> None:
+        project = self._require_project()
+        if project is None:
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择 adb-ide 训练权重 best.pt",
+            "",
+            "YOLO 权重 (*.pt);;全部 (*.*)",
+        )
+        if not path:
+            run_dir = QFileDialog.getExistingDirectory(self, "或选择训练 run 目录（含 weights/best.pt）")
+            if not run_dir:
+                return
+            path = run_dir
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("从 adb-ide 导入 seg/detect")
+        form = QFormLayout(dlg)
+        imgsz_sp = QSpinBox()
+        imgsz_sp.setRange(256, 640)
+        imgsz_sp.setSingleStep(32)
+        imgsz_sp.setValue(320)
+        imgsz_sp.setToolTip("移动端推荐 320（几十 ms）；adb-ide 训练常为 640")
+        form.addRow("导出 imgsz：", imgsz_sp)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        try:
+            from studio.services.adb_ide_import import import_adb_ide_yolo
+
+            result = import_adb_ide_yolo(
+                project,
+                Path(path),
+                imgsz=imgsz_sp.value(),
+                set_default=True,
+                apply_preset="yolo_seg_fast" if imgsz_sp.value() <= 320 else None,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "导入失败", str(exc))
+            return
+
+        self.refresh()
+        self.models_changed.emit()
+        QMessageBox.information(
+            self,
+            "导入完成",
+            f"任务: {result.get('task')}\n"
+            f"ONNX: {result.get('onnx')}\n"
+            f"imgsz: {result.get('imgsz')}\n"
+            f"默认模型: {result.get('default_model')}\n\n"
+            f"{result.get('hint', '')}",
+        )
+
     def _import_models(self) -> None:
         project = self._require_project()
         if project is None:
@@ -166,7 +230,22 @@ class YoloModelsWidget(QWidget):
         )
         if not files:
             return
-        imported = import_models(project, [Path(f) for f in files])
+        paths = [Path(f) for f in files]
+        export_imgsz: int | None = None
+        if any(p.suffix.lower() == ".pt" for p in paths):
+            from PySide6.QtWidgets import QInputDialog
+
+            choice = QMessageBox.question(
+                self,
+                "导入 .pt",
+                "检测到 PyTorch 权重。APK 需 ONNX，是否一并导出为 imgsz=320 的 ONNX？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+            )
+            if choice == QMessageBox.StandardButton.Cancel:
+                return
+            if choice == QMessageBox.StandardButton.Yes:
+                export_imgsz = 320
+        imported = import_models(project, paths, export_onnx_imgsz=export_imgsz)
         if not imported:
             QMessageBox.warning(self, "提示", "未导入有效模型")
             return
@@ -249,10 +328,26 @@ class YoloModelsWidget(QWidget):
             size_kb = path.stat().st_size / 1024
         except OSError:
             size_kb = 0
-        self.meta_label.setText(
-            f"{rel}\n{path.suffix} · {size_kb:.1f} KB"
-            + (f"\nlabels: {labels.name}" if labels.is_file() else "\n（无 labels 文件）")
+        meta_lines = [
+            f"{rel}",
+            f"{path.suffix} · {size_kb:.1f} KB",
+        ]
+        if path.suffix.lower() == ".onnx":
+            try:
+                from studio.services.onnx_inspect import inspect_onnx
+
+                info = inspect_onnx(path)
+                task = info.get("task", "?")
+                outs = info.get("outputs", 0)
+                meta_lines.append(f"类型: {task} · 输出数: {outs}")
+                if info.get("input_shape"):
+                    meta_lines.append(f"输入: {info['input_shape']}")
+            except Exception:
+                pass
+        meta_lines.append(
+            f"labels: {labels.name}" if labels.is_file() else "（无 labels 文件）"
         )
+        self.meta_label.setText("\n".join(meta_lines))
         self._reload_labels()
 
     def _reload_labels(self) -> None:

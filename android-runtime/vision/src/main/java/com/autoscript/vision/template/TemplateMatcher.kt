@@ -3,10 +3,12 @@ package com.autoscript.vision.template
 import com.autoscript.core.model.MatchResult
 import com.autoscript.core.model.Rect
 import com.autoscript.core.model.ScreenFrame
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
  * 轻量模板匹配（归一化互相关），无 OpenCV 依赖。
+ * 支持多尺度：opts.scale_min / scale_max / scale_step。
  */
 object TemplateMatcher {
 
@@ -16,6 +18,42 @@ object TemplateMatcher {
         roi: Rect? = null,
         threshold: Float = 0.9f,
         step: Int = 2,
+        scaleMin: Float = 1.0f,
+        scaleMax: Float = 1.0f,
+        scaleStep: Float = 0.1f,
+    ): MatchResult? {
+        val scales = buildScaleList(scaleMin, scaleMax, scaleStep)
+        var best: MatchResult? = null
+        for (scale in scales) {
+            val tpl = if (scale == 1.0f) template else scaleFrame(template, scale)
+            val m = findTemplateAtScale(frame, tpl, roi, threshold, step)
+            if (m != null && (best == null || m.score > best.score)) {
+                best = m
+            }
+        }
+        return best
+    }
+
+    private fun buildScaleList(min: Float, max: Float, step: Float): List<Float> {
+        val lo = min.coerceIn(0.5f, 2.0f)
+        val hi = max.coerceIn(lo, 2.0f)
+        val st = step.coerceIn(0.05f, 0.5f)
+        if (hi - lo < 0.01f) return listOf(lo)
+        val out = mutableListOf<Float>()
+        var s = lo
+        while (s <= hi + 0.001f) {
+            out.add(((s * 100).roundToInt() / 100f))
+            s += st
+        }
+        return out.distinct()
+    }
+
+    private fun findTemplateAtScale(
+        frame: ScreenFrame,
+        template: ScreenFrame,
+        roi: Rect?,
+        threshold: Float,
+        step: Int,
     ): MatchResult? {
         val stride = step.coerceIn(1, 8)
         val (x1, y1, x2, y2) = roiBounds(frame, roi)
@@ -52,6 +90,25 @@ object TemplateMatcher {
             score = bestScore,
             rect = rect,
         )
+    }
+
+    private fun scaleFrame(src: ScreenFrame, scale: Float): ScreenFrame {
+        if (scale == 1.0f) return src
+        val nw = (src.width * scale).roundToInt().coerceAtLeast(1)
+        val nh = (src.height * scale).roundToInt().coerceAtLeast(1)
+        val bgr = ByteArray(nw * nh * 3)
+        for (dy in 0 until nh) {
+            val sy = (dy / scale).toInt().coerceIn(0, src.height - 1)
+            for (dx in 0 until nw) {
+                val sx = (dx / scale).toInt().coerceIn(0, src.width - 1)
+                val si = (sy * src.width + sx) * 3
+                val di = (dy * nw + dx) * 3
+                bgr[di] = src.bgr[si]
+                bgr[di + 1] = src.bgr[si + 1]
+                bgr[di + 2] = src.bgr[si + 2]
+            }
+        }
+        return ScreenFrame(nw, nh, bgr)
     }
 
     private fun nccAt(

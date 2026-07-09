@@ -8,6 +8,8 @@ object PerfMonitor {
         private set
     @Volatile var lastYoloMs: Long = 0
         private set
+    @Volatile var lastYoloInferMs: Long = 0
+        private set
     @Volatile var lastOcrMs: Long = 0
         private set
     @Volatile var captureCount: Long = 0
@@ -27,6 +29,10 @@ object PerfMonitor {
         yoloCount++
     }
 
+    fun recordYoloInfer(ms: Long) {
+        lastYoloInferMs = ms
+    }
+
     fun recordOcr(ms: Long) {
         lastOcrMs = ms
         ocrCount++
@@ -34,7 +40,7 @@ object PerfMonitor {
 
     fun summary(): String = buildString {
         appendLine("截屏: ${lastCaptureMs}ms（累计 $captureCount 次）")
-        appendLine("YOLO: ${lastYoloMs}ms（累计 $yoloCount 次）")
+        appendLine("YOLO 总计: ${lastYoloMs}ms · 纯推理: ${lastYoloInferMs}ms（累计 $yoloCount 次）")
         append("OCR: ${lastOcrMs}ms（累计 $ocrCount 次）")
     }
 }

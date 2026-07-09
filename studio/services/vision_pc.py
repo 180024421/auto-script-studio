@@ -71,11 +71,72 @@ def find_color(
     return int(x1 + xs[0]), int(y1 + ys[0])
 
 
+def find_multi_point_color(
+    bgr: np.ndarray,
+    points: list[tuple[int, int, tuple[int, int, int]]],
+    tol: int = 12,
+    roi: Optional[Tuple[int, int, int, int]] = None,
+) -> Optional[Tuple[int, int]]:
+    x1, y1, x2, y2 = _roi_bounds(bgr, roi)
+    for y in range(y1, y2):
+        for x in range(x1, x2):
+            ok = True
+            for dx, dy, (tb, tg, tr) in points:
+                sx, sy = x + dx, y + dy
+                if sx < 0 or sy < 0 or sx >= bgr.shape[1] or sy >= bgr.shape[0]:
+                    ok = False
+                    break
+                b, g, r = [int(v) for v in bgr[sy, sx]]
+                if abs(b - tb) > tol or abs(g - tg) > tol or abs(r - tr) > tol:
+                    ok = False
+                    break
+            if ok:
+                return x, y
+    return None
+
+
 def match_template(
     screen_bgr: np.ndarray,
     template_bgr: np.ndarray,
     threshold: float = 0.9,
     roi: Optional[Tuple[int, int, int, int]] = None,
+    scale_min: float = 1.0,
+    scale_max: float = 1.0,
+    scale_step: float = 0.1,
+) -> Optional[MatchResult]:
+    scales = _scale_list(scale_min, scale_max, scale_step)
+    best: MatchResult | None = None
+    for scale in scales:
+        tpl = template_bgr
+        if abs(scale - 1.0) > 0.01:
+            nh = max(1, int(template_bgr.shape[0] * scale))
+            nw = max(1, int(template_bgr.shape[1] * scale))
+            tpl = cv2.resize(template_bgr, (nw, nh), interpolation=cv2.INTER_AREA)
+        m = _match_template_single(screen_bgr, tpl, threshold, roi)
+        if m is not None and (best is None or m.score > best.score):
+            best = m
+    return best
+
+
+def _scale_list(min_s: float, max_s: float, step: float) -> list[float]:
+    lo = max(0.5, min(min_s, max_s))
+    hi = min(2.0, max(min_s, max_s))
+    st = max(0.05, step)
+    if hi - lo < 0.01:
+        return [lo]
+    out: list[float] = []
+    s = lo
+    while s <= hi + 1e-6:
+        out.append(round(s, 2))
+        s += st
+    return out or [1.0]
+
+
+def _match_template_single(
+    screen_bgr: np.ndarray,
+    template_bgr: np.ndarray,
+    threshold: float,
+    roi: Optional[Tuple[int, int, int, int]],
 ) -> Optional[MatchResult]:
     x1, y1, x2, y2 = _roi_bounds(screen_bgr, roi)
     source = screen_bgr[y1:y2, x1:x2]
@@ -201,25 +262,41 @@ def yolo_detect(
     out: List[dict] = []
     for r in results:
         names = r.names or {}
-        for box in r.boxes or []:
+        masks = r.masks
+        for i, box in enumerate(r.boxes or []):
             cls_id = int(box.cls[0])
             name = str(names.get(cls_id, cls_id))
             if class_name and class_name not in name:
                 continue
             xyxy = box.xyxy[0].tolist()
             bx1, by1, bx2, by2 = [int(v) for v in xyxy]
-            out.append(
-                {
-                    "class_name": name,
-                    "confidence": float(box.conf[0]),
-                    "x": bx1 + x1,
-                    "y": by1 + y1,
-                    "w": bx2 - bx1,
-                    "h": by2 - by1,
-                    "center_x": (bx1 + bx2) // 2 + x1,
-                    "center_y": (by1 + by2) // 2 + y1,
-                }
-            )
+            item: dict = {
+                "class_name": name,
+                "confidence": float(box.conf[0]),
+                "x": bx1 + x1,
+                "y": by1 + y1,
+                "w": bx2 - bx1,
+                "h": by2 - by1,
+                "center_x": (bx1 + bx2) // 2 + x1,
+                "center_y": (by1 + by2) // 2 + y1,
+                "has_mask": False,
+            }
+            if masks is not None:
+                try:
+                    xy = masks.xy[i]
+                    if xy is not None and len(xy) > 0:
+                        pts = np.asarray(xy, dtype=np.float32)
+                        item["has_mask"] = True
+                        item["mask_center_x"] = int(pts[:, 0].mean()) + x1
+                        item["mask_center_y"] = int(pts[:, 1].mean()) + y1
+                        if masks.data is not None and i < len(masks.data):
+                            mask = masks.data[i].detach().cpu().numpy()
+                            item["mask_area"] = int((mask > 0.5).sum())
+                        else:
+                            item["mask_area"] = 0
+                except (IndexError, TypeError, ValueError):
+                    pass
+            out.append(item)
     return normalize_detections(out)
 
 

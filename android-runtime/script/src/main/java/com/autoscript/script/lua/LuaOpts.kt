@@ -71,6 +71,47 @@ internal object LuaOpts {
         return 0.5f to 0.5f
     }
 
+    fun colorPoints(map: Map<String, Any?>): List<Triple<Int, Int, Triple<Int, Int, Int>>> {
+        val raw = map["points"] ?: return emptyList()
+        if (raw !is List<*>) return emptyList()
+        val out = mutableListOf<Triple<Int, Int, Triple<Int, Int, Int>>>()
+        for (item in raw) {
+            when (item) {
+                is List<*> -> if (item.size >= 5) {
+                    out.add(
+                        Triple(
+                            (item[0] as Number).toInt(),
+                            (item[1] as Number).toInt(),
+                            Triple(
+                                (item[2] as Number).toInt(),
+                                (item[3] as Number).toInt(),
+                                (item[4] as Number).toInt(),
+                            ),
+                        ),
+                    )
+                }
+                is Map<*, *> -> {
+                    val dx = (item["dx"] as? Number)?.toInt() ?: 0
+                    val dy = (item["dy"] as? Number)?.toInt() ?: 0
+                    val bgr = item["bgr"]
+                    if (bgr is List<*> && bgr.size >= 3) {
+                        out.add(
+                            Triple(
+                                dx, dy,
+                                Triple(
+                                    (bgr[0] as Number).toInt(),
+                                    (bgr[1] as Number).toInt(),
+                                    (bgr[2] as Number).toInt(),
+                                ),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        return out
+    }
+
     private fun toJava(v: LuaValue): Any? = when {
         v.isnil() -> null
         v.isboolean() -> v.toboolean()

@@ -31,6 +31,20 @@ PRESETS: dict[str, dict[str, Any]] = {
             "perf": {"yolo_nnapi": True, "yolo_imgsz": 320},
         },
     },
+    "yolo_seg_fast": {
+        "label": "seg 极速（adb-ide → APK）",
+        "runtime": {
+            "yolo_auto_mask_center": True,
+            "perf": {
+                "yolo_nnapi": True,
+                "yolo_imgsz": 320,
+                "yolo_warmup": True,
+                "yolo_seg_fast": True,
+                "yolo_max_mask_decode": 1,
+                "capture_cache_ttl_ms": 80,
+            },
+        },
+    },
     "root_compat": {
         "label": "纯 root（兼容向）",
         "runtime": {

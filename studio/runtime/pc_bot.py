@@ -32,6 +32,7 @@ class PcBot:
         self.default_interval_ms = int(runtime.get("default_interval_ms", 300))
         self.default_yolo_conf = float(runtime.get("default_yolo_conf", 0.35))
         self.default_yolo_model = str(runtime.get("default_yolo_model") or "")
+        self.yolo_auto_mask_center = bool(runtime.get("yolo_auto_mask_center", False))
 
     def log(self, msg: str) -> None:
         self._on_log(str(msg))
@@ -83,6 +84,9 @@ class PcBot:
         o = self._opt(opts)
         threshold = self._float(o, "threshold", 0.9)
         timeout = self._float(o, "timeout", 20.0)
+        scale_min = self._float(o, "scale_min", 1.0)
+        scale_max = self._float(o, "scale_max", 1.0)
+        scale_step = self._float(o, "scale_step", 0.1)
         click = self._bool(o, "click", False)
         optional = self._bool(o, "optional", False)
         roi = roi_tuple(o)
@@ -97,7 +101,10 @@ class PcBot:
         deadline = time.time() + timeout
         while time.time() < deadline:
             frame = self._capture()
-            m = vision_pc.match_template(frame, template, threshold=threshold, roi=roi)
+            m = vision_pc.match_template(
+                frame, template, threshold=threshold, roi=roi,
+                scale_min=scale_min, scale_max=scale_max, scale_step=scale_step,
+            )
             if m is not None:
                 self.log(f"找图命中 {path} score={m.score:.3f}")
                 cx, cy = m.center_x + tap_dx, m.center_y + tap_dy
@@ -219,7 +226,7 @@ class PcBot:
             det = self._pick_yolo(dets, pick)
             if det is not None:
                 self.log(f"YOLO 命中 {det['class_name']} conf={det['confidence']:.2f}")
-                pt = self._yolo_click_point(det, frac)
+                pt = self._yolo_click_point(det, frac, self._resolve_use_mask_center(o, det))
                 x, y = pt[0] + tap_dx, pt[1] + tap_dy
                 if click:
                     if delay_before_click > 0:
@@ -249,7 +256,7 @@ class PcBot:
             dets = vision_pc.yolo_detect(frame, model, conf=conf, class_name=class_name, roi=roi)
             det = self._pick_yolo(dets, pick)
             if det is not None:
-                cx, cy = self._yolo_click_point(det, frac)
+                cx, cy = self._yolo_click_point(det, frac, self._resolve_use_mask_center(o, det))
                 if direction == "down":
                     x2, y2 = cx, cy + distance
                 elif direction == "left":
@@ -292,14 +299,109 @@ class PcBot:
         pol = policy.lower()
         if pol == "largest":
             return max(dets, key=lambda d: int(d.get("w", 0)) * int(d.get("h", 0)))
+        if pol == "largest_mask":
+            masked = [d for d in dets if d.get("has_mask")]
+            if masked:
+                return max(masked, key=lambda d: int(d.get("mask_area", 0)))
+            return max(dets, key=lambda d: int(d.get("w", 0)) * int(d.get("h", 0)))
         if pol == "nearest":
             return dets[0]
         return max(dets, key=lambda d: float(d.get("confidence", 0)))
 
     @staticmethod
-    def _yolo_click_point(det: dict[str, Any], frac: tuple[float, float]) -> tuple[int, int]:
+    def _yolo_click_point(
+        det: dict[str, Any],
+        frac: tuple[float, float],
+        use_mask_center: bool = False,
+    ) -> tuple[int, int]:
+        if use_mask_center and det.get("has_mask"):
+            return int(det["mask_center_x"]), int(det["mask_center_y"])
         fx = max(0.0, min(1.0, frac[0]))
         fy = max(0.0, min(1.0, frac[1]))
         x = int(det["x"]) + int(int(det["w"]) * fx)
         y = int(det["y"]) + int(int(det["h"]) * fy)
         return x, y
+
+    def _resolve_use_mask_center(self, opts: dict[str, Any], det: dict[str, Any]) -> bool:
+        if self._bool(opts, "use_box_center", False):
+            return False
+        if self._bool(opts, "use_mask_center", False):
+            return True
+        return self.yolo_auto_mask_center and bool(det.get("has_mask"))
+
+    def wait_gone_image(self, path: str, opts: Any = None) -> bool:
+        o = self._opt(opts)
+        threshold = self._float(o, "threshold", 0.92)
+        timeout = self._float(o, "timeout", 45.0)
+        roi = roi_tuple(o)
+        tpl_path = self.project_dir / path
+        template = cv2.imread(str(tpl_path))
+        if template is None:
+            raise FileNotFoundError(f"模板不存在: {path}")
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            frame = self._capture()
+            m = vision_pc.match_template(frame, template, threshold=threshold, roi=roi)
+            if m is None:
+                self.log(f"模板已消失 {path}")
+                return True
+            time.sleep(self.default_interval_ms / 1000.0)
+        if self._bool(o, "optional", False):
+            return False
+        raise RuntimeError(f"等待模板消失超时: {path}")
+
+    def wait_stable(self, opts: Any = None) -> bool:
+        o = self._opt(opts)
+        timeout = self._float(o, "timeout", 12.0)
+        max_diff = self._float(o, "max_mean_diff", 4.0)
+        samples = self._int(o, "stable_samples", 2)
+        deadline = time.time() + timeout
+        stable = 0
+        prev = None
+        while time.time() < deadline:
+            frame = self._capture()
+            if prev is not None:
+                diff = float(abs(frame.astype(int) - prev.astype(int)).mean())
+                if diff <= max_diff:
+                    stable += 1
+                    if stable >= samples:
+                        self.log("画面稳定")
+                        return True
+                else:
+                    stable = 0
+            prev = frame
+            time.sleep(self.default_interval_ms / 1000.0)
+        if self._bool(o, "optional", False):
+            return False
+        raise RuntimeError("等待画面稳定超时")
+
+    def find_multi_color(self, opts: Any = None) -> Optional[tuple[int, int]]:
+        o = self._opt(opts)
+        points_raw = o.get("points") or []
+        points: list[tuple[int, int, tuple[int, int, int]]] = []
+        for item in points_raw:
+            if isinstance(item, (list, tuple)) and len(item) >= 5:
+                points.append(
+                    (int(item[0]), int(item[1]), (int(item[2]), int(item[3]), int(item[4])))
+                )
+        if not points:
+            raise ValueError("find_multi_color 需要 opts.points")
+        tol = self._int(o, "tol", 12)
+        timeout = self._float(o, "timeout", 15.0)
+        click = self._bool(o, "click", False)
+        roi = roi_tuple(o)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            frame = self._capture()
+            pt = vision_pc.find_multi_point_color(frame, points, tol=tol, roi=roi)
+            if pt is not None:
+                if click:
+                    self.tap(pt[0], pt[1])
+                return pt
+            time.sleep(self.default_interval_ms / 1000.0)
+        if self._bool(o, "optional", False):
+            return None
+        raise RuntimeError("多点找色超时")
+
+    def trace(self, tag: str, msg: str) -> None:
+        self.log(f"[trace:{tag}] {msg}")

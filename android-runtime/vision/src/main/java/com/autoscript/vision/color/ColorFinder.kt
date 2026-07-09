@@ -48,6 +48,22 @@ object ColorFinder {
         return true
     }
 
+    fun findMultiPoint(
+        frame: ScreenFrame,
+        points: List<Triple<Int, Int, Triple<Int, Int, Int>>>,
+        tol: Int = 10,
+        roi: Rect? = null,
+    ): Pair<Int, Int>? {
+        if (points.isEmpty()) return null
+        val (x1, y1, x2, y2) = bounds(frame, roi)
+        for (y in y1 until y2) {
+            for (x in x1 until x2) {
+                if (multiPointCompare(frame, x, y, points, tol)) return x to y
+            }
+        }
+        return null
+    }
+
     private fun bounds(frame: ScreenFrame, roi: Rect?): List<Int> {
         if (roi == null) return listOf(0, 0, frame.width, frame.height)
         val r = roi.clamp(frame.width, frame.height)

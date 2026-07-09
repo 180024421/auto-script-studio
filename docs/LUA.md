@@ -29,14 +29,20 @@ lib/              # 可选 Lua 模块
 | `bot.yoloDetect(opts)` | YOLO 检测列表 |
 | `bot.findYolo(opts)` | 找 YOLO 目标并返回坐标 |
 | `bot.yoloSwipe(opts)` | 对 YOLO 目标滑动 |
+| `bot.waitGoneImage(path, opts)` | 等待模板消失 |
+| `bot.waitStable(opts)` | 等待画面稳定 |
+| `bot.findMultiColor(opts)` | 多点找色（opts.points） |
+| `bot.trace(tag, msg)` | 调试 trace 日志 |
 | `bot.log(msg)` | 写日志 |
 
 ### opts 常用字段
 
 - `timeout` 秒、`threshold`、`tol`、`click=true`
 - `optional=true` 找不到不抛错，返回 `nil`
+- 找图多尺度：`scale_min` / `scale_max` / `scale_step`（默认 1.0）
 - `findNode`: `text`, `id`, `match_mode`（`contains`/`equals`/`starts_with`）, `index`, `click`
-- YOLO: `model`, `class_name`, `conf`, `pick`, `frac={0.5,0.3}`, `tap_dx`/`tap_dy`, `delay_before_click`, `roi`
+- YOLO: `model`, `class_name`, `conf`, `pick`（含 `largest_mask`）, `frac`, `use_mask_center`, `use_box_center`
+- YOLO seg：`runtime.yolo_auto_mask_center=true` 时自动用掩码质心
 
 ### `bot.yoloDetect` 返回列表元素
 
@@ -49,12 +55,27 @@ lib/              # 可选 Lua 模块
 | `x`, `y` | int | 框左上角 |
 | `w`, `h` | int | 框宽高 |
 | `center_x`, `center_y` | int | 框中心点 |
+| `has_mask` | bool | 是否为 seg 掩码结果（detect 模型恒为 `false`） |
+| `mask_center_x`, `mask_center_y` | int | 掩码质心（仅 `has_mask=true`） |
+| `mask_area` | int | 掩码前景像素数（仅 `has_mask=true`） |
 
 ```lua
 local dets = bot.yoloDetect({ model = "models/ui.onnx", class_name = "hand" })
 for _, d in ipairs(dets) do
-  bot.log(d.class_name .. " " .. d.confidence .. " @ " .. d.center_x)
+  if d.has_mask then
+    bot.log(d.class_name .. " mask@" .. d.mask_center_x .. "," .. d.mask_center_y)
+  else
+    bot.log(d.class_name .. " box@" .. d.center_x)
+  end
 end
+
+-- seg 模型：点击掩码中心而非框中心
+local x, y = bot.findYolo({
+  model = "models/ui-seg.onnx",
+  class_name = "hand",
+  use_mask_center = true,
+  click = true,
+})
 ```
 
 ### 工程 `models/` 目录

@@ -8,9 +8,11 @@ import com.autoscript.core.model.Detection
 import com.autoscript.core.model.Rect
 import com.autoscript.core.project.ProjectConfig
 import com.autoscript.core.script.ScriptCancelToken
+import com.autoscript.core.script.ScriptTrace
 import com.autoscript.script.parseBgr
 import com.autoscript.vision.VisionEngine
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 
 /**
  * Lua 与 YAML 引擎共用的自动化能力（suspend）。
@@ -55,14 +57,21 @@ class AutoScriptBridge(
         val roi = LuaOpts.roi(opts)
         val tapDx = LuaOpts.int(opts, "tap_dx", 0)
         val tapDy = LuaOpts.int(opts, "tap_dy", 0)
+        val step = LuaOpts.int(opts, "step", 2)
+        val scaleMin = LuaOpts.float(opts, "scale_min", 1f)
+        val scaleMax = LuaOpts.float(opts, "scale_max", 1f)
+        val scaleStep = LuaOpts.float(opts, "scale_step", 0.1f)
         val interval = config.defaultIntervalMs.toLong()
         val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
         while (System.currentTimeMillis() < deadline) {
             ScriptCancelToken.check()
             val frame = captureCache.getOrCapture { backend.capture() }
-            val m = vision.findTemplate(frame, path, threshold, roi)
+            val m = vision.findTemplate(
+                frame, path, threshold, roi, step, scaleMin, scaleMax, scaleStep,
+            )
             if (m != null) {
                 onLog("找图命中 $path score=${m.score}")
+                ScriptTrace.trace("findImage", "$path @ (${m.centerX},${m.centerY}) score=${m.score}")
                 val cx = m.centerX + tapDx
                 val cy = m.centerY + tapDy
                 if (click) backend.tap(cx, cy)
@@ -73,6 +82,55 @@ class AutoScriptBridge(
         captureCache.invalidate()
         if (LuaOpts.bool(opts, "optional", false)) return null
         throw IllegalStateException("找图超时: $path")
+    }
+
+    suspend fun waitGoneImage(path: String, opts: Map<String, Any?>): Boolean {
+        val threshold = LuaOpts.float(opts, "threshold", 0.92f)
+        val timeout = LuaOpts.float(opts, "timeout", 45f)
+        val roi = LuaOpts.roi(opts)
+        val step = LuaOpts.int(opts, "step", 2)
+        val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
+        while (System.currentTimeMillis() < deadline) {
+            ScriptCancelToken.check()
+            val frame = captureCache.getOrCapture { backend.capture() }
+            val m = vision.findTemplate(frame, path, threshold, roi, step)
+            if (m == null) {
+                onLog("模板已消失 $path")
+                ScriptTrace.trace("waitGone", "gone $path")
+                return true
+            }
+            delay(config.defaultIntervalMs.toLong())
+        }
+        if (LuaOpts.bool(opts, "optional", false)) return false
+        throw IllegalStateException("等待模板消失超时: $path")
+    }
+
+    suspend fun waitStable(opts: Map<String, Any?>): Boolean {
+        val timeout = LuaOpts.float(opts, "timeout", 12f)
+        val maxDiff = LuaOpts.float(opts, "max_mean_diff", 4f)
+        val samples = LuaOpts.int(opts, "stable_samples", 2)
+        val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
+        var stable = 0
+        var prev: ByteArray? = null
+        while (System.currentTimeMillis() < deadline) {
+            ScriptCancelToken.check()
+            val frame = captureCache.getOrCapture { backend.capture() }
+            val cur = frame.bgr
+            if (prev != null && meanDiff(prev, cur) <= maxDiff) {
+                stable++
+                if (stable >= samples) {
+                    onLog("画面稳定")
+                    ScriptTrace.trace("waitStable", "stable")
+                    return true
+                }
+            } else {
+                stable = 0
+            }
+            prev = if (frame.sharedBuffer) frame.bgr.copyOf() else frame.bgr
+            delay(config.defaultIntervalMs.toLong())
+        }
+        if (LuaOpts.bool(opts, "optional", false)) return false
+        throw IllegalStateException("等待画面稳定超时")
     }
 
     suspend fun findColor(b: Int, g: Int, r: Int, opts: Map<String, Any?>): Pair<Int, Int>? {
@@ -105,6 +163,47 @@ class AutoScriptBridge(
     suspend fun findColorBgr(bgr: List<*>, opts: Map<String, Any?>): Pair<Int, Int>? {
         val t = parseBgr(bgr)
         return findColor(t.first, t.second, t.third, opts)
+    }
+
+    suspend fun findMultiColor(points: List<Triple<Int, Int, Triple<Int, Int, Int>>>, opts: Map<String, Any?>): Pair<Int, Int>? {
+        if (points.isEmpty()) throw IllegalArgumentException("points 不能为空")
+        val tol = LuaOpts.int(opts, "tol", 12)
+        val timeout = LuaOpts.float(opts, "timeout", 15f)
+        val click = LuaOpts.bool(opts, "click", false)
+        val roi = LuaOpts.roi(opts)
+        val tapDx = LuaOpts.int(opts, "tap_dx", 0)
+        val tapDy = LuaOpts.int(opts, "tap_dy", 0)
+        val deadline = System.currentTimeMillis() + (timeout * 1000).toLong()
+        while (System.currentTimeMillis() < deadline) {
+            ScriptCancelToken.check()
+            val frame = captureCache.getOrCapture { backend.capture() }
+            val pt = vision.findMultiPointColor(frame, points, tol, roi)
+            if (pt != null) {
+                onLog("多点找色命中 $pt")
+                val x = pt.first + tapDx
+                val y = pt.second + tapDy
+                if (click) backend.tap(x, y)
+                return x to y
+            }
+            delay(config.defaultIntervalMs.toLong())
+        }
+        captureCache.invalidate()
+        if (LuaOpts.bool(opts, "optional", false)) return null
+        throw IllegalStateException("多点找色超时")
+    }
+
+    suspend fun trace(tag: String, msg: String) {
+        ScriptTrace.trace(tag, msg)
+    }
+
+    suspend fun warmupYolo() {
+        val model = config.defaultYoloModel ?: return
+        if (!config.perf.yoloWarmup) return
+        runCatching {
+            val frame = backend.capture()
+            vision.yoloDetect(frame, model, 0.99f, "", null)
+            onLog("YOLO 预热完成: $model")
+        }.onFailure { onLog("YOLO 预热跳过: ${it.message}") }
     }
 
     suspend fun findText(target: String, opts: Map<String, Any?>): Pair<Int, Int>? {
@@ -186,11 +285,24 @@ class AutoScriptBridge(
         val className = LuaOpts.str(opts, "class_name", "")
         val conf = LuaOpts.float(opts, "conf", config.defaultYoloConf)
         val roi = LuaOpts.roi(opts)
+        val maskMax = LuaOpts.int(opts, "mask_decode_max", config.perf.yoloMaxMaskDecode)
         val t0 = System.nanoTime()
         val frame = captureCache.getOrCapture { backend.capture() }
-        val dets = vision.yoloDetect(frame, model, conf, className, roi)
+        val dets = vision.yoloDetect(frame, model, conf, className, roi, maxMaskDecode = maskMax)
         PerfMonitor.recordYolo((System.nanoTime() - t0) / 1_000_000)
         return dets
+    }
+
+    private fun resolveMaskDecodeMax(opts: Map<String, Any?>, pick: String): Int {
+        if (LuaOpts.int(opts, "mask_decode_max", -1) >= 0) {
+            return LuaOpts.int(opts, "mask_decode_max", config.perf.yoloMaxMaskDecode)
+        }
+        val wantMask = LuaOpts.bool(opts, "use_mask_center", false) || config.yoloAutoMaskCenter
+        return when {
+            pick == "largest_mask" -> maxOf(5, config.perf.yoloMaxMaskDecode)
+            wantMask -> if (config.perf.yoloSegFast) 1 else config.perf.yoloMaxMaskDecode
+            else -> 0
+        }
     }
 
     suspend fun findYolo(opts: Map<String, Any?>): Pair<Int, Int>? {
@@ -209,11 +321,19 @@ class AutoScriptBridge(
         while (System.currentTimeMillis() < deadline) {
             ScriptCancelToken.check()
             val frame = captureCache.getOrCapture { backend.capture() }
-            val dets = vision.yoloDetect(frame, model, conf, className, roi)
+            val dets = vision.yoloDetect(
+                frame,
+                model,
+                conf,
+                className,
+                roi,
+                maxMaskDecode = resolveMaskDecodeMax(opts, pick),
+            )
             val det = vision.pickYolo(dets, pick, null)
             if (det != null) {
+                val useMaskCenter = resolveUseMaskCenter(opts, det)
                 onLog("YOLO 命中 ${det.className} conf=${det.confidence}")
-                val pt = vision.yoloClickPoint(det, frac)
+                val pt = vision.yoloClickPoint(det, frac, useMaskCenter)
                 val x = pt.first + tapDx
                 val y = pt.second + tapDy
                 if (click) {
@@ -243,10 +363,18 @@ class AutoScriptBridge(
         while (System.currentTimeMillis() < deadline) {
             ScriptCancelToken.check()
             val frame = captureCache.getOrCapture { backend.capture() }
-            val dets = vision.yoloDetect(frame, model, conf, className, roi)
+            val dets = vision.yoloDetect(
+                frame,
+                model,
+                conf,
+                className,
+                roi,
+                maxMaskDecode = resolveMaskDecodeMax(opts, pick),
+            )
             val det = vision.pickYolo(dets, pick, null)
             if (det != null) {
-                val (cx, cy) = vision.yoloClickPoint(det, frac)
+                val useMaskCenter = resolveUseMaskCenter(opts, det)
+                val (cx, cy) = vision.yoloClickPoint(det, frac, useMaskCenter)
                 val (x2, y2) = when (direction) {
                     "down" -> cx to (cy + distance)
                     "left" -> (cx - distance) to cy
@@ -260,6 +388,23 @@ class AutoScriptBridge(
             delay(config.defaultIntervalMs.toLong())
         }
         throw IllegalStateException("YOLO 滑动超时: class=$className")
+    }
+
+    private fun resolveUseMaskCenter(opts: Map<String, Any?>, det: Detection): Boolean {
+        if (LuaOpts.bool(opts, "use_box_center", false)) return false
+        if (LuaOpts.bool(opts, "use_mask_center", false)) return true
+        return config.yoloAutoMaskCenter && det.hasMask
+    }
+
+    private fun meanDiff(a: ByteArray, b: ByteArray): Float {
+        val n = minOf(a.size, b.size) / 3
+        if (n == 0) return 0f
+        var sum = 0f
+        for (i in 0 until n) {
+            val j = i * 3
+            sum += abs((a[j].toInt() and 0xFF) - (b[j].toInt() and 0xFF))
+        }
+        return sum / n
     }
 
     private fun resolveModel(opts: Map<String, Any?>): String {

@@ -35,10 +35,17 @@ def find_image(
     timeout: float = 15,
     roi: Optional[Sequence[int]] = None,
     click: bool = False,
+    scale_min: float = 1.0,
+    scale_max: float = 1.0,
+    scale_step: float = 0.1,
 ) -> str:
     opts: list[str] = [f"threshold = {threshold}", f"timeout = {timeout}"]
     if roi:
         opts.append(f"roi = {{{roi[0]}, {roi[1]}, {roi[2]}, {roi[3]}}}")
+    if abs(scale_min - 1.0) > 0.001 or abs(scale_max - 1.0) > 0.001:
+        opts.append(f"scale_min = {scale_min}")
+        opts.append(f"scale_max = {scale_max}")
+        opts.append(f"scale_step = {scale_step}")
     if click:
         opts.append("click = true")
     ol = _opts_literal(opts)
@@ -88,6 +95,7 @@ def _yolo_opts_parts(
     roi: Optional[Sequence[int]] = None,
     frac: Optional[tuple[float, float]] = None,
     optional: bool = False,
+    use_mask_center: bool = False,
 ) -> list[str]:
     safe_model = model.replace("\\", "\\\\").replace('"', '\\"')
     opts: list[str] = [
@@ -105,6 +113,8 @@ def _yolo_opts_parts(
         opts.append(f"frac = {{{frac[0]}, {frac[1]}}}")
     if optional:
         opts.append("optional = true")
+    if use_mask_center:
+        opts.append("use_mask_center = true")
     return opts
 
 
@@ -176,6 +186,7 @@ def find_yolo(
     delay_before_click: float = 0.0,
     click: bool = False,
     optional: bool = False,
+    use_mask_center: bool = False,
 ) -> str:
     use_inline_click = click and tap_dx == 0 and tap_dy == 0 and delay_before_click <= 0
     opts = _yolo_opts_parts(
@@ -187,6 +198,7 @@ def find_yolo(
         roi=roi,
         frac=frac,
         optional=optional,
+        use_mask_center=use_mask_center,
     )
     if use_inline_click:
         opts.append("click = true")
@@ -218,6 +230,7 @@ def yolo_swipe(
     direction: str = "up",
     distance: int = 400,
     duration_ms: int = 350,
+    use_mask_center: bool = False,
 ) -> str:
     opts = _yolo_opts_parts(
         model,
@@ -227,11 +240,67 @@ def yolo_swipe(
         pick=pick,
         roi=roi,
         frac=frac,
+        use_mask_center=use_mask_center,
     )
     opts.append(f'direction = "{direction}"')
     opts.append(f"distance = {int(distance)}")
     opts.append(f"duration_ms = {int(duration_ms)}")
     return f"bot.yoloSwipe({_opts_literal(opts)})"
+
+
+def find_multi_color(
+    points: Sequence[tuple[int, int, Sequence[int]]],
+    *,
+    tol: int = 15,
+    timeout: float = 10,
+    roi: Optional[Sequence[int]] = None,
+    click: bool = False,
+) -> str:
+    """points: (dx, dy, (b,g,r)) 相对锚点偏移。"""
+    pt_lines = []
+    for dx, dy, bgr in points:
+        b, g, r = int(bgr[0]), int(bgr[1]), int(bgr[2])
+        pt_lines.append(f"    {{{dx}, {dy}, {{{b}, {g}, {r}}}}},")
+    pts_block = "{\n" + "\n".join(pt_lines) + "\n  }"
+    opts: list[str] = [f"points = {pts_block}", f"tol = {tol}", f"timeout = {timeout}"]
+    if roi:
+        opts.append(f"roi = {{{roi[0]}, {roi[1]}, {roi[2]}, {roi[3]}}}")
+    if click:
+        opts.append("click = true")
+    return (
+        f"local mx, my = bot.findMultiColor({_opts_literal(opts)})\n"
+        f"if mx then bot.log(string.format('多点找色 (%d,%d)', mx, my)) end"
+    )
+
+
+def wait_gone_image(
+    template_path: str,
+    *,
+    threshold: float = 0.9,
+    timeout: float = 30,
+    roi: Optional[Sequence[int]] = None,
+) -> str:
+    opts: list[str] = [f"threshold = {threshold}", f"timeout = {timeout}"]
+    if roi:
+        opts.append(f"roi = {{{roi[0]}, {roi[1]}, {roi[2]}, {roi[3]}}}")
+    return f'bot.waitGoneImage("{template_path}", {_opts_literal(opts)})'
+
+
+def wait_stable(
+    *,
+    timeout: float = 15,
+    stable_frames: int = 3,
+    diff_threshold: float = 8,
+    roi: Optional[Sequence[int]] = None,
+) -> str:
+    opts: list[str] = [
+        f"timeout = {timeout}",
+        f"stable_frames = {stable_frames}",
+        f"diff_threshold = {diff_threshold}",
+    ]
+    if roi:
+        opts.append(f"roi = {{{roi[0]}, {roi[1]}, {roi[2]}, {roi[3]}}}")
+    return f"bot.waitStable({_opts_literal(opts)})"
 
 
 def tap(x: int, y: int) -> str:

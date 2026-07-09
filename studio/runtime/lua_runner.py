@@ -81,6 +81,10 @@ def install_bot(lua, bot) -> None:
             "yoloDetect": yolo_detect,
             "findYolo": find_yolo,
             "yoloSwipe": yolo_swipe,
+            "waitGoneImage": lambda path, opts=None: bot.wait_gone_image(str(path), table_to_dict(opts)),
+            "waitStable": lambda opts=None: bot.wait_stable(table_to_dict(opts)),
+            "findMultiColor": lambda opts=None: _ret_point(bot.find_multi_color(table_to_dict(opts))),
+            "trace": lambda tag, msg: bot.trace(str(tag), str(msg)),
             "log": log,
             "__logRaw": log_raw,
         }

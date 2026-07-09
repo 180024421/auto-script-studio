@@ -40,10 +40,14 @@ from studio.services import vision_pc
 from studio.services.layout_defaults import load_layout
 from studio.services.canvas_overlay import (
     paint_crosshair,
+    paint_mask_centers,
     paint_match_boxes,
     paint_ocr_hits,
     paint_point_markers,
 )
+from studio.services.action_recorder import ActionRecorder
+from studio.services.device_profile import save_profile
+from studio.services.training_export import export_yolo_sample
 from studio.services.project_images import (
     image_rel_path,
     list_images,
@@ -81,6 +85,7 @@ class ScreenshotLabel(QLabel):
         self._ocr_hits: list[Any] = []
         self._match_boxes: list[dict[str, Any]] = []
         self._point_markers: list[dict[str, Any]] = []
+        self._mask_markers: list[dict[str, Any]] = []
         self._highlight_xy: Optional[Tuple[int, int]] = None
         self._overlay_layout: Optional[dict[str, Any]] = None
         self._overlay_enabled = False
@@ -103,6 +108,10 @@ class ScreenshotLabel(QLabel):
         self._match_boxes = boxes or []
         self._paint_overlay()
 
+    def set_mask_markers(self, markers: list[dict[str, Any]]) -> None:
+        self._mask_markers = markers or []
+        self._paint_overlay()
+
     def set_point_markers(self, markers: list[dict[str, Any]]) -> None:
         self._point_markers = markers or []
         self._paint_overlay()
@@ -111,6 +120,7 @@ class ScreenshotLabel(QLabel):
         self._ocr_hits = []
         self._match_boxes = []
         self._point_markers = []
+        self._mask_markers = []
         self._paint_overlay()
 
     def set_image(self, bgr: np.ndarray) -> None:
@@ -186,6 +196,8 @@ class ScreenshotLabel(QLabel):
             paint_ocr_hits(painter, self._ocr_hits, self._scale)
         if self._point_markers:
             paint_point_markers(painter, self._point_markers, self._scale)
+        if self._mask_markers:
+            paint_mask_centers(painter, self._mask_markers, self._scale)
         if self._highlight_xy:
             paint_crosshair(painter, self._highlight_xy[0], self._highlight_xy[1], self._scale)
         if (
@@ -280,6 +292,8 @@ class GrabWidget(QWidget):
         self._color_records: list[dict[str, Any]] = []
         self._color_record_seq = 0
         self._last_yolo_dets: list[dict[str, Any]] = []
+        self._action_recorder = ActionRecorder()
+        self._record_swipe_start: Optional[Tuple[int, int]] = None
         self.pick_panel_btn = QPushButton()
         self.pick_panel_btn.hide()
         self.pick_tap_btn = QPushButton()
@@ -391,6 +405,7 @@ class GrabWidget(QWidget):
         p.copy_script.connect(self.copy_lua)
         p.insert_script.connect(self.insert_lua_to_editor)
         p.copy_color_script.connect(self.copy_color_script)
+        p.copy_multi_color_script.connect(self.copy_multi_color_script)
         p.copy_template_script.connect(self.copy_template_script)
         p.copy_text_script.connect(self.copy_text_script)
         p.copy_tap_script.connect(self.copy_tap_script)
@@ -399,6 +414,12 @@ class GrabWidget(QWidget):
         p.copy_yolo_detect_script.connect(self.copy_yolo_detect_script)
         p.copy_find_yolo_script.connect(self.copy_find_yolo_script)
         p.copy_yolo_swipe_script.connect(self.copy_yolo_swipe_script)
+        p.export_yolo_training.connect(self.export_yolo_training_sample)
+        p.export_dataset_yaml.connect(self.export_dataset_yaml)
+        p.start_action_record.connect(self.start_action_record)
+        p.stop_action_record.connect(self.stop_action_record)
+        p.copy_action_record.connect(self.copy_action_record_script)
+        p.save_device_profile.connect(self.save_device_profile)
         p.add_color_record.connect(self.add_color_record)
         p.delete_color_record.connect(self.delete_color_records)
         p.import_template.connect(self.import_template_file)
@@ -580,6 +601,7 @@ class GrabWidget(QWidget):
             delay_before_click=params["delay_before_click"] if params.get("click") else 0.0,
             click=bool(params.get("click")),
             optional=True,
+            use_mask_center=bool(params.get("use_mask_center")),
         )
         tip = "已生成 findYolo（含点击）脚本" if params.get("click") else "已生成 findYolo 脚本"
         self._prepare_script(snippet, tip)
@@ -602,6 +624,7 @@ class GrabWidget(QWidget):
             direction=params["direction"],
             distance=params["distance"],
             duration_ms=params["duration_ms"],
+            use_mask_center=bool(params.get("use_mask_center")),
         )
         self._prepare_script(snippet, f"已生成 yoloSwipe 脚本: {class_name}")
 
@@ -744,7 +767,11 @@ class GrabWidget(QWidget):
             png = self._adb.capture_png(self._serial() or None)
             self._screen = vision_pc.decode_png(png)
             self.canvas.set_image(self._screen)
-            msg = f"截图成功 {self._screen.shape[1]}x{self._screen.shape[0]}"
+            h, w = self._screen.shape[:2]
+            project = self._project_dir_getter()
+            if project:
+                save_profile(Path(project), serial=self._serial() or "", width=w, height=h)
+            msg = f"截图成功 {w}x{h}"
             self._log(msg)
         except Exception as exc:
             QMessageBox.warning(self, "截图失败", str(exc))
@@ -819,6 +846,19 @@ class GrabWidget(QWidget):
             self._clear_pick_modes()
             return
         if self._pick_mode:
+            if self._action_recorder.recording:
+                if self._pick_mode == "swipe1":
+                    self._record_swipe_start = (x, y)
+                    self._log(f"录制滑动起点: ({x}, {y})，请拾取终点")
+                    self._pick_mode = "swipe2"
+                    return
+                if self._pick_mode == "swipe2" and self._record_swipe_start:
+                    x1, y1 = self._record_swipe_start
+                    self._action_recorder.swipe(x1, y1, x, y)
+                    self._record_swipe_start = None
+                    self._log(f"录制滑动: ({x1},{y1})→({x},{y})")
+                    self._clear_pick_modes()
+                    return
             self.button_coords_picked.emit(x, y, self._pick_mode)
             self.log_message.emit(f"已拾取 {self._pick_mode}: ({x}, {y})")
             self._clear_pick_modes()
@@ -915,6 +955,24 @@ class GrabWidget(QWidget):
         self.insert_lua.emit(text)
         self._log("已请求插入到脚本页")
 
+    def copy_multi_color_script(self) -> None:
+        if len(self._color_records) < 2:
+            QMessageBox.warning(self, "提示", "请先在颜色 Tab 记入至少 2 条颜色记录")
+            return
+        base = self._color_records[0]
+        bx, by = base["x"], base["y"]
+        bb, bg, br = base["bgr"]
+        points: list[tuple[int, int, tuple[int, int, int]]] = [(0, 0, (bb, bg, br))]
+        for rec in self._color_records[1:]:
+            dx = rec["x"] - bx
+            dy = rec["y"] - by
+            b, g, r = rec["bgr"]
+            points.append((dx, dy, (b, g, r)))
+        tol = self._parse_int(self.tol_edit.text(), 15)
+        roi = self.canvas.selection()
+        snippet = lua_snippets.find_multi_color(points, tol=tol, roi=roi)
+        self._prepare_script(snippet, f"已生成多点找色脚本（{len(points)} 点）")
+
     def copy_color_script(self) -> None:
         if self._picked_bgr is None:
             QMessageBox.warning(self, "提示", "请先截图并移动鼠标取色")
@@ -936,7 +994,10 @@ class GrabWidget(QWidget):
         _, rel = picked
         roi = self.canvas.selection()
         threshold = self._parse_float(self.threshold_edit.text(), 0.9)
-        snippet = lua_snippets.find_image(rel, threshold=threshold, roi=roi)
+        smin, smax, sstep = self._panel.scale_params()
+        snippet = lua_snippets.find_image(
+            rel, threshold=threshold, roi=roi, scale_min=smin, scale_max=smax, scale_step=sstep
+        )
         self._prepare_script(snippet, f"已生成找图脚本: {rel}")
 
     def copy_text_script(self) -> None:
@@ -965,6 +1026,7 @@ class GrabWidget(QWidget):
             return
         try:
             self._adb.tap(serial, x, y)
+            self._action_recorder.tap(x, y)
             self.canvas.set_point_markers([{"x": x, "y": y, "label": f"tap ({x},{y})"}])
             self._log(f"ADB 点击成功: ({x}, {y})")
             QMessageBox.information(self, "ADB 点击", f"已向设备发送点击 ({x}, {y})")
@@ -1063,7 +1125,16 @@ class GrabWidget(QWidget):
         tpl, label = picked
         threshold = self._parse_float(self.threshold_edit.text(), 0.85)
         roi = self.canvas.selection()
-        m = vision_pc.match_template(self._screen, tpl, threshold=threshold, roi=roi)
+        smin, smax, sstep = self._panel.scale_params()
+        m = vision_pc.match_template(
+            self._screen,
+            tpl,
+            threshold=threshold,
+            roi=roi,
+            scale_min=smin,
+            scale_max=smax,
+            scale_step=sstep,
+        )
         if m:
             self.canvas.set_match_boxes(
                 [
@@ -1082,7 +1153,9 @@ class GrabWidget(QWidget):
             self._log(f"找图命中: {label} score={m.score:.3f} @ ({m.center_x},{m.center_y})")
             if roi:
                 self._log(f"  搜索范围 ROI={roi}")
-            snippet = lua_snippets.find_image(label, threshold=threshold, roi=roi)
+            snippet = lua_snippets.find_image(
+                label, threshold=threshold, roi=roi, scale_min=smin, scale_max=smax, scale_step=sstep
+            )
             self._prepare_script(snippet, f"找图命中，已生成脚本: {label}")
             QMessageBox.information(
                 self,
@@ -1184,6 +1257,9 @@ class GrabWidget(QWidget):
         class_name = self._panel.yolo_class_name()
         params = self._panel.yolo_params()
         roi = self.canvas.selection()
+        import time
+
+        t0 = time.perf_counter()
         try:
             dets = vision_pc.yolo_detect(
                 self._screen,
@@ -1196,20 +1272,56 @@ class GrabWidget(QWidget):
             QMessageBox.warning(self, "YOLO", str(exc))
             self._log(f"YOLO 失败: {exc}")
             return
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
         self._last_yolo_dets = dets
         self.refresh_yolo_classes()
+        rel = yolo_model_rel_path(Path(project), path)
+        if self._action_recorder.recording and dets:
+            self._action_recorder.find_yolo(
+                rel,
+                class_name=class_name or str(dets[0].get("class_name") or ""),
+                conf=params["conf"],
+                use_mask_center=params.get("use_mask_center", False),
+            )
+            self._log("录制：已加入 findYolo 步骤")
         markers = [
             {"x": d["center_x"], "y": d["center_y"], "label": f"{d['class_name']} {d['confidence']:.2f}"}
             for d in dets[:20]
         ]
+        mask_markers = [
+            {
+                "x": d["mask_center_x"],
+                "y": d["mask_center_y"],
+                "label": f"mask {d['class_name']}",
+            }
+            for d in dets
+            if d.get("has_mask")
+        ][:20]
         boxes = [
             {"x": d["x"], "y": d["y"], "w": d["w"], "h": d["h"], "label": d["class_name"]}
             for d in dets[:20]
         ]
         self.canvas.set_match_boxes(boxes)
         self.canvas.set_point_markers(markers)
-        rel = yolo_model_rel_path(Path(project), path)
-        self._log(f"YOLO {path.name} 检出 {len(dets)} 个（class={class_name or '全部'}）")
+        self.canvas.set_mask_markers(mask_markers)
+        cfg_path = Path(project) / "project.json"
+        apk_hint = ""
+        if cfg_path.is_file():
+            import json
+
+            try:
+                perf = (json.loads(cfg_path.read_text(encoding="utf-8")).get("runtime") or {}).get("perf") or {}
+                imgsz = int(perf.get("yolo_imgsz") or 320)
+                nnapi = bool(perf.get("yolo_nnapi", True))
+                seg_fast = bool(perf.get("yolo_seg_fast", False))
+                apk_hint = f" | APK 参考: imgsz={imgsz} NNAPI={'开' if nnapi else '关'}"
+                if seg_fast:
+                    apk_hint += " seg_fast=开"
+            except Exception:
+                pass
+        self._log(
+            f"YOLO {path.name} 检出 {len(dets)} 个，PC 耗时 {elapsed_ms}ms{apk_hint}（class={class_name or '全部'}）"
+        )
         for d in dets[:12]:
             self._log(
                 f"  {d['class_name']} {d['confidence']:.2f} @ ({d['center_x']},{d['center_y']})"
@@ -1221,3 +1333,69 @@ class GrabWidget(QWidget):
             QMessageBox.information(self, "YOLO", "未检出目标，可降低置信度或调整 ROI")
             return
         QMessageBox.information(self, "YOLO", f"检出 {len(dets)} 个目标，类别已刷新到下拉框")
+
+    def export_dataset_yaml(self) -> None:
+        project = self._project_dir_getter()
+        if not project:
+            QMessageBox.warning(self, "提示", "请先打开工程")
+            return
+        from studio.services.dataset_yaml import write_data_yaml
+
+        path = self._current_yolo_model_path()
+        names = load_class_names(path) if path else []
+        try:
+            out = write_data_yaml(Path(project), class_names=names or None)
+            self._log(f"已生成 {out.relative_to(project)}")
+            QMessageBox.information(
+                self,
+                "完成",
+                f"已写入:\n{out}\n\n可在 adb-ide 中指定该 data.yaml 继续训练 seg。",
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "失败", str(exc))
+
+    def export_yolo_training_sample(self) -> None:
+        project = self._project_dir_getter()
+        if not project or self._screen is None:
+            QMessageBox.warning(self, "提示", "请先打开工程并截图检测")
+            return
+        if not self._last_yolo_dets:
+            QMessageBox.warning(self, "提示", "请先运行 YOLO 检测")
+            return
+        path = self._current_yolo_model_path()
+        names = load_class_names(path) if path else []
+        try:
+            out = export_yolo_sample(Path(project), self._screen, self._last_yolo_dets, class_names=names)
+            self._log(f"已导出训练样本: {out.name}")
+            QMessageBox.information(self, "导出成功", f"已保存到 dataset/\n{out.name}")
+        except Exception as exc:
+            QMessageBox.warning(self, "导出失败", str(exc))
+
+    def start_action_record(self) -> None:
+        self._action_recorder.start()
+        self._log("动作录制已开始")
+
+    def stop_action_record(self) -> None:
+        self._action_recorder.stop()
+        self._log(f"动作录制已停止，共 {len(self._action_recorder.actions)} 步")
+
+    def copy_action_record_script(self) -> None:
+        if not self._action_recorder.actions:
+            QMessageBox.warning(self, "提示", "无录制动作，请先开始录制并执行点击")
+            return
+        self._prepare_script(self._action_recorder.to_lua(), "已生成录制脚本")
+
+    def save_device_profile(self) -> None:
+        project = self._project_dir_getter()
+        if not project:
+            QMessageBox.warning(self, "提示", "请先打开工程")
+            return
+        w = h = 0
+        if self._screen is not None:
+            h, w = self._screen.shape[:2]
+        prof = save_profile(Path(project), serial=self._serial() or "", width=w, height=h)
+        from studio.services.device_profile import sync_to_project_json
+
+        sync_to_project_json(Path(project))
+        self._log(f"已保存设备 Profile: {prof.get('serial') or '-'} {w}x{h}")
+        QMessageBox.information(self, "Profile", "已写入 .studio/device_profile.json 并同步 project.json")

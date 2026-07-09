@@ -42,6 +42,13 @@ data class Detection(
     val className: String,
     val confidence: Float,
     val rect: Rect,
+    /** YOLO-seg 模型是否成功解码出实例掩码 */
+    val hasMask: Boolean = false,
+    /** 掩码质心（屏幕坐标），不规则目标比框中心更准 */
+    val maskCenterX: Int? = null,
+    val maskCenterY: Int? = null,
+    /** 掩码前景像素数（屏幕坐标下采样统计） */
+    val maskArea: Int = 0,
 )
 
 data class TextHit(

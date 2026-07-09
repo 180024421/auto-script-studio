@@ -22,15 +22,19 @@
 ## 下一步
 
 ### P1 — 体验
-- [x] 实机 free 布局拖动保存（APK 设计模式：`FreeOverlayDesignFrame` + `LayoutEditorOps.setWidgetRect`）
-- [x] Studio 展示模式 UI、布局修复手动化、PC/Android 坐标与表单行对齐
-- [x] 打包 layout 校验、minimal 预览、实机覆盖拉取、主题/几何对齐
+- [x] Studio seg：use_mask_center UI、掩码质心可视化、训练样本导出
+- [x] 动作录制 → Lua、设备 Profile、YOLO 模型类型展示
+- [x] adb-ide 导入桥接、多点找色/多尺度找图 UI、指令工具箱补全
+- [x] 训练样本 seg 格式 + dataset/data.yaml
 - [ ] SCC Web UI 集成 jiaoben 发版按钮
 - [ ] Android 双指捏合缩放面板
 
 ### P2 — 性能
+- [x] YOLO 预热、seg 掩码解码优化、NNAPI 失败回退 CPU
+- [x] LuaBridgeRunner 协程桥接（减少裸 runBlocking）
+- [x] YOLO 分项耗时（截屏 vs 纯推理）、bench_yolo.py
+- [x] NCNN 导出 + 运行占位（回退 ONNX）
 - [ ] OpenCV Mobile NDK 加速大模板（可选）
-- [ ] Lua 协程桥接（减少 runBlocking）
 
 ### P3 — 生态
 - [ ] script-control-center 远程调度 + 目标脚本版本
