@@ -1,33 +1,175 @@
 {
+  "version": 4,
   "enabled": true,
   "panel": {
-    "title": "钉钉提醒",
-    "columns": 1,
-    "show_log": true,
-    "active_screen": 0
+    "title": "攻城掠地手机助手",
+    "theme": "green",
+    "layout_mode": "free",
+    "design_width": 720,
+    "design_height": 1280,
+    "active_screen": 1,
+    "width_mode": "auto",
+    "width_dp": 360,
+    "height_mode": "wrap",
+    "display_mode": "host",
+    "auto_collapse_idle_ms": 0,
+    "show_on_launch": false,
+    "opacity": 0.5,
+    "position": "left_center",
+    "start_x": 0,
+    "start_y": 0,
+    "columns": 2,
+    "ball_size_dp": 32,
+    "show_log": false,
+    "log_height_dp": 96,
+    "draggable": true,
+    "collapsible": true,
+    "allow_design": true,
+    "start_confirm_collapse": true,
+    "height_dp": 1280
   },
-  "buttons": [
-    {
-      "type": "start_script",
-      "label": "现在打开钉钉",
-      "color": "#1677FF"
-    },
-    {
-      "type": "stop_script",
-      "label": "停止",
-      "color": "#E53935"
-    }
-  ],
   "screens": [
     {
-      "title": "标签页1",
-      "widgets": []
+      "title": "账号登录",
+      "widgets": [
+        {
+          "id": "w_1",
+          "type": "text",
+          "text": "",
+          "text_style": "title",
+          "layout_x": 24,
+          "layout_y": 24,
+          "layout_w": 80,
+          "layout_h": 24,
+          "label": "",
+          "color": "#2563EB",
+          "width": 1,
+          "placeholder": "",
+          "default": "",
+          "x": 0,
+          "y": 0,
+          "x1": 0,
+          "y1": 0,
+          "x2": 0,
+          "y2": 0,
+          "lua": ""
+        },
+        {
+          "id": "account",
+          "type": "input",
+          "label": "账号",
+          "placeholder": "请输入账号，多个用:号分隔",
+          "layout_x": 24,
+          "layout_y": 64,
+          "layout_w": 672,
+          "layout_h": 56
+        },
+        {
+          "id": "password",
+          "type": "input",
+          "label": "密码",
+          "placeholder": "请输入密码",
+          "layout_x": 24,
+          "layout_y": 136,
+          "layout_w": 672,
+          "layout_h": 56
+        },
+        {
+          "id": "auto_login",
+          "type": "switch",
+          "label": "自动登录",
+          "default": "false",
+          "layout_x": 24,
+          "layout_y": 208,
+          "layout_w": 672,
+          "layout_h": 56
+        }
+      ]
     },
     {
-      "title": "界面1",
-      "widgets": []
+      "title": "运行设置",
+      "widgets": [
+        {
+          "id": "w_0",
+          "type": "text",
+          "label": "",
+          "default": "",
+          "layout_x": 24,
+          "layout_y": 24,
+          "layout_w": 80,
+          "layout_h": 24,
+          "text": "",
+          "text_style": "title",
+          "color": "#2563EB",
+          "width": 1,
+          "placeholder": "",
+          "x": 0,
+          "y": 0,
+          "x1": 0,
+          "y1": 0,
+          "x2": 0,
+          "y2": 0,
+          "lua": ""
+        },
+        {
+          "id": "priority",
+          "type": "select",
+          "label": "优先级",
+          "options": [
+            "高",
+            "中",
+            "低"
+          ],
+          "default": "中",
+          "layout_x": 24,
+          "layout_y": 104,
+          "layout_w": 672,
+          "layout_h": 64
+        },
+        {
+          "id": "delay_sec",
+          "type": "stepper",
+          "label": "步骤间隔(秒)",
+          "default": "2",
+          "min": 1,
+          "max": 60,
+          "step": 1,
+          "layout_x": 24,
+          "layout_y": 184,
+          "layout_w": 672,
+          "layout_h": 56
+        },
+        {
+          "id": "loop_count",
+          "type": "stepper",
+          "label": "循环次数",
+          "default": "1",
+          "min": 1,
+          "max": 99,
+          "step": 1,
+          "layout_x": 24,
+          "layout_y": 256,
+          "layout_w": 672,
+          "layout_h": 56
+        },
+        {
+          "id": "features",
+          "type": "multiselect",
+          "label": "附加功能",
+          "options": [
+            "自动领奖",
+            "自动签到",
+            "跳过动画"
+          ],
+          "default": "",
+          "layout_x": 24,
+          "layout_y": 320,
+          "layout_w": 672,
+          "layout_h": 128
+        }
+      ]
     }
   ],
   "widgets": [],
-  "version": 3
+  "buttons": []
 }

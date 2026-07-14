@@ -11,7 +11,7 @@
       "type": "object",
       "properties": {
         "title": { "type": "string" },
-        "theme": { "enum": ["light", "dark"] },
+        "theme": { "enum": ["light", "green", "gray", "dark"] },
         "layout_mode": { "enum": ["free", "grid"] },
         "design_width": { "type": "integer", "minimum": 320 },
         "design_height": { "type": "integer", "minimum": 480 },

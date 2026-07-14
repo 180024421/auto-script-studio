@@ -138,6 +138,7 @@ class MainWindow(QMainWindow):
         self.layout_editor.insert_lua.connect(self._insert_lua_to_script)
         self.grab.panel_position_picked.connect(self.layout_editor.set_panel_position)
         self.grab.button_coords_picked.connect(self._on_button_coords_picked)
+        self.layout_editor.set_grab_pixmap_provider(self.grab.current_screen_pixmap)
         self.tabs.addTab(self.layout_editor, "浮动面板")
         self.script_panel = ScriptPanelWidget(lambda: self.project_dir)
         self.script_panel.insert_lua.connect(self._insert_lua_to_script)

@@ -5,9 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from PySide6.QtCore import QPoint, QRect, Qt, Signal
-from PySide6.QtGui import QColor, QCursor, QMouseEvent, QPixmap, QWheelEvent
+from PySide6.QtCore import QPoint, QRect, QTimer, Qt, Signal
+from PySide6.QtGui import QColor, QCursor, QMouseEvent, QPainter, QPen, QPixmap, QWheelEvent
 from PySide6.QtWidgets import (
+  QApplication,
   QFrame,
   QGraphicsDropShadowEffect,
   QHBoxLayout,
@@ -47,6 +48,7 @@ from studio.services.panel_geometry import (
   compute_host_panel_overlay_rect,
 )
 from studio.services.panel_theme import panel_theme_colors
+from studio.services.smart_snap import other_rects_excluding, smart_snap_rect
 from studio.services.snap_design import SNAP_GRID, snap_design as _snap_design
 from studio.services.widget_interior_scale import effective_content_scale
 
@@ -368,6 +370,7 @@ class FreeDesignItem(QFrame):
     on_values_changed: Any = None,
     icon_only: bool = False,
     theme: str = "light",
+    snap_move: Any = None,
   ) -> None:
     super().__init__(parent)
     self._path = path
@@ -381,11 +384,13 @@ class FreeDesignItem(QFrame):
     self._selectable = selectable
     self._on_values_changed = on_values_changed
     self._theme = theme or "light"
+    self._snap_move = snap_move
     self._spec = clone_widget(spec)
     wtype = spec.get("type", "")
     self._form_like = wtype in FORM_PREVIEW_TYPES
     self._label: QLabel | None = None
     self._drag_lightweight = False
+    self._flash = False
 
     self.setObjectName("FreeDesignItem")
     self.setMouseTracking(True)
@@ -508,6 +513,10 @@ class FreeDesignItem(QFrame):
     self._selected = on
     self._update_style()
 
+  def set_flash(self, on: bool) -> None:
+    self._flash = bool(on)
+    self._update_style()
+
   def _set_drag_lightweight(self, on: bool) -> None:
     if self._drag_lightweight == on:
       return
@@ -546,17 +555,20 @@ class FreeDesignItem(QFrame):
         self._mount_preview(self._spec)
 
   def _update_style(self) -> None:
-    if self._form_like:
-      border = "#2563EB" if self._selected else "transparent"
-      bg = "transparent"
-      radius = 6
+    if self._flash:
+      border = "#F59E0B"
+      border_w = 2
+    elif self._selected:
+      border = "#2563EB"
+      border_w = 2
     else:
-      border = "#2563EB" if self._selected else "transparent"
-      bg = "transparent"
-      radius = 8
+      border = "transparent"
+      border_w = 1
+    bg = "rgba(245,158,11,0.10)" if self._flash else "transparent"
+    radius = 6 if self._form_like else 8
     strip_bg = "rgba(37,99,235,0.12)" if self._interactive and not self._form_like else "transparent"
     self.setStyleSheet(
-      f"QFrame#FreeDesignItem {{ background: {bg}; border: 1px solid {border}; border-radius: {radius}px; }}"
+      f"QFrame#FreeDesignItem {{ background: {bg}; border: {border_w}px solid {border}; border-radius: {radius}px; }}"
       f"QLabel#FreeDesignDragStrip {{ background: {strip_bg}; color: #1E293B; font-size: 10px; }}"
       "QLabel#FreeDesignTitle { color: #1E293B; font-size: 11px; background: transparent; }"
     )
@@ -644,6 +656,12 @@ class FreeDesignItem(QFrame):
     g = QRect(self._start_geom)
     if self._mode == "move":
       g.translate(delta)
+      g = self._clamp_geometry(g)
+      snap_fn = getattr(self, "_snap_move", None)
+      if callable(snap_fn):
+        sg = snap_fn(self._path, g)
+        if isinstance(sg, QRect):
+          g = sg
     else:
       from studio.services.free_layout import min_rect_for_type
 
@@ -653,7 +671,8 @@ class FreeDesignItem(QFrame):
       min_sh = max(int(min_dh * self._scale), SNAP_GRID * 4)
       g.setWidth(max(min_sw, self._start_geom.width() + delta.x()))
       g.setHeight(max(min_sh, self._start_geom.height() + delta.y()))
-    self.setGeometry(self._clamp_geometry(g))
+      g = self._clamp_geometry(g)
+    self.setGeometry(g)
     event.accept()
 
   def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
@@ -668,6 +687,10 @@ class FreeDesignItem(QFrame):
         w = int(round(geom.width() / self._scale))
         h = int(round(geom.height() / self._scale))
         self.rect_changed.emit(self._path, x, y, w, h)
+      else:
+        parent = self.parentWidget()
+        if isinstance(parent, InterfaceCanvas):
+          parent.set_snap_guides([], scale=self._scale)
     self._mode = ""
     self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
     super().mouseReleaseEvent(event)
@@ -677,11 +700,18 @@ class InterfaceCanvas(QWidget):
   """单个界面的可滚动内容区。"""
 
   context_menu_requested = Signal(object)
+  marquee_finished = Signal(object)  # list[tuple[int, ...]]
 
   def __init__(self, parent=None) -> None:
     super().__init__(parent)
     self.setObjectName("InterfaceCanvas")
     self._items: list[FreeDesignItem] = []
+    self._guides: list[tuple[str, int]] = []
+    self._guide_scale = 1.0
+    self._marquee_enabled = True
+    self._marquee_origin: QPoint | None = None
+    self._marquee_rect: QRect | None = None
+    self.setMouseTracking(True)
     self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
     self.customContextMenuRequested.connect(
       lambda pos: self.context_menu_requested.emit(self.mapToGlobal(pos))
@@ -695,6 +725,81 @@ class InterfaceCanvas(QWidget):
   def add_item(self, item: FreeDesignItem) -> None:
     item.setParent(self)
     self._items.append(item)
+
+  def set_marquee_enabled(self, enabled: bool) -> None:
+    self._marquee_enabled = bool(enabled)
+
+  def set_snap_guides(self, guides: list[tuple[str, int]], *, scale: float) -> None:
+    self._guides = list(guides or [])
+    self._guide_scale = max(0.01, scale)
+    self.update()
+
+  def _hit_design_item(self, pos: QPoint) -> FreeDesignItem | None:
+    w = self.childAt(pos)
+    while w is not None and w is not self:
+      if isinstance(w, FreeDesignItem):
+        return w
+      w = w.parentWidget()
+    return None
+
+  def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+    if (
+      self._marquee_enabled
+      and event.button() == Qt.MouseButton.LeftButton
+      and self._hit_design_item(event.position().toPoint()) is None
+    ):
+      self._marquee_origin = event.position().toPoint()
+      self._marquee_rect = QRect(self._marquee_origin, self._marquee_origin)
+      self.update()
+      event.accept()
+      return
+    super().mousePressEvent(event)
+
+  def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+    if self._marquee_origin is not None:
+      self._marquee_rect = QRect(self._marquee_origin, event.position().toPoint()).normalized()
+      self.update()
+      event.accept()
+      return
+    super().mouseMoveEvent(event)
+
+  def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+    if self._marquee_origin is not None and event.button() == Qt.MouseButton.LeftButton:
+      rect = self._marquee_rect or QRect()
+      paths = [it.path() for it in self._items if rect.intersects(it.geometry())]
+      self._marquee_origin = None
+      self._marquee_rect = None
+      self.update()
+      if paths:
+        self.marquee_finished.emit(paths)
+      event.accept()
+      return
+    super().mouseReleaseEvent(event)
+
+  def paintEvent(self, event) -> None:  # noqa: N802
+    super().paintEvent(event)
+    p = QPainter(self)
+    if self._guides:
+      pen = QPen(QColor(37, 99, 235, 180))
+      pen.setWidth(1)
+      pen.setStyle(Qt.PenStyle.DashLine)
+      p.setPen(pen)
+      for kind, design_v in self._guides:
+        if kind == "v":
+          x = int(design_v * self._guide_scale)
+          p.drawLine(x, 0, x, self.height())
+        else:
+          y = int(design_v * self._guide_scale)
+          p.drawLine(0, y, self.width(), y)
+    if self._marquee_rect is not None and self._marquee_rect.width() > 2:
+      fill = QColor(37, 99, 235, 40)
+      edge = QPen(QColor(37, 99, 235, 200))
+      edge.setWidth(1)
+      edge.setStyle(Qt.PenStyle.DashLine)
+      p.setPen(edge)
+      p.setBrush(fill)
+      p.drawRect(self._marquee_rect)
+    p.end()
 
 
 @dataclass
@@ -720,6 +825,7 @@ class _PhoneShell:
     auto_fit: bool = False
     main_panel_preview: bool = False
     apk_shell_preview: bool = False
+    compare_opacity: float = 0.0
     backdrop_key: int = 0
     device_wh: tuple[int, int] = (0, 0)
     status_bar: QWidget | None = None
@@ -734,11 +840,14 @@ class _PhoneShell:
 class PhoneCanvasWidget(QScrollArea):
   layout_changed = Signal(dict)
   widget_selected = Signal(tuple)
+  selection_changed = Signal(object)  # list[tuple[int, ...]]
   screen_changed = Signal(int)
   values_changed = Signal()
   nudge_selected = Signal(int, int)
   delete_selected = Signal()
   duplicate_selected = Signal()
+  undo_requested = Signal()
+  redo_requested = Signal()
   context_menu_requested = Signal(object)
 
   def __init__(self) -> None:
@@ -753,7 +862,10 @@ class PhoneCanvasWidget(QScrollArea):
     self._root.setContentsMargins(8, 8, 8, 8)
     self._layout: dict[str, Any] = {}
     self._selected_path: tuple[int, ...] = ()
+    self._selected_paths: set[tuple[int, ...]] = set()
     self._items: list[FreeDesignItem] = []
+    self._compare_opacity = 0.0
+    self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
     self._scale = 0.45
     self._last_scale = 0.0
     self._interface_canvas: InterfaceCanvas | None = None
@@ -942,8 +1054,58 @@ class PhoneCanvasWidget(QScrollArea):
 
   def set_selected_path(self, path: tuple[int, ...]) -> None:
     self._selected_path = path
+    self._selected_paths = {path} if path else set()
     for it in self._items:
-      it.set_selected(it.path() == path)
+      it.set_selected(it.path() in self._selected_paths)
+    self.selection_changed.emit(list(self._selected_paths))
+
+  def set_selected_paths(self, paths: list[tuple[int, ...]]) -> None:
+    cleaned = [p for p in paths if p]
+    self._selected_paths = set(cleaned)
+    self._selected_path = cleaned[0] if cleaned else ()
+    for it in self._items:
+      it.set_selected(it.path() in self._selected_paths)
+    self.selection_changed.emit(list(self._selected_paths))
+    if self._selected_path:
+      self.widget_selected.emit(self._selected_path)
+
+  def selected_paths(self) -> list[tuple[int, ...]]:
+    return list(self._selected_paths)
+
+  def flash_paths(self, paths: list[tuple[int, ...]], *, ms: int = 750) -> None:
+    want = set(paths or [])
+    for it in self._items:
+      it.set_flash(it.path() in want)
+    QTimer.singleShot(max(200, int(ms)), self._clear_item_flash)
+
+  def _clear_item_flash(self) -> None:
+    for it in self._items:
+      it.set_flash(False)
+
+  def _on_marquee_finished(self, paths: object) -> None:
+    if not self._editable:
+      return
+    plist = [p for p in (paths or []) if isinstance(p, tuple) and len(p) == 2]
+    # 框选仅当前界面控件
+    active = active_screen_index(self._layout)
+    plist = [p for p in plist if p[0] == active]
+    if not plist:
+      return
+    mods = QApplication.keyboardModifiers()
+    if mods & Qt.KeyboardModifier.ControlModifier:
+      merged = set(self._selected_paths)
+      merged.update(plist)
+      self.set_selected_paths(list(merged))
+    else:
+      self.set_selected_paths(plist)
+
+  def set_compare_opacity(self, opacity: float) -> None:
+    """0=关闭对照；0.15~0.55 抓抓截图半透明叠在主面板底。"""
+    self._compare_opacity = max(0.0, min(0.7, float(opacity)))
+    self.refresh_viewport()
+
+  def compare_opacity(self) -> float:
+    return self._compare_opacity
 
   def refresh_widget_at(self, path: tuple[int, ...]) -> bool:
     from studio.services.screen_layout import resolve_widget
@@ -990,6 +1152,8 @@ class PhoneCanvasWidget(QScrollArea):
     if self._main_panel_preview != getattr(self._shell, "main_panel_preview", False):
       return True
     if self._apk_shell_preview != getattr(self._shell, "apk_shell_preview", False):
+      return True
+    if abs(self._compare_opacity - getattr(self._shell, "compare_opacity", 0.0)) >= 0.01:
       return True
     new_scale = self._effective_scale(dw, dh)
     if abs(new_scale - self._shell.scale) >= 0.01:
@@ -1168,6 +1332,19 @@ class PhoneCanvasWidget(QScrollArea):
     if emulate and (landscape or host_overlay):
       backdrop = _build_device_backdrop(inner, device_sw, device_sh, self._backdrop_pixmap)
       backdrop.lower()
+    elif (
+      self._main_panel_preview
+      and self._compare_opacity > 0
+      and self._backdrop_pixmap is not None
+      and not self._backdrop_pixmap.isNull()
+    ):
+      from PySide6.QtWidgets import QGraphicsOpacityEffect
+
+      backdrop = _build_device_backdrop(inner, device_sw, max(device_sh, 1), self._backdrop_pixmap)
+      eff = QGraphicsOpacityEffect(backdrop)
+      eff.setOpacity(self._compare_opacity)
+      backdrop.setGraphicsEffect(eff)
+      backdrop.raise_()
 
     if host_overlay and overlay_rect is not None:
       panel_card = QFrame(inner)
@@ -1278,6 +1455,8 @@ class PhoneCanvasWidget(QScrollArea):
 
     canvas = InterfaceCanvas()
     canvas.context_menu_requested.connect(self.context_menu_requested.emit)
+    canvas.set_marquee_enabled(self._editable)
+    canvas.marquee_finished.connect(self._on_marquee_finished)
     scroll.setWidget(canvas)
     content_lay.addWidget(scroll, 1)
 
@@ -1408,6 +1587,7 @@ class PhoneCanvasWidget(QScrollArea):
       auto_fit=self._auto_fit_device,
       main_panel_preview=self._main_panel_preview,
       apk_shell_preview=self._apk_shell_preview,
+      compare_opacity=self._compare_opacity,
       backdrop_key=backdrop_key,
       device_wh=(device_sw, device_sh if (landscape or host_overlay) else 0),
       status_bar=status_bar,
@@ -1658,10 +1838,11 @@ class PhoneCanvasWidget(QScrollArea):
       on_values_changed=self.values_changed.emit,
       icon_only=screen_idx == CHROME_PATH_TAG and spec.get("type") in CHROME_ICONS,
       theme=theme_id,
+      snap_move=self._snap_item_geometry,
     )
     item.rect_changed.connect(self._on_rect_changed)
     item.clicked.connect(self._on_item_clicked)
-    item.set_selected(path == self._selected_path)
+    item.set_selected(path in self._selected_paths or path == self._selected_path)
     item.show()
     item.raise_()
     self._items.append(item)
@@ -1697,7 +1878,8 @@ class PhoneCanvasWidget(QScrollArea):
             item._mount_preview(item._spec)
         else:
           item.setGeometry(geom)
-        item.set_selected(path == self._selected_path)
+        item.set_selected(path in self._selected_paths or path == self._selected_path)
+        item._snap_move = self._snap_item_geometry
         kept.append(item)
       else:
         kept.append(self._make_design_item(path, spec, scale, parent, screen_idx))
@@ -1729,8 +1911,60 @@ class PhoneCanvasWidget(QScrollArea):
     self.screen_changed.emit(idx)
 
   def _on_item_clicked(self, path: tuple[int, ...]) -> None:
+    mods = QApplication.keyboardModifiers()
+    if mods & Qt.KeyboardModifier.ControlModifier:
+      if path in self._selected_paths:
+        self._selected_paths.discard(path)
+      else:
+        self._selected_paths.add(path)
+      self._selected_path = path if path in self._selected_paths else (
+        next(iter(self._selected_paths)) if self._selected_paths else ()
+      )
+      for it in self._items:
+        it.set_selected(it.path() in self._selected_paths)
+      self.selection_changed.emit(list(self._selected_paths))
+      if self._selected_path:
+        self.widget_selected.emit(self._selected_path)
+      return
     self.set_selected_path(path)
     self.widget_selected.emit(path)
+
+  def _snap_item_geometry(self, path: tuple[int, ...], geom: QRect) -> QRect:
+    if not path or len(path) != 2 or path[0] == CHROME_PATH_TAG:
+      return geom
+    sc_list = screens(self._layout)
+    active = path[0]
+    if active < 0 or active >= len(sc_list):
+      return geom
+    widgets = sc_list[active].get("widgets") or []
+    idx = path[1]
+    if idx < 0 or idx >= len(widgets):
+      return geom
+    scale = max(0.01, self._scale)
+    dx = int(round(geom.x() / scale))
+    dy = int(round(geom.y() / scale))
+    dw = int(round(geom.width() / scale))
+    dh = int(round(geom.height() / scale))
+    panel = self._layout.get("panel") or {}
+    design_w, _ = panel_design_size(panel)
+    snapped = smart_snap_rect(
+      dx,
+      dy,
+      dw,
+      dh,
+      other_rects_excluding(widgets, idx),
+      threshold=8,
+      design_w=design_w,
+    )
+    canvas = self._shell.canvas if self._shell else None
+    if isinstance(canvas, InterfaceCanvas):
+      canvas.set_snap_guides(snapped.guides, scale=scale)
+    return QRect(
+      int(snapped.x * scale),
+      int(snapped.y * scale),
+      geom.width(),
+      geom.height(),
+    )
 
   def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
     if event.modifiers() & Qt.KeyboardModifier.ControlModifier and self._device_emulation:
@@ -1755,12 +1989,24 @@ class PhoneCanvasWidget(QScrollArea):
 
   def keyPressEvent(self, event) -> None:  # noqa: N802
     key = event.key()
-    step = 10 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1
-    if key == Qt.Key.Key_Delete and self._selected_path:
+    mods = event.modifiers()
+    step = 10 if mods & Qt.KeyboardModifier.ShiftModifier else 1
+    if key == Qt.Key.Key_Z and mods & Qt.KeyboardModifier.ControlModifier:
+      if mods & Qt.KeyboardModifier.ShiftModifier:
+        self.redo_requested.emit()
+      else:
+        self.undo_requested.emit()
+      event.accept()
+      return
+    if key == Qt.Key.Key_Y and mods & Qt.KeyboardModifier.ControlModifier:
+      self.redo_requested.emit()
+      event.accept()
+      return
+    if key == Qt.Key.Key_Delete and (self._selected_path or self._selected_paths):
       self.delete_selected.emit()
       event.accept()
       return
-    if key == Qt.Key.Key_D and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+    if key == Qt.Key.Key_D and mods & Qt.KeyboardModifier.ControlModifier:
       self.duplicate_selected.emit()
       event.accept()
       return
@@ -1782,15 +2028,44 @@ class PhoneCanvasWidget(QScrollArea):
   def _on_rect_changed(self, path: tuple[int, ...], x: int, y: int, w: int, h: int) -> None:
     if self._suppress_layout_emit:
       return
+    canvas = self._shell.canvas if self._shell else None
+    if isinstance(canvas, InterfaceCanvas):
+      canvas.set_snap_guides([], scale=self._scale)
+    from studio.services.screen_layout import resolve_widget
+    from studio.services.widget_align import move_widgets_by, widgets_inside_bounds
+
+    nx, ny, nw, nh = _snap_design(x), _snap_design(y), _snap_design(w), _snap_design(h)
+    old = resolve_widget(self._layout, path)
+    old_x = old_y = old_w = old_h = 0
+    wtype = ""
+    if old is not None:
+      old_x = int(old.get("layout_x", 0))
+      old_y = int(old.get("layout_y", 0))
+      old_w = int(old.get("layout_w", 120))
+      old_h = int(old.get("layout_h", 48))
+      wtype = str(old.get("type", ""))
     self._suppress_rebuild = True
-    set_widget_rect(
-      self._layout,
-      path,
-      _snap_design(x),
-      _snap_design(y),
-      _snap_design(w),
-      _snap_design(h),
-    )
+    set_widget_rect(self._layout, path, nx, ny, nw, nh)
+    # 拖动分区时，原先落在框内的控件跟着平移（仅位移，不含对齐缩放）
+    if (
+      wtype == "section"
+      and len(path) == 2
+      and path[0] != CHROME_PATH_TAG
+      and old is not None
+    ):
+      dx, dy = nx - old_x, ny - old_y
+      if dx or dy:
+        sc_list = screens(self._layout)
+        si, wi = path[0], path[1]
+        if 0 <= si < len(sc_list):
+          widgets = sc_list[si].get("widgets") or []
+          kids = widgets_inside_bounds(
+            widgets, old_x, old_y, old_w, old_h, exclude_idx=wi
+          )
+          if kids:
+            panel = self._layout.get("panel") or {}
+            dw, _ = panel_design_size(panel)
+            move_widgets_by(widgets, kids, dx, dy, design_w=dw)
     self._suppress_rebuild = False
     self.layout_changed.emit(clone_layout(self._layout))
     self.values_changed.emit()

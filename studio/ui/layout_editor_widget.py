@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
     QColorDialog,
@@ -69,6 +70,7 @@ from studio.services.screen_layout import (
     export_screen_dict,
     import_screen_dict,
     migrate_layout,
+    path_for_screen,
     repair_screen_widgets,
     repair_all_screens,
     resolve_widget,
@@ -104,7 +106,9 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self._selected_path: tuple[int, ...] = ()
         self._history = LayoutHistory()
         self._clipboard_widget: dict | None = None
+        self._clipboard_style: dict | None = None
         self._loading_form = False
+        self._guide_dismissed = False
         self._layout_emit_timer = QTimer(self)
         self._layout_emit_timer.setSingleShot(True)
         self._layout_emit_timer.setInterval(100)
@@ -255,6 +259,22 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self.workflow_hint = workflow_hint
         left_layout.addWidget(workflow_hint)
 
+        self._guide_banner = QFrame()
+        self._guide_banner.setObjectName("InfoBar")
+        guide_lay = QHBoxLayout(self._guide_banner)
+        guide_lay.setContentsMargins(8, 6, 8, 6)
+        guide_lbl = QLabel(
+            "新手：① 点「从模板创建」→ ② 预览区拖控件（空白处框选 / Ctrl+多选，用下方对齐）→ ③ 「保存」\n"
+            "快捷键：Ctrl+Z/Y 撤销重做 · Ctrl+D 复制控件 · Delete 删除 · 拖界面标签可排序"
+        )
+        guide_lbl.setWordWrap(True)
+        guide_lay.addWidget(guide_lbl, 1)
+        guide_close = QPushButton("知道了")
+        set_button_role(guide_close, "ghost")
+        guide_close.clicked.connect(self._dismiss_guide_banner)
+        guide_lay.addWidget(guide_close)
+        left_layout.addWidget(self._guide_banner)
+
         wizard_btn = QPushButton("从模板创建（推荐）")
         set_button_role(wizard_btn, "primary")
         wizard_btn.setMinimumHeight(38)
@@ -272,11 +292,20 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         left_layout.addWidget(add_main_btn)
 
         quick_row = QHBoxLayout()
-        quick_row.setSpacing(6)
-        for t, desc in [("section", "分区"), ("text", "说明"), ("input", "输入"), ("select", "下拉"), ("switch", "开关")]:
+        quick_row.setSpacing(4)
+        for t, desc in [
+            ("section", "分区"),
+            ("text", "说明"),
+            ("input", "输入"),
+            ("select", "下拉"),
+            ("multiselect", "多选"),
+            ("switch", "开关"),
+            ("stepper", "步进"),
+            ("time_range", "时段"),
+        ]:
             b = QPushButton(desc)
             set_button_role(b, "ghost")
-            b.setMinimumHeight(32)
+            b.setMinimumHeight(30)
             b.clicked.connect(lambda _c=False, wt=t: self.add_widget(wt))
             quick_row.addWidget(b)
         left_layout.addLayout(quick_row)
@@ -293,6 +322,8 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         tool_button_row(
             left_layout,
             [
+                ("撤销", self._undo_layout, "ghost"),
+                ("重做", self._redo_layout, "ghost"),
                 ("删除", self.remove_widget, "danger"),
                 ("流式重排", self.reflow_layout_manual, "accent"),
             ],
@@ -301,15 +332,53 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         tool_button_row(
             left_layout,
             [
-                ("左对齐", self.align_left_manual, "ghost"),
+                ("左对齐", lambda: self._align_selected("left"), "ghost"),
+                ("右对齐", lambda: self._align_selected("right"), "ghost"),
+                ("水平居中", lambda: self._align_selected("hcenter"), "ghost"),
+                ("顶对齐", lambda: self._align_selected("top"), "ghost"),
+            ],
+            columns=2,
+        )
+        tool_button_row(
+            left_layout,
+            [
+                ("底对齐", lambda: self._align_selected("bottom"), "ghost"),
+                ("垂直居中", lambda: self._align_selected("vcenter"), "ghost"),
+                ("水平分布", lambda: self._distribute_selected("horizontal"), "ghost"),
+                ("垂直分布", lambda: self._distribute_selected("vertical"), "ghost"),
+            ],
+            columns=2,
+        )
+        tool_button_row(
+            left_layout,
+            [
                 ("统一宽度", self.unify_width_manual, "ghost"),
+                ("等高", lambda: self._equalize_selected("height"), "ghost"),
+                ("水平等距", lambda: self._match_spacing_selected("horizontal"), "ghost"),
+                ("垂直等距", lambda: self._match_spacing_selected("vertical"), "ghost"),
+            ],
+            columns=2,
+        )
+        tool_button_row(
+            left_layout,
+            [
                 ("两列并排", self.pair_columns_manual, "ghost"),
                 ("一键整理", self.repair_layout_manual, "ghost"),
+                ("复制样式", self._copy_widget_style, "ghost"),
+                ("粘贴样式", self._paste_widget_style, "ghost"),
+            ],
+            columns=2,
+        )
+        tool_button_row(
+            left_layout,
+            [
+                ("存为片段", self._save_screen_snippet, "ghost"),
+                ("插入片段", self._insert_screen_snippet, "accent"),
             ],
             columns=2,
         )
 
-        self._left_more_btn = QPushButton("▸ 更多操作（撤销、移动、模板…）")
+        self._left_more_btn = QPushButton("▸ 更多操作（移动、导入导出、模板…）")
         set_button_role(self._left_more_btn, "ghost")
         self._left_more_btn.setMinimumHeight(32)
         self._left_more_btn.clicked.connect(self._toggle_left_more)
@@ -323,10 +392,8 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         tool_button_row(
             more_layout,
             [
-                ("撤销", self._undo_layout, "ghost"),
-                ("重做", self._redo_layout, "ghost"),
-                ("复制", self._copy_widget, "ghost"),
-                ("粘贴", self._paste_widget, "ghost"),
+                ("复制控件", self._copy_widget, "ghost"),
+                ("粘贴控件", self._paste_widget, "ghost"),
             ],
             columns=2,
         )
@@ -382,6 +449,7 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
 
         self._wire_preview_signals()
         self._wire_property_signals()
+        self._install_layout_shortcuts()
 
         self.enabled_cb.currentIndexChanged.connect(self._on_header_changed)
         self.theme_combo.currentIndexChanged.connect(self._on_header_changed)
@@ -457,6 +525,113 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
             "三步：① 从模板创建或添加控件  ② 右边改名称  ③ 保存\n"
             "排乱了？点「一键整理」；脚本用「插入面板读取」自动生成代码。"
         )
+
+    def _dismiss_guide_banner(self) -> None:
+        self._guide_dismissed = True
+        if hasattr(self, "_guide_banner"):
+            self._guide_banner.hide()
+
+    def _install_layout_shortcuts(self) -> None:
+        QShortcut(QKeySequence.StandardKey.Undo, self, self._undo_layout)
+        QShortcut(QKeySequence.StandardKey.Redo, self, self._redo_layout)
+        QShortcut(QKeySequence("Ctrl+Shift+Z"), self, self._redo_layout)
+        QShortcut(QKeySequence("Ctrl+D"), self, self._duplicate_widget)
+
+    def _align_selected(self, kind: str) -> None:
+        if not is_free_mode(self._layout):
+            return
+        from studio.services.free_layout import panel_design_size
+        from studio.services.widget_align import align_widgets
+
+        widgets = self._widgets()
+        idxs = self._selected_widget_indices()
+        if len(idxs) < 2:
+            QMessageBox.information(self, "提示", "请多选至少两个控件（左侧列表或画布 Ctrl+点击）")
+            return
+        dw, _ = panel_design_size(self._layout.get("panel") or {})
+        align_widgets(widgets, idxs, kind, design_w=dw)  # type: ignore[arg-type]
+        self._after_geometry_edit(f"✓ 已对齐（{kind}）", flash_indices=idxs)
+
+    def _distribute_selected(self, kind: str) -> None:
+        if not is_free_mode(self._layout):
+            return
+        from studio.services.free_layout import panel_design_size
+        from studio.services.widget_align import distribute_widgets
+
+        widgets = self._widgets()
+        idxs = self._selected_widget_indices()
+        if len(idxs) < 3:
+            QMessageBox.information(self, "提示", "分布需要至少选中 3 个控件")
+            return
+        dw, _ = panel_design_size(self._layout.get("panel") or {})
+        distribute_widgets(widgets, idxs, kind, design_w=dw)  # type: ignore[arg-type]
+        self._after_geometry_edit(
+            f"✓ 已{('水平' if kind == 'horizontal' else '垂直')}分布",
+            flash_indices=idxs,
+        )
+
+    def _equalize_selected(self, dimension: str) -> None:
+        if not is_free_mode(self._layout):
+            return
+        from studio.services.free_layout import panel_design_size
+        from studio.services.widget_align import equalize_size
+
+        widgets = self._widgets()
+        idxs = self._selected_widget_indices()
+        if len(idxs) < 2:
+            QMessageBox.information(self, "提示", "请多选至少两个控件")
+            return
+        dw, _ = panel_design_size(self._layout.get("panel") or {})
+        equalize_size(widgets, idxs, dimension=dimension, design_w=dw)  # type: ignore[arg-type]
+        label = {"width": "等宽", "height": "等高", "both": "等大小"}.get(dimension, "统一尺寸")
+        self._after_geometry_edit(f"✓ 已{label}", flash_indices=idxs)
+
+    def _match_spacing_selected(self, axis: str) -> None:
+        if not is_free_mode(self._layout):
+            return
+        from studio.services.free_layout import panel_design_size
+        from studio.services.widget_align import match_spacing
+
+        widgets = self._widgets()
+        idxs = self._selected_widget_indices()
+        if len(idxs) < 3:
+            QMessageBox.information(self, "提示", "统一间距需要至少选中 3 个控件")
+            return
+        dw, _ = panel_design_size(self._layout.get("panel") or {})
+        match_spacing(widgets, idxs, axis=axis, design_w=dw)  # type: ignore[arg-type]
+        self._after_geometry_edit(
+            f"✓ 已统一{('水平' if axis == 'horizontal' else '垂直')}间距",
+            flash_indices=idxs,
+        )
+
+    def _copy_widget_style(self) -> None:
+        from studio.services.widget_align import copy_widget_style
+
+        target = self._edit_target()
+        if not target:
+            QMessageBox.information(self, "提示", "请先选中一个控件")
+            return
+        w, _, _ = target
+        self._clipboard_style = copy_widget_style(w)
+        self._flash_status("✓ 已复制样式（颜色/字号样式/尺寸）")
+
+    def _paste_widget_style(self) -> None:
+        from studio.services.widget_align import paste_widget_style
+
+        if not self._clipboard_style:
+            QMessageBox.information(self, "提示", "请先点「复制样式」")
+            return
+        widgets = self._widgets()
+        idxs = self._selected_widget_indices()
+        if not idxs:
+            target = self._edit_target()
+            if target:
+                idxs = [target[2]]
+        if not idxs:
+            return
+        for i in idxs:
+            paste_widget_style(widgets[i], self._clipboard_style)
+        self._after_geometry_edit("✓ 已粘贴样式")
 
     @property
     def is_dirty(self) -> bool:
@@ -707,7 +882,24 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
                 if repaired:
                     msg += "\n（已自动整理过小/重叠的控件，无需手调坐标）"
                 QMessageBox.information(self, "完成", msg)
+            self._offer_insert_panel_reads_after_save()
         return True
+
+    def _offer_insert_panel_reads_after_save(self) -> None:
+        default = (
+            QMessageBox.StandardButton.Yes
+            if self._is_simple_mode()
+            else QMessageBox.StandardButton.No
+        )
+        ans = QMessageBox.question(
+            self,
+            "插入脚本读取？",
+            "布局已保存。是否跳转脚本页并插入当前界面的 panel.get 读取代码？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            default,
+        )
+        if ans == QMessageBox.StandardButton.Yes:
+            self._insert_panel_reads_all()
 
     def _commit_history(self) -> None:
         self._history.push(self._layout)
@@ -720,14 +912,18 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self._emit_layout_changed()
 
     def _undo_layout(self) -> None:
+        self._flush_property_sync()
         snap = self._history.undo(self._layout)
         if snap:
             self._apply_layout_snapshot(snap)
+            self._flash_status("✓ 已撤销")
 
     def _redo_layout(self) -> None:
+        self._flush_property_sync()
         snap = self._history.redo()
         if snap:
             self._apply_layout_snapshot(snap)
+            self._flash_status("✓ 已重做")
 
     def _copy_widget(self) -> None:
         target = self._edit_target()
@@ -782,19 +978,26 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self._emit_layout_changed()
 
     def _on_delete_selected(self) -> None:
-        if self._selected_path and len(self._selected_path) == 2:
-            screen_idx, widget_idx = self._selected_path
+        paths = []
+        if hasattr(self, "phone_canvas"):
+            paths = [p for p in self.phone_canvas.selected_paths() if len(p) == 2]
+        if not paths and self._selected_path and len(self._selected_path) == 2:
+            paths = [self._selected_path]
+        if not paths:
+            self.remove_widget()
+            return
+        # 按路径倒序删，避免索引错位
+        for screen_idx, widget_idx in sorted(paths, key=lambda p: (p[0], p[1]), reverse=True):
             if screen_idx == CHROME_PATH_TAG:
                 cw = self._chrome_widgets()
                 if 0 <= widget_idx < len(cw):
                     cw.pop(widget_idx)
             else:
-                ws = active_screen_widgets(self._layout)
-                if 0 <= widget_idx < len(ws):
-                    ws.pop(widget_idx)
-        else:
-            self.remove_widget()
-            return
+                sc = screens(self._layout)
+                if 0 <= screen_idx < len(sc):
+                    ws = sc[screen_idx].setdefault("widgets", [])
+                    if 0 <= widget_idx < len(ws):
+                        ws.pop(widget_idx)
         self._selected_path = ()
         self._sync_screen_tabs_from_layout()
         self._commit_history()
@@ -946,11 +1149,20 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
 
     def _selected_widget_indices(self) -> list[int]:
         rows = [i.row() for i in self.widget_list.selectedIndexes()]
+        if hasattr(self, "phone_canvas"):
+            for path in self.phone_canvas.selected_paths():
+                if len(path) == 2 and path[0] != CHROME_PATH_TAG:
+                    rows.append(path[1])
         if not rows and self.widget_list.currentRow() >= 0:
             rows = [self.widget_list.currentRow()]
-        return sorted(set(rows))
+        return sorted({r for r in rows if r >= 0})
 
-    def _after_geometry_edit(self, flash: str) -> None:
+    def _after_geometry_edit(
+        self,
+        flash: str,
+        *,
+        flash_indices: list[int] | None = None,
+    ) -> None:
         self._refresh_widget_list(keep_row=True)
         self._mark_dirty()
         self._update_preview(force=True)
@@ -958,6 +1170,11 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self._emit_layout_changed()
         if self._is_simple_mode():
             self._flash_status(flash)
+        if flash_indices and hasattr(self, "phone_canvas"):
+            active = active_screen_index(self._layout)
+            paths = [path_for_screen(active, i) for i in flash_indices]
+            self.phone_canvas.set_selected_paths(paths)
+            QTimer.singleShot(30, lambda p=paths: self.phone_canvas.flash_paths(p))
 
     def reflow_layout_manual(self) -> None:
         if not is_free_mode(self._layout):
@@ -968,19 +1185,6 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         if not reflow_active_screen(self._layout):
             return
         self._after_geometry_edit("✓ 已流式重排，记得保存")
-
-    def align_left_manual(self) -> None:
-        if not is_free_mode(self._layout):
-            return
-        from studio.services.flow_layout import align_left
-        from studio.services.free_layout import panel_design_size
-
-        widgets = self._widgets()
-        idxs = self._selected_widget_indices()
-        targets = [widgets[i] for i in idxs] if idxs else widgets
-        dw, _ = panel_design_size(self._layout.get("panel") or {})
-        align_left(targets, design_w=dw)
-        self._after_geometry_edit("✓ 已左对齐")
 
     def unify_width_manual(self) -> None:
         if not is_free_mode(self._layout):
@@ -1162,6 +1366,8 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self.enabled_cb.setCurrentIndex(0 if self._layout.get("enabled", True) else 1)
         theme_idx = self.theme_combo.findData(panel.get("theme", "light"))
         self.theme_combo.setCurrentIndex(max(0, theme_idx))
+        if hasattr(self, "_sync_theme_chips"):
+            self._sync_theme_chips(str(panel.get("theme", "light")))
         self.title_edit.setText(panel.get("title", "脚本助手"))
         self.cols_spin.setValue(int(panel.get("columns", 2)))
         self.width_dp_spin.setValue(int(panel.get("width_dp", 220)))
@@ -1218,6 +1424,69 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
             self._clear_form()
         self._sync_canvas_mode()
         self._apply_simple_mode_ui()
+
+    def _save_screen_snippet(self) -> None:
+        if not is_free_mode(self._layout):
+            QMessageBox.information(self, "提示", "仅「手机自由」布局支持界面片段")
+            return
+        from studio.services.layout_snippets import save_screen_snippet
+
+        data = export_screen_dict(self._layout, active_screen_index(self._layout))
+        name, ok = QInputDialog.getText(
+            self,
+            "存为片段",
+            "片段名称（保存在本机，可跨工程复用）：",
+            text=str(data.get("title") or "我的界面"),
+        )
+        if not ok or not name.strip():
+            return
+        path = save_screen_snippet(name.strip(), data)
+        self._flash_status(f"✓ 已存片段到 {path}")
+
+    def _insert_screen_snippet(self) -> None:
+        if not is_free_mode(self._layout):
+            QMessageBox.information(self, "提示", "仅「手机自由」布局支持界面片段")
+            return
+        from studio.services.layout_snippets import delete_snippet, list_snippets, load_screen_snippet
+
+        items = list_snippets()
+        if not items:
+            QMessageBox.information(
+                self,
+                "片段库为空",
+                "还没有本机片段。可先在当前界面点「存为片段」。\n"
+                "片段目录：用户目录/.autoscript-studio/screen-snippets/",
+            )
+            return
+        labels = [f"{it['title']}（{it['widget_count']} 控件）" for it in items]
+        label, ok = QInputDialog.getItem(self, "插入片段", "选择片段：", labels, 0, False)
+        if not ok:
+            return
+        chosen = items[labels.index(label)]
+        data = load_screen_snippet(chosen["name"])
+        if not data:
+            QMessageBox.warning(self, "失败", "无法读取该片段")
+            return
+        mode, ok2 = QInputDialog.getItem(
+            self,
+            "插入方式",
+            "将片段",
+            ["追加为新标签页", "替换当前界面", "删除该片段"],
+            0,
+            False,
+        )
+        if not ok2:
+            return
+        if mode == "删除该片段":
+            delete_snippet(chosen["name"])
+            self._flash_status("✓ 已删除片段")
+            return
+        import_screen_dict(self._layout, data, replace=(mode == "替换当前界面"))
+        self._commit_history()
+        self._refresh_ui()
+        self._mark_dirty()
+        self._emit_layout_changed()
+        self._flash_status("✓ 已插入界面片段")
 
     def export_active_screen(self) -> None:
         if not is_free_mode(self._layout):

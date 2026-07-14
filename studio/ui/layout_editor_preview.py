@@ -76,9 +76,9 @@ class LayoutEditorPreviewMixin:
 
         self.apk_shell_preview_cb = QCheckBox("APK 外壳预览")
         self.apk_shell_preview_cb.setToolTip("叠加设置 / 启停 / 日志，模拟打包后主界面")
-        self.apk_shell_preview_cb.toggled.connect(self._on_apk_shell_preview_toggled)
-        # 默认开启：简易模式「所见即打包」
+        # 默认开启：简易模式「所见即打包」（先设值再连信号，避免 phone_canvas 尚未创建）
         self.apk_shell_preview_cb.setChecked(True)
+        self.apk_shell_preview_cb.toggled.connect(self._on_apk_shell_preview_toggled)
         preview_header.addWidget(self.apk_shell_preview_cb)
 
         preview_add_btn = QPushButton("添加控件")
@@ -114,11 +114,32 @@ class LayoutEditorPreviewMixin:
         self.zoom_combo.setToolTip("主面板预览缩放（720×1280 等比，与 APK MainActivity 内表单一致）")
         self.zoom_combo.currentIndexChanged.connect(self._on_preview_zoom_changed)
         preview_toolbar.addWidget(self.zoom_combo)
+        self.compare_grab_cb = QCheckBox("截图对照")
+        self.compare_grab_cb.setToolTip("叠加抓抓页最新截图半透明对照（请先在抓抓页截屏）")
+        self.compare_grab_cb.toggled.connect(self._on_compare_grab_toggled)
+        preview_toolbar.addWidget(self.compare_grab_cb)
         preview_toolbar.addStretch(1)
-        self.main_panel_hint = QLabel("APK 主面板 · 启停脚本在「脚本」页底部 · 设置打包进 APK")
+        self.main_panel_hint = QLabel("APK 主面板 · 空白框选 / Ctrl+多选 · 拖动有智能对齐线")
         self.main_panel_hint.setObjectName("HintLabel")
         preview_toolbar.addWidget(self.main_panel_hint)
         center_layout.addLayout(preview_toolbar)
+
+        theme_row = QHBoxLayout()
+        theme_row.setSpacing(6)
+        theme_row.addWidget(QLabel("主题"))
+        from studio.services.layout_defaults import PANEL_THEMES
+
+        self._theme_chip_buttons: list[QPushButton] = []
+        for tid, label in PANEL_THEMES:
+            b = QPushButton(label)
+            set_button_role(b, "ghost")
+            b.setMinimumHeight(28)
+            b.setCheckable(True)
+            b.clicked.connect(lambda _c=False, t=tid: self._apply_theme_chip(t))
+            theme_row.addWidget(b)
+            self._theme_chip_buttons.append(b)
+        theme_row.addStretch(1)
+        center_layout.addLayout(theme_row)
 
         self.values_label = QLabel()
         self.values_label.setObjectName("InfoBar")
@@ -168,10 +189,13 @@ class LayoutEditorPreviewMixin:
     def _wire_preview_signals(self) -> None:
         self.phone_canvas.layout_changed.connect(self._on_phone_structure_changed)
         self.phone_canvas.widget_selected.connect(self._on_preview_widget_selected)
+        self.phone_canvas.selection_changed.connect(self._on_canvas_selection_changed)
         self.phone_canvas.screen_changed.connect(self._on_canvas_screen_changed)
         self.phone_canvas.nudge_selected.connect(self._on_nudge_selected)
         self.phone_canvas.delete_selected.connect(self._on_delete_selected)
         self.phone_canvas.duplicate_selected.connect(self._duplicate_widget)
+        self.phone_canvas.undo_requested.connect(self._undo_layout)
+        self.phone_canvas.redo_requested.connect(self._redo_layout)
         self.phone_canvas.values_changed.connect(self._refresh_value_summary)
         self.phone_canvas.context_menu_requested.connect(self._show_canvas_context_menu)
         self.preview.values_changed.connect(self._refresh_value_summary)
@@ -180,10 +204,73 @@ class LayoutEditorPreviewMixin:
         PanelState.add_listener(self._refresh_value_summary)
 
     def _on_interactive_preview_toggled(self, checked: bool) -> None:
+        if not hasattr(self, "phone_canvas"):
+            return
         self.phone_canvas.set_interactive_preview(checked)
 
     def _on_apk_shell_preview_toggled(self, checked: bool) -> None:
+        if not hasattr(self, "phone_canvas"):
+            return
         self.phone_canvas.set_apk_shell_preview(checked)
+
+    def _on_compare_grab_toggled(self, checked: bool) -> None:
+        if not checked:
+            self.phone_canvas.set_compare_opacity(0)
+            self.main_panel_hint.setText("APK 主面板 · 空白框选 / Ctrl+多选 · 拖动有智能对齐线")
+            return
+        provider = getattr(self, "_grab_pixmap_provider_fn", None)
+        pixmap = provider() if callable(provider) else None
+        if pixmap is None or pixmap.isNull():
+            from PySide6.QtWidgets import QMessageBox
+
+            self.compare_grab_cb.blockSignals(True)
+            self.compare_grab_cb.setChecked(False)
+            self.compare_grab_cb.blockSignals(False)
+            QMessageBox.information(self, "提示", "请先在「抓抓」页截屏，再开启截图对照。")
+            return
+        self.phone_canvas.set_backdrop_pixmap(pixmap)
+        self.phone_canvas.set_compare_opacity(0.35)
+        tip = self._compare_offset_tip(pixmap)
+        self.main_panel_hint.setText(tip)
+        self.compare_grab_cb.setToolTip(tip)
+
+    def _compare_offset_tip(self, pixmap) -> str:
+        from studio.services.free_layout import panel_design_size
+
+        panel = (getattr(self, "_layout", None) or {}).get("panel") or {}
+        dw, dh = panel_design_size(panel)
+        pw = max(1, int(pixmap.width()))
+        ph = max(1, int(pixmap.height()))
+        sx = pw / max(1, dw)
+        sy = ph / max(1, dh)
+        scale_delta = abs(sx - sy)
+        # 若按宽铺满设计画布，高度方向的像素余量（正=截图更高）
+        fitted_h = ph * (dw / pw)
+        dy_design = fitted_h - dh
+        return (
+            f"对照 {pw}×{ph} · 设计 {dw}×{dh} · "
+            f"约 {sx:.2f}×/{sy:.2f}× · Δ比例 {scale_delta:.3f} · "
+            f"按宽对齐时高度差约 {dy_design:+.0f}dp"
+        )
+
+    def _apply_theme_chip(self, theme_id: str) -> None:
+        idx = self.theme_combo.findData(theme_id)
+        if idx >= 0:
+            self.theme_combo.setCurrentIndex(idx)
+        self._sync_theme_chips(theme_id)
+        self._on_header_changed()
+
+    def _sync_theme_chips(self, theme_id: str | None = None) -> None:
+        tid = theme_id or (self.theme_combo.currentData() if hasattr(self, "theme_combo") else "light")
+        from studio.services.layout_defaults import PANEL_THEMES
+
+        for b, (id_, _label) in zip(getattr(self, "_theme_chip_buttons", []), PANEL_THEMES):
+            b.blockSignals(True)
+            b.setChecked(id_ == tid)
+            b.blockSignals(False)
+
+    def set_grab_pixmap_provider(self, provider) -> None:
+        self._grab_pixmap_provider_fn = provider
 
     def _show_canvas_context_menu(self, global_pos) -> None:
         if not is_free_mode(self._layout):
@@ -367,7 +454,7 @@ class LayoutEditorPreviewMixin:
         else:
             self.preview.set_preview_zoom(float(data))
 
-    def _select_widget_path(self, path: tuple[int, ...]) -> None:
+    def _select_widget_path(self, path: tuple[int, ...], *, sync_canvas: bool = True) -> None:
         if not path:
             return
         self._flush_property_sync()
@@ -381,7 +468,8 @@ class LayoutEditorPreviewMixin:
                     self.widget_list.clearSelection()
                     self.widget_list.blockSignals(False)
                     self._load_widget_into_form(w)
-                    self.phone_canvas.set_selected_path(path)
+                    if sync_canvas:
+                        self.phone_canvas.set_selected_path(path)
                 return
             act = active_screen_index(self._layout)
             if screen_idx != act:
@@ -397,7 +485,8 @@ class LayoutEditorPreviewMixin:
             if w:
                 self._selected_path = path
                 self._load_widget_into_form(w)
-                self.phone_canvas.set_selected_path(path)
+                if sync_canvas:
+                    self.phone_canvas.set_selected_path(path)
             return
         if len(path) == 1:
             self.widget_list.blockSignals(True)
@@ -405,8 +494,34 @@ class LayoutEditorPreviewMixin:
             self.widget_list.blockSignals(False)
             self._on_select_widget(path[0])
 
+    def _on_canvas_selection_changed(self, paths: object) -> None:
+        plist = [p for p in (paths or []) if isinstance(p, tuple)]
+        if not plist:
+            return
+        rows = sorted({p[1] for p in plist if len(p) == 2 and p[0] != CHROME_PATH_TAG})
+        if not rows:
+            return
+        self.widget_list.blockSignals(True)
+        self.widget_list.clearSelection()
+        for r in rows:
+            if 0 <= r < self.widget_list.count():
+                self.widget_list.item(r).setSelected(True)
+        self.widget_list.setCurrentRow(rows[0])
+        self.widget_list.blockSignals(False)
+        if len(plist) == 1:
+            self._select_widget_path(plist[0], sync_canvas=False)
+        else:
+            w = resolve_widget(self._layout, plist[0])
+            if w is not None:
+                self._selected_path = plist[0]
+                self._load_widget_into_form(w)
+
     def _on_preview_widget_selected(self, path: tuple) -> None:
         if isinstance(path, tuple):
+            paths = self.phone_canvas.selected_paths() if hasattr(self, "phone_canvas") else []
+            if len(paths) > 1 and path in paths:
+                self._on_canvas_selection_changed(paths)
+                return
             self._select_widget_path(path)
         elif isinstance(path, int) and 0 <= path < self.widget_list.count():
             self.widget_list.setCurrentRow(path)
