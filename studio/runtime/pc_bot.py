@@ -37,6 +37,34 @@ class PcBot:
     def log(self, msg: str) -> None:
         self._on_log(str(msg))
 
+    def toast(self, msg: str) -> None:
+        self.log(f"[toast] {msg}")
+
+    def open_app(self, package_name: str) -> bool:
+        pkg = str(package_name).strip()
+        if not pkg:
+            self.log("openApp: 包名为空")
+            return False
+        self.log(f"openApp: {pkg}")
+        try:
+            self.adb._run(
+                [
+                    "shell",
+                    "monkey",
+                    "-p",
+                    pkg,
+                    "-c",
+                    "android.intent.category.LAUNCHER",
+                    "1",
+                ],
+                serial=self.serial,
+                check=False,
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self.log(f"openApp 失败: {exc}")
+            return False
+
     def delay_seconds(self, seconds: float) -> None:
         time.sleep(max(0.0, float(seconds)))
 

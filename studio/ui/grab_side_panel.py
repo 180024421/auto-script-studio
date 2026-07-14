@@ -86,6 +86,16 @@ class GrabSidePanel(QWidget):
         self.tabs.addTab(_scroll_tab(self._build_yolo_tab()), "YOLO")
         self.tabs.addTab(_scroll_tab(self._build_coord_tab()), "坐标取点")
         root.addWidget(self.tabs, 1)
+        self._simple_mode = True
+        self.set_simple_mode(True)
+
+    def set_simple_mode(self, enabled: bool) -> None:
+        """简易模式：只保留「颜色」「找图识字」，隐藏 YOLO / 坐标取点。"""
+        self._simple_mode = enabled
+        self.tabs.setTabVisible(2, not enabled)
+        self.tabs.setTabVisible(3, not enabled)
+        if enabled and self.tabs.currentIndex() >= 2:
+            self.tabs.setCurrentIndex(0)
 
     def _action_btn(self, text: str, slot, role: str = "ghost") -> QPushButton:
         b = QPushButton(text)

@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from PySide6.QtCore import QPoint, QRect, Qt, Signal
-from PySide6.QtGui import QCursor, QMouseEvent, QWheelEvent
+from PySide6.QtGui import QColor, QCursor, QMouseEvent, QPixmap, QWheelEvent
 from PySide6.QtWidgets import (
   QFrame,
+  QGraphicsDropShadowEffect,
   QHBoxLayout,
   QLabel,
   QMenu,
@@ -41,6 +42,10 @@ from studio.services.screen_layout import (
 )
 from studio.services.free_layout import DESIGN_W, panel_design_size
 from studio.services.layout_clone import clone_layout, clone_widget
+from studio.services.panel_geometry import (
+  compute_device_screen_px,
+  compute_host_panel_overlay_rect,
+)
 from studio.services.panel_theme import panel_theme_colors
 from studio.services.snap_design import SNAP_GRID, snap_design as _snap_design
 from studio.services.widget_interior_scale import effective_content_scale
@@ -48,6 +53,22 @@ from studio.services.widget_interior_scale import effective_content_scale
 TITLE_DP = 48
 TAB_BAR_DP = 44
 CHROME_DP = 64
+APK_SHELL_PAD_DP = 20
+APK_SHELL_TOOLBAR_DP = 44
+APK_SHELL_BTN_DP = 48
+APK_SHELL_LOG_DP = 200
+APK_SHELL_LOG_LABEL_DP = 28
+
+
+def _apk_shell_extra_dp() -> int:
+  return (
+    APK_SHELL_PAD_DP * 2
+    + APK_SHELL_TOOLBAR_DP
+    + APK_SHELL_BTN_DP * 2
+    + 16
+    + APK_SHELL_LOG_LABEL_DP
+    + APK_SHELL_LOG_DP
+  )
 DRAG_THRESHOLD = 5
 
 
@@ -62,7 +83,147 @@ CHROME_ICONS: dict[str, str] = {
   "lua": "{}",
 }
 
-DEFAULT_PHONE_SCREEN_PX = 320
+DEFAULT_PHONE_SCREEN_PX = 360
+AUTO_FIT_DEVICE = -1
+DEVTOOLS_CANVAS_BG = "#E8EAED"
+STATUS_BAR_DP = 24
+HOME_INDICATOR_DP = 34
+HOST_APP_BAR_DP = 44
+
+
+def _status_bar_height(scale: float) -> int:
+  return max(18, int(STATUS_BAR_DP * scale))
+
+
+def _home_indicator_height(scale: float) -> int:
+  return max(14, int(HOME_INDICATOR_DP * scale))
+
+
+def _host_app_bar_height(scale: float) -> int:
+  return max(28, int(HOST_APP_BAR_DP * scale))
+
+
+def _build_status_bar_overlay(scale: float, *, parent: QWidget) -> QWidget:
+  """模拟系统状态栏（类似 Chrome 设备仿真顶部）。"""
+  h = _status_bar_height(scale)
+  bar = QWidget(parent)
+  bar.setObjectName("DeviceStatusBar")
+  bar.setFixedHeight(h)
+  fs = max(8, int(10 * scale))
+  bar.setStyleSheet(
+    f"QWidget#DeviceStatusBar {{ background:#1A1A1A; color:#FFFFFF; "
+    f"border-top-left-radius:{max(0, int(4 * scale))}px; "
+    f"border-top-right-radius:{max(0, int(4 * scale))}px; }}"
+  )
+  lay = QHBoxLayout(bar)
+  lay.setContentsMargins(max(8, int(12 * scale)), 0, max(8, int(12 * scale)), 0)
+  time_lbl = QLabel("9:41")
+  time_lbl.setStyleSheet(f"color:#FFFFFF;font-size:{fs}px;font-weight:600;background:transparent;")
+  lay.addWidget(time_lbl)
+  lay.addStretch(1)
+  icons = QLabel("▮▮▮  WiFi  🔋")
+  icons.setStyleSheet(f"color:#FFFFFF;font-size:{max(7, fs - 1)}px;background:transparent;")
+  lay.addWidget(icons)
+  return bar
+
+
+def _build_home_indicator_overlay(scale: float, *, parent: QWidget, screen_w: int) -> QWidget:
+  """底部 Home 指示条（iPhone 风格药丸）。"""
+  h = _home_indicator_height(scale)
+  host = QWidget(parent)
+  host.setObjectName("DeviceHomeArea")
+  host.setFixedHeight(h)
+  host.setStyleSheet("QWidget#DeviceHomeArea { background: transparent; }")
+  lay = QVBoxLayout(host)
+  lay.setContentsMargins(0, max(4, int(8 * scale)), 0, max(4, int(6 * scale)))
+  lay.addStretch(1)
+  pill_w = max(48, int(screen_w * 0.36))
+  pill_h = max(3, int(4 * scale))
+  pill = QFrame(host)
+  pill.setFixedSize(pill_w, pill_h)
+  pill.setStyleSheet(
+    f"QFrame {{ background:#1A1A1A; border-radius:{pill_h // 2}px; opacity:0.35; }}"
+  )
+  pill_row = QHBoxLayout()
+  pill_row.addStretch(1)
+  pill_row.addWidget(pill)
+  pill_row.addStretch(1)
+  lay.addLayout(pill_row)
+  return host
+
+
+def _build_host_app_bar(scale: float, *, parent: QWidget, title: str) -> QWidget:
+  """host 模式：模拟 MainActivity 顶栏（表单嵌入宿主页）。"""
+  h = _host_app_bar_height(scale)
+  bar = QWidget(parent)
+  bar.setObjectName("HostAppBar")
+  bar.setFixedHeight(h)
+  fs = max(9, int(12 * scale))
+  bar.setStyleSheet(
+    "QWidget#HostAppBar { background:#F8FAFC; border-bottom:1px solid #E2E8F0; }"
+  )
+  lay = QHBoxLayout(bar)
+  lay.setContentsMargins(max(8, int(12 * scale)), 0, max(8, int(12 * scale)), 0)
+  app_title = QLabel(title or "Auto Script")
+  app_title.setStyleSheet(f"color:#0F172A;font-size:{fs}px;font-weight:600;background:transparent;")
+  lay.addWidget(app_title)
+  lay.addStretch(1)
+  gear = QLabel("⚙")
+  gear.setStyleSheet(f"color:#64748B;font-size:{fs + 2}px;background:transparent;")
+  lay.addWidget(gear)
+  return bar
+
+
+def _build_floating_ball(scale: float, *, parent: QWidget, ball_dp: int, accent: str) -> QWidget:
+  """host 模式悬浮球（启停脚本）。"""
+  size = max(28, int(ball_dp * scale))
+  ball = QFrame(parent)
+  ball.setObjectName("FloatingBall")
+  ball.setFixedSize(size, size)
+  radius = size // 2
+  ball.setStyleSheet(
+    f"QFrame#FloatingBall {{ background:{accent}; border-radius:{radius}px; "
+    f"border:2px solid #FFFFFF; color:#FFFFFF; font-size:{max(10, int(14 * scale))}px; "
+    f"font-weight:700; }}"
+  )
+  ball_lay = QVBoxLayout(ball)
+  ball_lay.setContentsMargins(0, 0, 0, 0)
+  icon = QLabel("▶")
+  icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+  icon.setStyleSheet("color:#FFFFFF;background:transparent;font-weight:700;")
+  ball_lay.addWidget(icon)
+  ball.setToolTip("悬浮球：实机用于启停脚本")
+  return ball
+
+
+def _build_device_backdrop(parent: QWidget, w: int, h: int, pixmap: QPixmap | None) -> QLabel:
+  """设备屏壁纸：实机截图或渐变占位。"""
+  lbl = QLabel(parent)
+  lbl.setObjectName("DeviceBackdrop")
+  lbl.setGeometry(0, 0, w, h)
+  lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+  if pixmap is not None and not pixmap.isNull():
+    lbl.setPixmap(
+      pixmap.scaled(
+        w,
+        h,
+        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+        Qt.TransformationMode.SmoothTransformation,
+      )
+    )
+    lbl.setStyleSheet("QLabel#DeviceBackdrop { background:#0F172A; }")
+  else:
+    lbl.setStyleSheet(
+      "QLabel#DeviceBackdrop {"
+      "background: qlineargradient("
+      "x1:0,y1:0,x2:1,y2:1,"
+      "stop:0 #E2E8F0, stop:0.45 #CBD5E1, stop:1 #94A3B8"
+      ");"
+      "color:#64748B;font-size:11px;"
+      "}"
+    )
+    lbl.setText("宿主应用")
+  return lbl
 
 
 def compute_preview_scale(
@@ -206,6 +367,7 @@ class FreeDesignItem(QFrame):
     selectable: bool = False,
     on_values_changed: Any = None,
     icon_only: bool = False,
+    theme: str = "light",
   ) -> None:
     super().__init__(parent)
     self._path = path
@@ -218,6 +380,7 @@ class FreeDesignItem(QFrame):
     self._editable = editable
     self._selectable = selectable
     self._on_values_changed = on_values_changed
+    self._theme = theme or "light"
     self._spec = clone_widget(spec)
     wtype = spec.get("type", "")
     self._form_like = wtype in FORM_PREVIEW_TYPES
@@ -268,10 +431,16 @@ class FreeDesignItem(QFrame):
     preview = None
     if self._interactive and wtype in INTERACTIVE_TYPES:
       preview = build_interactive_widget(
-        spec, self._on_values_changed, scale=eff_scale, container_h=container_h
+        spec,
+        self._on_values_changed,
+        scale=eff_scale,
+        container_h=container_h,
+        theme=self._theme,
       )
     elif wtype == "divider" or wtype in FORM_PREVIEW_TYPES:
-      preview = build_design_preview(spec, scale=eff_scale, container_h=container_h)
+      preview = build_design_preview(
+        spec, scale=eff_scale, container_h=container_h, theme=self._theme
+      )
     if preview is not None:
       lay = self._content_host.layout()
       if lay is None:
@@ -546,6 +715,20 @@ class _PhoneShell:
     compact_preview: bool
     interactive_preview: bool
     phone_style: bool
+    device_emulation: bool = False
+    landscape: bool = False
+    auto_fit: bool = False
+    main_panel_preview: bool = False
+    apk_shell_preview: bool = False
+    backdrop_key: int = 0
+    device_wh: tuple[int, int] = (0, 0)
+    status_bar: QWidget | None = None
+    home_indicator: QWidget | None = None
+    host_app_bar: QWidget | None = None
+    floating_ball: QWidget | None = None
+    backdrop: QLabel | None = None
+    panel_card: QWidget | None = None
+    content_host: QWidget | None = None
 
 
 class PhoneCanvasWidget(QScrollArea):
@@ -586,6 +769,12 @@ class PhoneCanvasWidget(QScrollArea):
     self._fit_viewport = False
     self._min_scale = 0.35
     self._phone_style = False
+    self._device_emulation = False
+    self._landscape = False
+    self._auto_fit_device = False
+    self._main_panel_preview = False
+    self._apk_shell_preview = False
+    self._backdrop_pixmap: QPixmap | None = None
     self._target_screen_px: int | None = None
     self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
     self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -646,6 +835,78 @@ class PhoneCanvasWidget(QScrollArea):
       return
     self._phone_style = enabled
     self._rebuild(full=True)
+
+  def set_device_emulation(self, enabled: bool) -> None:
+    """浏览器 DevTools 风格设备仿真：灰底居中、状态栏、Home 条、阴影外框。"""
+    if self._device_emulation == enabled:
+      return
+    self._device_emulation = enabled
+    self._apply_viewport_style()
+    self._rebuild(full=True)
+
+  def set_preview_landscape(self, enabled: bool) -> None:
+    """横屏设备仿真（宽高对调，host 模式下面板按 position 浮动）。"""
+    if self._landscape == enabled:
+      return
+    self._landscape = enabled
+    self._rebuild(full=True)
+
+  def set_auto_fit_device(self, enabled: bool) -> None:
+    """设备尽量撑满预览区（类似 Chrome DevTools 适应窗口）。"""
+    if self._auto_fit_device == enabled:
+      return
+    self._auto_fit_device = enabled
+    if enabled:
+      self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+      self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    elif not self._main_panel_preview:
+      self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+      self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    self._rebuild(full=True)
+
+  def set_main_panel_preview(self, enabled: bool) -> None:
+    """APK 主面板预览：layout 表单（对齐 HostPanelRenderer），不含悬浮球/Overlay 仿真。"""
+    if self._main_panel_preview == enabled:
+      return
+    self._main_panel_preview = enabled
+    if not enabled:
+      self._apk_shell_preview = False
+    self._apply_viewport_style()
+    self._rebuild(full=True)
+
+  def set_apk_shell_preview(self, enabled: bool) -> None:
+    """在 main_panel_preview 上叠加 APK 固定外壳：设置 / 启停 / 运行日志。"""
+    if self._apk_shell_preview == enabled:
+      return
+    self._apk_shell_preview = enabled
+    if enabled:
+      self._main_panel_preview = True
+    self._apply_viewport_style()
+    self._rebuild(full=True)
+
+  def main_panel_preview(self) -> bool:
+    return self._main_panel_preview
+
+  def set_backdrop_pixmap(self, pixmap: QPixmap | None) -> None:
+    """实机截图作为设备屏背景（类似 DevTools 中加载页面）。"""
+    self._backdrop_pixmap = pixmap
+    self._rebuild(full=True)
+
+  def preview_landscape(self) -> bool:
+    return self._landscape
+
+  def _apply_viewport_style(self) -> None:
+    if self._main_panel_preview:
+      self._viewport.setStyleSheet("background: #F8FAFC;")
+      self.setStyleSheet("QScrollArea#PhoneCanvas { background: #F8FAFC; border: none; }")
+    elif self._device_emulation and self._phone_style:
+      self._viewport.setStyleSheet(f"background: {DEVTOOLS_CANVAS_BG};")
+      self.setStyleSheet(
+        f"QScrollArea#PhoneCanvas {{ background: {DEVTOOLS_CANVAS_BG}; border: none; }}"
+      )
+    else:
+      self._viewport.setStyleSheet("background: #FFFFFF;")
+      self.setStyleSheet("")
 
   def set_target_screen_width(self, px: int | None) -> None:
     """固定屏幕宽度（设计像素换算后的目标 px；None 表示按视口自适应）。"""
@@ -717,6 +978,19 @@ class PhoneCanvasWidget(QScrollArea):
       return True
     if self._phone_style != self._shell.phone_style:
       return True
+    if self._device_emulation != self._shell.device_emulation:
+      return True
+    if self._landscape != self._shell.landscape:
+      return True
+    backdrop_key = id(self._backdrop_pixmap) if self._backdrop_pixmap is not None else 0
+    if backdrop_key != self._shell.backdrop_key:
+      return True
+    if self._auto_fit_device != getattr(self._shell, "auto_fit", False):
+      return True
+    if self._main_panel_preview != getattr(self._shell, "main_panel_preview", False):
+      return True
+    if self._apk_shell_preview != getattr(self._shell, "apk_shell_preview", False):
+      return True
     new_scale = self._effective_scale(dw, dh)
     if abs(new_scale - self._shell.scale) >= 0.01:
       return True
@@ -727,6 +1001,29 @@ class PhoneCanvasWidget(QScrollArea):
 
   def _effective_scale(self, design_w: int, design_h: int) -> float:
     vp = self.viewport()
+    if self._main_panel_preview and not self._device_emulation:
+      return compute_preview_scale(
+        design_w=design_w,
+        design_h=design_h,
+        viewport_w=vp.width(),
+        viewport_h=vp.height(),
+        target_screen_px=self._target_screen_px,
+        fit_viewport=True,
+        min_scale=self._min_scale,
+        hint_reserve=self._hint_reserve_px(),
+      )
+    pw, ph = design_w, design_h
+    if self._landscape:
+      pw, ph = design_h, design_w
+    if self._auto_fit_device and self._device_emulation and self._phone_style:
+      gutter = 32
+      vw = max(160, vp.width() - gutter)
+      vh = max(200, vp.height() - gutter)
+      scale_w = vw / max(1, pw)
+      scale_h = vh / max(1, ph)
+      return max(self._min_scale, min(1.0, scale_w, scale_h))
+    if self._landscape:
+      design_w, design_h = design_h, design_w
     return compute_preview_scale(
       design_w=design_w,
       design_h=design_h,
@@ -781,6 +1078,7 @@ class PhoneCanvasWidget(QScrollArea):
       if w is not None:
         w.setParent(None)
         w.deleteLater()
+    self._root.setContentsMargins(8, 8, 8, 8)
     self._items = []
     self._interface_canvas = None
     self._chrome_host = None
@@ -792,11 +1090,14 @@ class PhoneCanvasWidget(QScrollArea):
     dw, dh = panel_design_size(panel)
     self._scale = self._effective_scale(dw, dh)
     self._last_scale = self._scale
-    sw = int(dw * self._scale)
     bezel = _bezel_px(self._scale, phone_style=self._phone_style)
     frame_radius = _phone_frame_radius(self._scale, phone_style=self._phone_style)
     active = active_screen_index(self._layout)
     sc_list = screens(self._layout)
+    emulate = self._device_emulation and self._phone_style and not self._main_panel_preview
+    host = is_host_display(panel)
+    landscape = self._landscape and emulate
+    host_overlay = host and emulate and not self._main_panel_preview
 
     row = QHBoxLayout()
     row.setContentsMargins(0, 0, 0, 0)
@@ -806,58 +1107,182 @@ class PhoneCanvasWidget(QScrollArea):
     phone_lay = QVBoxLayout(phone)
     phone_lay.setContentsMargins(bezel, bezel, bezel, bezel)
     phone_lay.setSpacing(0)
-    if self._phone_style:
+    if self._phone_style and not self._main_panel_preview:
       phone.setStyleSheet(
         f"QFrame#PhoneFrame {{ background:#0F172A; border:2px solid #334155; "
         f"border-radius:{frame_radius}px; }}"
       )
+      if emulate:
+        shadow = QGraphicsDropShadowEffect(phone)
+        shadow.setBlurRadius(max(24, int(32 * self._scale)))
+        shadow.setOffset(0, max(4, int(8 * self._scale)))
+        shadow.setColor(QColor(0, 0, 0, 90))
+        phone.setGraphicsEffect(shadow)
+    elif self._main_panel_preview and self._apk_shell_preview:
+      phone.setStyleSheet(
+        "QFrame#PhoneFrame { background:#F8FAFC; border:1px solid #CBD5E1; "
+        f"border-radius:{max(8, int(12 * self._scale))}px; }}"
+      )
+    elif self._main_panel_preview:
+      phone.setStyleSheet(
+        f"QFrame#PhoneFrame {{ background:{theme.screen_bg}; border:1px solid #CBD5E1; "
+        f"border-radius:{max(8, int(12 * self._scale))}px; }}"
+      )
     else:
-      phone.setFixedWidth(sw + 4)
+      phone.setFixedWidth(int(dw * self._scale) + 4)
       phone_lay.setContentsMargins(2, 2, 2, 2)
+
+    if landscape or host_overlay:
+      device_sw, device_sh = compute_device_screen_px(dw, dh, self._scale, landscape=landscape)
+    elif self._main_panel_preview:
+      device_sw = int(dw * self._scale)
+      shell_extra = _apk_shell_extra_dp() if self._apk_shell_preview else 0
+      device_sh = int(dh * self._scale) + int(shell_extra * self._scale)
+    else:
+      device_sw = int(dw * self._scale)
+      device_sh = 0
+    sw = device_sw
+
+    overlay_rect = None
+    panel_scale = self._scale
+    if host_overlay:
+      overlay_rect = compute_host_panel_overlay_rect(self._layout, device_sw, device_sh)
+      panel_scale = overlay_rect.inner_scale
 
     inner = QWidget()
     inner.setObjectName("PhoneScreen")
-    inner.setFixedWidth(sw)
+    inner.setFixedWidth(device_sw)
+    if landscape or host_overlay or (self._main_panel_preview and not self._apk_shell_preview):
+      inner.setFixedHeight(device_sh)
     if self._phone_style:
       inner_radius = max(4, frame_radius - bezel)
+      screen_bg = "transparent" if host_overlay else theme.screen_bg
       inner.setStyleSheet(
-        f"QWidget#PhoneScreen {{ background:{theme.screen_bg}; border-radius:{inner_radius}px; }}"
+        f"QWidget#PhoneScreen {{ background:{screen_bg}; border-radius:{inner_radius}px; }}"
       )
-    inner_lay = QVBoxLayout(inner)
-    inner_lay.setContentsMargins(0, 0, 0, 0)
-    inner_lay.setSpacing(0)
 
-    title_h = int(TITLE_DP * self._scale)
-    title = QLabel(panel.get("title", "脚本助手"))
+    backdrop: QLabel | None = None
+    panel_card: QFrame | None = None
+    apk_page_lay: QVBoxLayout | None = None
+    ui_scale = self._scale
+    if emulate and (landscape or host_overlay):
+      backdrop = _build_device_backdrop(inner, device_sw, device_sh, self._backdrop_pixmap)
+      backdrop.lower()
+
+    if host_overlay and overlay_rect is not None:
+      panel_card = QFrame(inner)
+      panel_card.setObjectName("PanelOverlayCard")
+      panel_card.setStyleSheet(
+        "QFrame#PanelOverlayCard { background:#FFFFFF; border-radius:8px; "
+        "border:1px solid #CBD5E1; }"
+      )
+      panel_card.setGeometry(overlay_rect.x, overlay_rect.y, overlay_rect.w, overlay_rect.h)
+      content_root = panel_card
+      content_lay = QVBoxLayout(panel_card)
+      content_lay.setContentsMargins(0, 0, 0, 0)
+      content_lay.setSpacing(0)
+      ui_scale = panel_scale
+      show_host_bar = False
+    elif self._apk_shell_preview and self._main_panel_preview:
+      pad = int(APK_SHELL_PAD_DP * ui_scale)
+      page = QWidget()
+      page.setObjectName("PhoneScreen")
+      page.setFixedWidth(device_sw)
+      apk_page_lay = QVBoxLayout(page)
+      apk_page_lay.setContentsMargins(pad, pad, pad, pad)
+      apk_page_lay.setSpacing(int(8 * ui_scale))
+
+      toolbar = QWidget()
+      tb_lay = QHBoxLayout(toolbar)
+      tb_lay.setContentsMargins(0, 0, 0, 0)
+      tb_lay.addStretch()
+      settings_btn = QPushButton("⚙")
+      settings_btn.setToolTip("设置（APK 固定入口，预览不可点）")
+      settings_btn.setEnabled(False)
+      btn_sz = int(40 * ui_scale)
+      settings_btn.setFixedSize(btn_sz, btn_sz)
+      settings_btn.setStyleSheet(
+        "QPushButton { border:1px solid #CBD5E1; border-radius:8px; background:#FFFFFF; }"
+      )
+      tb_lay.addWidget(settings_btn)
+      toolbar.setFixedHeight(int(APK_SHELL_TOOLBAR_DP * ui_scale))
+      apk_page_lay.addWidget(toolbar)
+
+      layout_host = QFrame()
+      layout_host.setObjectName("LayoutPanelHost")
+      layout_host.setStyleSheet(
+        "QFrame#LayoutPanelHost { background:#FFFFFF; border:1px solid #E2E8F0; border-radius:8px; }"
+      )
+      content_root = layout_host
+      content_lay = QVBoxLayout(layout_host)
+      content_lay.setContentsMargins(0, 0, 0, 0)
+      content_lay.setSpacing(0)
+      inner = page
+      ui_scale = self._scale
+      show_host_bar = False
+    else:
+      content_root = inner
+      content_lay = QVBoxLayout(inner)
+      content_lay.setContentsMargins(0, 0, 0, 0)
+      content_lay.setSpacing(0)
+      ui_scale = self._scale
+      show_host_bar = host and emulate and not landscape and not host_overlay
+      if emulate and not landscape and not host_overlay:
+        top_pad = _status_bar_height(ui_scale)
+        if show_host_bar:
+          top_pad += _host_app_bar_height(ui_scale)
+        content_lay.setContentsMargins(0, top_pad, 0, _home_indicator_height(ui_scale))
+      elif emulate and landscape and not host_overlay:
+        content_lay.setContentsMargins(0, _status_bar_height(ui_scale), 0, _home_indicator_height(ui_scale))
+
+    title_h = int(TITLE_DP * ui_scale)
+    title = QLabel(panel.get("title", "脚本助手"), content_root)
     title.setFixedHeight(title_h)
-    title_fs = max(9, int(13 * self._scale))
-    title_radius = max(0, frame_radius - bezel) if self._phone_style else 0
+    title_fs = max(9, int(13 * ui_scale))
+    title_radius = 0 if emulate else max(0, frame_radius - bezel) if self._phone_style else 0
     title.setStyleSheet(
       f"background:{theme.title_bg};color:{theme.title_fg};font-weight:600;font-size:{title_fs}px;"
       + (f"border-top-left-radius:{title_radius}px;border-top-right-radius:{title_radius}px;" if title_radius else "")
     )
     title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    inner_lay.addWidget(title)
+    content_lay.addWidget(title)
 
     tab_scroll, tab_buttons = _build_screen_tab_bar(
-      sc_list, active, self._scale, self._on_tab_clicked
+      sc_list, active, ui_scale, self._on_tab_clicked
     )
-    inner_lay.addWidget(tab_scroll)
+    content_lay.addWidget(tab_scroll)
 
-    view_h = int((dh - TITLE_DP - TAB_BAR_DP - _chrome_dp(self._layout)) * self._scale)
-    scroll = QScrollArea()
+    tab_h = _screen_tab_bar_height(ui_scale)
+    chrome_dp = int(_chrome_dp(self._layout) * ui_scale)
+    if self._main_panel_preview:
+      layout_body_h = int(dh * self._scale)
+      view_h = max(120, layout_body_h - title_h - tab_h - chrome_dp)
+    else:
+      view_h = int((dh - TITLE_DP - TAB_BAR_DP - _chrome_dp(self._layout)) * ui_scale)
+    if host_overlay and overlay_rect is not None:
+      view_h = max(80, overlay_rect.h - title_h - tab_h - int(_chrome_dp(self._layout) * ui_scale))
+    elif landscape and not host_overlay:
+      reserved = _status_bar_height(ui_scale) + _home_indicator_height(ui_scale)
+      view_h = min(
+        view_h,
+        max(
+          120,
+          device_sh - reserved - title_h - tab_h - int(_chrome_dp(self._layout) * ui_scale),
+        ),
+      )
+    scroll = QScrollArea(content_root)
     scroll.setWidgetResizable(True)
     scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-    scroll.setFixedHeight(max(200, view_h))
+    scroll.setFixedHeight(max(120 if landscape else 200, view_h))
     scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {theme.screen_bg}; }}")
 
     canvas = InterfaceCanvas()
     canvas.context_menu_requested.connect(self.context_menu_requested.emit)
     scroll.setWidget(canvas)
-    inner_lay.addWidget(scroll, 1)
+    content_lay.addWidget(scroll, 1)
 
-    chrome_h = int(_chrome_dp(self._layout) * self._scale)
-    chrome_host = QWidget()
+    chrome_h = int(_chrome_dp(self._layout) * ui_scale)
+    chrome_host = QWidget(content_root)
     chrome_host.setFixedHeight(max(0, chrome_h))
     chrome_host.setVisible(chrome_h > 0)
     chrome_host.setStyleSheet(
@@ -867,7 +1292,79 @@ class PhoneCanvasWidget(QScrollArea):
     chrome_host.customContextMenuRequested.connect(
       lambda pos, host=chrome_host: self.context_menu_requested.emit(host.mapToGlobal(pos))
     )
-    inner_lay.addWidget(chrome_host)
+    content_lay.addWidget(chrome_host)
+
+    if apk_page_lay is not None:
+      apk_page_lay.addWidget(content_root, 1)
+      btn_h = int(APK_SHELL_BTN_DP * ui_scale)
+      start_btn = QPushButton("开始运行脚本")
+      start_btn.setEnabled(False)
+      start_btn.setFixedHeight(btn_h)
+      start_btn.setStyleSheet(
+        f"QPushButton {{ background:{theme.accent}; color:#FFFFFF; font-weight:600; "
+        "border:none; border-radius:8px; }"
+      )
+      apk_page_lay.addWidget(start_btn)
+      stop_btn = QPushButton("停止")
+      stop_btn.setEnabled(False)
+      stop_btn.setFixedHeight(btn_h)
+      stop_btn.setStyleSheet(
+        "QPushButton { background:#F1F5F9; color:#334155; border:1px solid #CBD5E1; border-radius:8px; }"
+      )
+      apk_page_lay.addWidget(stop_btn)
+      log_title = QLabel("运行日志")
+      log_title.setStyleSheet(
+        f"font-weight:600; font-size:{max(10, int(14 * ui_scale))}px; color:#1A2332;"
+      )
+      apk_page_lay.addWidget(log_title)
+      log_box = QLabel("（脚本运行日志将显示于此）")
+      log_box.setFixedHeight(int(APK_SHELL_LOG_DP * ui_scale))
+      log_box.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+      log_box.setWordWrap(True)
+      log_box.setStyleSheet(
+        "QLabel { background:#F8FAFC; border:1px solid #E2E8F0; border-radius:8px; "
+        f"padding:{max(4, int(8 * ui_scale))}px; font-family:Consolas,monospace; "
+        f"font-size:{max(9, int(11 * ui_scale))}px; color:#64748B; }}"
+      )
+      apk_page_lay.addWidget(log_box)
+      inner.setFixedHeight(device_sh)
+
+    if host_overlay and panel_card is not None and overlay_rect is not None:
+      panel_card.setGeometry(overlay_rect.x, overlay_rect.y, overlay_rect.w, overlay_rect.h)
+      panel_card.raise_()
+      self._scale = panel_scale
+    else:
+      self._scale = ui_scale
+
+    status_bar: QWidget | None = None
+    home_indicator: QWidget | None = None
+    host_app_bar: QWidget | None = None
+    floating_ball: QWidget | None = None
+    chrome_sw = device_sw
+    if emulate:
+      status_bar = _build_status_bar_overlay(self._scale, parent=inner)
+      status_bar.setFixedWidth(chrome_sw)
+      status_bar.move(0, 0)
+      status_bar.raise_()
+      if show_host_bar:
+        host_app_bar = _build_host_app_bar(
+          self._scale,
+          parent=inner,
+          title=str(panel.get("title", "Auto Script")),
+        )
+        host_app_bar.setFixedWidth(chrome_sw)
+        host_app_bar.move(0, _status_bar_height(self._scale))
+        host_app_bar.raise_()
+      if host and not self._main_panel_preview:
+        ball_dp = int(panel.get("ball_size_dp", 48))
+        floating_ball = _build_floating_ball(
+          self._scale,
+          parent=inner,
+          ball_dp=ball_dp,
+          accent=theme.accent,
+        )
+      if not self._main_panel_preview:
+        home_indicator = _build_home_indicator_overlay(self._scale, parent=inner, screen_w=chrome_sw)
 
     phone_lay.addWidget(inner)
     row.addWidget(phone)
@@ -882,8 +1379,12 @@ class PhoneCanvasWidget(QScrollArea):
       hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
       hint.setWordWrap(True)
 
-    phone_outer_w = sw + bezel * 2
+    phone_outer_w = device_sw + bezel * 2
     phone.setFixedWidth(phone_outer_w)
+    if landscape or host_overlay or self._main_panel_preview:
+      phone.setFixedHeight(device_sh + bezel * 2)
+
+    backdrop_key = id(self._backdrop_pixmap) if self._backdrop_pixmap is not None else 0
 
     return _PhoneShell(
       wrap=wrap,
@@ -902,10 +1403,39 @@ class PhoneCanvasWidget(QScrollArea):
       compact_preview=self._compact_preview,
       interactive_preview=self._interactive_preview,
       phone_style=self._phone_style,
+      device_emulation=emulate,
+      landscape=landscape,
+      auto_fit=self._auto_fit_device,
+      main_panel_preview=self._main_panel_preview,
+      apk_shell_preview=self._apk_shell_preview,
+      backdrop_key=backdrop_key,
+      device_wh=(device_sw, device_sh if (landscape or host_overlay) else 0),
+      status_bar=status_bar,
+      home_indicator=home_indicator,
+      host_app_bar=host_app_bar,
+      floating_ball=floating_ball,
+      backdrop=backdrop,
+      panel_card=panel_card,
     )
 
   def _hint_text(self, dw: int, dh: int) -> str:
-    if is_host_display(self._layout.get("panel")):
+    if self._apk_shell_preview:
+      base = (
+        f"APK 完整预览 {dw}×{dh}  ·  中间为 layout.json 脚本面板（标题=panel.title）"
+        "  ·  下方为打包固定增加的启停与日志"
+      )
+    elif self._main_panel_preview:
+      base = (
+        f"脚本面板预览 {dw}×{dh}  ·  与 APK 内 layout 一致（panel.title + 标签页 + 控件）"
+        "  ·  打包后 APK 另增设置/启停/日志"
+      )
+    elif self._device_emulation and self._phone_style:
+      orient = "横屏" if self._landscape else "竖屏"
+      preset = f"{sw}px 屏宽" if (sw := self._target_screen_px) else f"设计 {dw}×{dh}"
+      base = f"设备仿真 · {orient} · {preset}  ·  Ctrl+滚轮微调宽度"
+      if self._backdrop_pixmap is not None and not self._backdrop_pixmap.isNull():
+        base += "  ·  已加载截图背景"
+    elif is_host_display(self._layout.get("panel")):
       base = (
         f"主页面表单预览 {dw}×{dh}  ·  点击标签切换界面  ·  拖动移动控件"
         "  ·  APK 启停由悬浮球控制"
@@ -916,6 +1446,8 @@ class PhoneCanvasWidget(QScrollArea):
       )
     if self._interactive_preview:
       base += "  ·  交互预览：顶部色条拖动，控件区内可操作"
+    if self._device_emulation and is_host_display(self._layout.get("panel")):
+      base += "  ·  右侧悬浮球为实机启停入口"
     return base
 
   def _sync_shell_content(self) -> None:
@@ -925,8 +1457,22 @@ class PhoneCanvasWidget(QScrollArea):
     panel = self._layout.get("panel", {})
     theme = panel_theme_colors(str(panel.get("theme", "light")))
     dw, dh = shell.design_wh
-    self._scale = shell.scale
-    sw = int(dw * self._scale)
+    self._scale = self._effective_scale(dw, dh)
+    shell.scale = self._scale
+    emulate = shell.device_emulation
+    landscape = shell.landscape
+    host = is_host_display(panel)
+    host_overlay = host and emulate and shell.panel_card is not None and not shell.main_panel_preview
+    if landscape or host_overlay:
+      device_sw, device_sh = compute_device_screen_px(dw, dh, self._scale, landscape=landscape)
+    elif shell.main_panel_preview:
+      device_sw = int(dw * self._scale)
+      shell_extra = _apk_shell_extra_dp() if shell.apk_shell_preview else 0
+      device_sh = int(dh * self._scale) + int(shell_extra * self._scale)
+    else:
+      device_sw = int(dw * self._scale)
+      device_sh = 0
+    sw = device_sw
     bezel = _bezel_px(self._scale, phone_style=self._phone_style)
     frame_radius = _phone_frame_radius(self._scale, phone_style=self._phone_style)
     active = active_screen_index(self._layout)
@@ -936,7 +1482,7 @@ class PhoneCanvasWidget(QScrollArea):
     title_h = int(TITLE_DP * self._scale)
     shell.title.setFixedHeight(title_h)
     title_fs = max(9, int(13 * self._scale))
-    title_radius = max(0, frame_radius - bezel) if self._phone_style else 0
+    title_radius = 0 if emulate else max(0, frame_radius - bezel) if self._phone_style else 0
     shell.title.setStyleSheet(
       f"background:{theme.title_bg};color:{theme.title_fg};font-weight:600;font-size:{title_fs}px;"
       + (f"border-top-left-radius:{title_radius}px;border-top-right-radius:{title_radius}px;" if title_radius else "")
@@ -957,22 +1503,102 @@ class PhoneCanvasWidget(QScrollArea):
     content_h_design = content_height(
       self._layout,
       active,
-      min_canvas=0 if (self._fit_viewport or self._target_screen_px) else 800,
+      min_canvas=0 if (self._fit_viewport or self._target_screen_px or self._auto_fit_device) else 800,
     )
-    view_h = int((dh - TITLE_DP - TAB_BAR_DP - _chrome_dp(self._layout)) * self._scale)
-    shell.scroll.setFixedHeight(max(200, view_h))
-    canvas_h = int(content_h_design * self._scale)
-    shell.canvas.setFixedSize(sw, max(canvas_h, view_h))
-
     chrome_h = int(_chrome_dp(self._layout) * self._scale)
+    if shell.main_panel_preview:
+      layout_body_h = int(dh * self._scale)
+      view_h = max(120, layout_body_h - title_h - tab_h - chrome_h)
+    else:
+      view_h = int((dh - TITLE_DP - TAB_BAR_DP - _chrome_dp(self._layout)) * self._scale)
+    if host_overlay and shell.panel_card is not None:
+      overlay_rect = compute_host_panel_overlay_rect(self._layout, device_sw, device_sh)
+      view_h = max(80, overlay_rect.h - title_h - tab_h - chrome_h)
+    elif landscape and not host_overlay:
+      reserved = _status_bar_height(self._scale) + _home_indicator_height(self._scale)
+      view_h = min(
+        view_h,
+        max(
+          120,
+          device_sh - reserved - title_h - tab_h - chrome_h,
+        ),
+      )
+    min_view = 120 if landscape else 200
+    shell.scroll.setFixedHeight(max(min_view, view_h))
+    canvas_h = int(content_h_design * self._scale)
+    canvas_w = shell.panel_card.width() if host_overlay and shell.panel_card else sw
+    shell.canvas.setFixedSize(canvas_w, max(canvas_h, shell.scroll.height()))
+
     shell.chrome_host.setFixedHeight(max(0, chrome_h))
     shell.chrome_host.setVisible(chrome_h > 0)
-    phone_h = title_h + tab_h + shell.scroll.height() + chrome_h
-    shell.inner.setFixedWidth(sw)
-    shell.inner.setFixedHeight(phone_h)
-    phone_outer_w = sw + bezel * 2
+
+    show_host_bar = host and emulate and not landscape and not host_overlay
+    top_pad = 0
+    bottom_pad = 0
+    if emulate and not host_overlay:
+      top_pad = _status_bar_height(self._scale)
+      if show_host_bar:
+        top_pad += _host_app_bar_height(self._scale)
+      bottom_pad = _home_indicator_height(self._scale)
+
+    panel_body_h = title_h + tab_h + shell.scroll.height() + chrome_h
+    if landscape or host_overlay or shell.main_panel_preview:
+      phone_h = device_sh
+      shell.inner.setFixedWidth(device_sw)
+      shell.inner.setFixedHeight(device_sh)
+      shell.phone.setFixedHeight(device_sh + bezel * 2)
+    else:
+      phone_h = panel_body_h + top_pad + bottom_pad
+      shell.inner.setFixedWidth(device_sw)
+      shell.inner.setFixedHeight(phone_h)
+      shell.phone.setFixedHeight(phone_h + bezel * 2)
+
+    phone_outer_w = device_sw + bezel * 2
     shell.phone.setFixedWidth(phone_outer_w)
-    shell.phone.setFixedHeight(phone_h + bezel * 2)
+
+    if shell.backdrop is not None:
+      bh = device_sh if (landscape or host_overlay or shell.main_panel_preview) else phone_h
+      shell.backdrop.setGeometry(0, 0, device_sw, bh)
+      if self._backdrop_pixmap is not None and not self._backdrop_pixmap.isNull():
+        shell.backdrop.setPixmap(
+          self._backdrop_pixmap.scaled(
+            device_sw,
+            bh,
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+          )
+        )
+        shell.backdrop.setText("")
+      else:
+        shell.backdrop.setPixmap(QPixmap())
+        shell.backdrop.setText("宿主应用")
+      shell.backdrop.lower()
+
+    if host_overlay and shell.panel_card is not None:
+      overlay_rect = compute_host_panel_overlay_rect(self._layout, device_sw, device_sh)
+      shell.panel_card.setGeometry(overlay_rect.x, overlay_rect.y, overlay_rect.w, overlay_rect.h)
+      shell.panel_card.raise_()
+      top_pad = overlay_rect.y
+
+    if shell.status_bar is not None:
+      shell.status_bar.setFixedWidth(device_sw)
+      shell.status_bar.move(0, 0)
+      shell.status_bar.raise_()
+    if shell.host_app_bar is not None:
+      shell.host_app_bar.setFixedWidth(device_sw)
+      shell.host_app_bar.move(0, _status_bar_height(self._scale))
+      shell.host_app_bar.raise_()
+    if shell.home_indicator is not None:
+      shell.home_indicator.setFixedWidth(device_sw)
+      home_y = (device_sh if (landscape or host_overlay) else phone_h) - _home_indicator_height(self._scale)
+      shell.home_indicator.move(0, home_y)
+      shell.home_indicator.raise_()
+    if shell.floating_ball is not None and not shell.main_panel_preview:
+      ball = shell.floating_ball
+      margin = max(8, int(12 * self._scale))
+      ball_y = top_pad + max(8, int(16 * self._scale)) if not host_overlay else margin
+      ball.move(device_sw - ball.width() - margin, ball_y)
+      ball.raise_()
 
     screen_widgets = sc_list[active].get("widgets") or [] if sc_list else []
     self._sync_widget_layer(shell.canvas, screen_widgets, active)
@@ -991,16 +1617,24 @@ class PhoneCanvasWidget(QScrollArea):
     if self._shell is None:
       return
     shell = self._shell
-    align_top = not self._fit_viewport or self._target_screen_px is not None
+    center_device = (
+      self._device_emulation
+      and self._phone_style
+      and not self._fit_viewport
+    )
+    use_stretch = center_device and not self._auto_fit_device
+    if use_stretch:
+      self._root.setContentsMargins(12, 12, 12, 12)
+      self._root.addStretch(1)
+    elif center_device:
+      self._root.setContentsMargins(8, 8, 8, 8)
+    align_top = (not self._fit_viewport or self._target_screen_px is not None) and use_stretch
     v_align = Qt.AlignmentFlag.AlignTop if align_top else Qt.AlignmentFlag.AlignVCenter
-    if self._fit_viewport:
-      self._root.addWidget(shell.wrap, 0, Qt.AlignmentFlag.AlignHCenter | v_align)
-      if shell.hint is not None:
-        self._root.addWidget(shell.hint, 0, Qt.AlignmentFlag.AlignHCenter)
-    else:
-      self._root.addWidget(shell.wrap, 0, Qt.AlignmentFlag.AlignHCenter | v_align)
-      if shell.hint is not None:
-        self._root.addWidget(shell.hint, 0, Qt.AlignmentFlag.AlignHCenter)
+    self._root.addWidget(shell.wrap, 0, Qt.AlignmentFlag.AlignHCenter | v_align)
+    if shell.hint is not None:
+      self._root.addWidget(shell.hint, 0, Qt.AlignmentFlag.AlignHCenter)
+    if use_stretch:
+      self._root.addStretch(1)
 
   def _make_design_item(
     self,
@@ -1010,6 +1644,9 @@ class PhoneCanvasWidget(QScrollArea):
     parent: QWidget,
     screen_idx: int,
   ) -> FreeDesignItem:
+    theme_id = "light"
+    if self._layout:
+      theme_id = str((self._layout.get("panel") or {}).get("theme", "light") or "light")
     item = FreeDesignItem(
       path,
       spec,
@@ -1020,6 +1657,7 @@ class PhoneCanvasWidget(QScrollArea):
       selectable=self._selectable,
       on_values_changed=self.values_changed.emit,
       icon_only=screen_idx == CHROME_PATH_TAG and spec.get("type") in CHROME_ICONS,
+      theme=theme_id,
     )
     item.rect_changed.connect(self._on_rect_changed)
     item.clicked.connect(self._on_item_clicked)
@@ -1072,6 +1710,12 @@ class PhoneCanvasWidget(QScrollArea):
         item.deleteLater()
 
     self._items = [it for it in self._items if it.parent() is not parent] + kept
+    # section 卡片垫底，表单控件叠在上面
+    for it in kept:
+      if str(it._spec.get("type", "")) == "section":
+        it.lower()
+      else:
+        it.raise_()
 
   def _on_tab_clicked(self, idx: int) -> None:
     if self._rebuilding or self._suppress_layout_emit:
@@ -1089,13 +1733,19 @@ class PhoneCanvasWidget(QScrollArea):
     self.widget_selected.emit(path)
 
   def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
-    if event.modifiers() & Qt.KeyboardModifier.ControlModifier and self._target_screen_px:
+    if event.modifiers() & Qt.KeyboardModifier.ControlModifier and self._device_emulation:
       delta = event.angleDelta().y()
       if delta == 0:
         super().wheelEvent(event)
         return
+      if self._auto_fit_device:
+        self._auto_fit_device = False
+        panel = self._layout.get("panel", {})
+        dw, dh = panel_design_size(panel)
+        self._target_screen_px = max(240, int(dw * self._scale))
       step = 20 if delta > 0 else -20
-      nw = max(240, min(480, self._target_screen_px + step))
+      base = self._target_screen_px or DEFAULT_PHONE_SCREEN_PX
+      nw = max(240, min(480, base + step))
       if nw != self._target_screen_px:
         self._target_screen_px = nw
         self._rebuild(full=True)

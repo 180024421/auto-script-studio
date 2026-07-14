@@ -13,9 +13,20 @@
 
 - PC 预览为 Qt 控件，Android 为原生 View，像素级可能有 1–2dp 偏差
 - grid 模式实机设计模式仅支持排序/列宽，free 模式支持拖动坐标（设计模式）
-- **host** 模式：表单在 MainActivity，实机 free 拖动需 **form** 展示模式或 PC 编辑器
+- **host** 模式：表单在 MainActivity；长按标题可进设计模式（与悬浮窗一致），覆盖写入 `layout-overrides/`
+- 拖动 **section** 时，几何中心落在卡片内的控件会一并平移（`LayoutEditorOps.offsetSectionContents`）
 - 设备 design 覆盖存于 `layout-overrides/`，Studio「拉取实机布局」可 merge 回工程
 - 自由布局控件内容随 `panel.width_dp` / 面板宽度与 `design_width` 比例缩放（Android `uiScale`）
+- 悬浮窗标题栏支持双指捏合缩放（0.7–1.4）；PC 用预览宽度档位模拟机型密度
+
+## 对齐字段
+
+| 字段 | 说明 |
+|------|------|
+| `button_style` | `primary` / `secondary`（描边）/ `danger` |
+| `text_style` | `title` / `hint` / `normal` |
+| `src` | `image` / `hero` 相对工程路径 |
+| `type=section` | 分区卡；几何包含随迁 |
 
 ## 变更检查
 

@@ -65,7 +65,7 @@ object YoloPick {
         useMaskCenter: Boolean = false,
     ): Pair<Int, Int> {
         if (useMaskCenter && det.hasMask && det.maskCenterX != null && det.maskCenterY != null) {
-            return det.maskCenterX to det.maskCenterY!!
+            return det.maskCenterX!! to det.maskCenterY!!
         }
         val fx = frac.first.coerceIn(0f, 1f)
         val fy = frac.second.coerceIn(0f, 1f)

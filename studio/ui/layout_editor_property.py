@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt, QTime
+from PySide6.QtCore import Qt, QTime, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QColorDialog,
@@ -26,8 +26,8 @@ from PySide6.QtWidgets import (
 )
 
 from studio.ui.app_theme import set_button_role
-from studio.services.layout_clone import clone_widget
-from studio.services.free_layout import estimate_text_layout_width, is_free_mode, panel_design_size
+from studio.services.layout_cleanup import next_widget_id
+from studio.services.free_layout import estimate_text_layout_width, is_free_mode, min_rect_for_type, panel_design_size
 from studio.services.screen_layout import (
     CHROME_PATH_TAG,
     active_screen_index,
@@ -51,17 +51,38 @@ class LayoutEditorPropertyMixin:
     request_pick_mode: Any
 
     def _build_property_panel(self) -> QScrollArea:
-        form_box = QGroupBox("控件属性")
+        form_box = QGroupBox("编辑这一项")
+        self.property_form_box = form_box
         form = QFormLayout(form_box)
         self.id_edit = QLineEdit()
+        self.id_hint_label = QLabel()
+        self.id_hint_label.setObjectName("HintLabel")
+        self.id_hint_label.setWordWrap(True)
         self.type_combo = QComboBox()
         for t, desc in FORM_WIDGET_TYPES + action_types_for_layout(self._layout):
             self.type_combo.addItem(f"{desc} ({t})", t)
         self.label_edit = QLineEdit()
         self.text_edit = QLineEdit()
         self.text_style_combo = QComboBox()
-        for val, desc in [("title", "标题"), ("hint", "提示"), ("normal", "普通")]:
+        for val, desc in [("title", "标题 · 加粗"), ("hint", "提示 · 灰字"), ("normal", "普通")]:
             self.text_style_combo.addItem(desc, val)
+        self.text_style_preview = QLabel("Aa 示例")
+        self.text_style_preview.setObjectName("HintLabel")
+        text_style_row = QWidget()
+        text_style_l = QHBoxLayout(text_style_row)
+        text_style_l.setContentsMargins(0, 0, 0, 0)
+        text_style_l.addWidget(self.text_style_combo, 1)
+        text_style_l.addWidget(self.text_style_preview)
+        self._text_style_row_widget = text_style_row
+        self.button_style_combo = QComboBox()
+        for val, desc in [
+            ("primary", "主按钮"),
+            ("secondary", "次要/描边"),
+            ("danger", "危险"),
+        ]:
+            self.button_style_combo.addItem(desc, val)
+        self.src_edit = QLineEdit()
+        self.src_edit.setPlaceholderText("ui/hero.png")
         self.color_edit = QLineEdit("#2563EB")
         pick_color_btn = QPushButton("选色")
         set_button_role(pick_color_btn, "ghost")
@@ -116,7 +137,9 @@ class LayoutEditorPropertyMixin:
         self.lua_edit.setPlaceholderText('bot.tap(100, 200) 或 panel.get("mode")')
 
         self._row_id = form.rowCount()
-        form.addRow("ID", self.id_edit)
+        form.addRow("脚本读取名", self.id_edit)
+        self._row_id_hint = form.rowCount()
+        form.addRow("", self.id_hint_label)
         self._row_type = form.rowCount()
         form.addRow("类型", self.type_combo)
         self._row_label = form.rowCount()
@@ -124,7 +147,11 @@ class LayoutEditorPropertyMixin:
         self._row_text = form.rowCount()
         form.addRow("标签文本", self.text_edit)
         self._row_text_style = form.rowCount()
-        form.addRow("文字样式", self.text_style_combo)
+        form.addRow("文字样式", self._text_style_row_widget)
+        self._row_button_style = form.rowCount()
+        form.addRow("按钮样式", self.button_style_combo)
+        self._row_src = form.rowCount()
+        form.addRow("图片路径", self.src_edit)
         self._row_color = form.rowCount()
         form.addRow("颜色", color_wrap)
         self._row_width = form.rowCount()
@@ -135,6 +162,11 @@ class LayoutEditorPropertyMixin:
         form.addRow("默认值", self.default_edit)
         self._row_options = form.rowCount()
         form.addRow("选项(每行)", self.options_edit)
+        self.advanced_layout_cb = QCheckBox("手调坐标与尺寸")
+        self.advanced_layout_cb.setObjectName("HintLabel")
+        self.advanced_layout_cb.toggled.connect(self._on_advanced_layout_toggled)
+        self._row_advanced_layout = form.rowCount()
+        form.addRow("", self.advanced_layout_cb)
         self._row_layout_rect = form.rowCount()
         form.addRow("位置 X/Y", self._xy_row(self.layout_x_spin, self.layout_y_spin))
         self._row_layout_size = form.rowCount()
@@ -178,6 +210,13 @@ class LayoutEditorPropertyMixin:
         self._row_lua = form.rowCount()
         form.addRow("Lua 代码", self.lua_edit)
 
+        self.insert_script_btn = QPushButton("插入到脚本")
+        set_button_role(self.insert_script_btn, "accent")
+        self.insert_script_btn.setMinimumHeight(34)
+        self.insert_script_btn.clicked.connect(self._insert_selected_widget_lua)
+        self._row_insert_script = form.rowCount()
+        form.addRow("", self.insert_script_btn)
+
         form_box.setMinimumWidth(320)
         form_scroll = QScrollArea()
         form_scroll.setWidgetResizable(True)
@@ -189,6 +228,10 @@ class LayoutEditorPropertyMixin:
         return form_scroll
 
     def _wire_property_signals(self) -> None:
+        self._prop_sync_timer = QTimer()
+        self._prop_sync_timer.setSingleShot(True)
+        self._prop_sync_timer.setInterval(300)
+        self._prop_sync_timer.timeout.connect(self._sync_form_to_layout)
         self.type_combo.currentIndexChanged.connect(self._on_type_changed)
         for w in (
             self.title_edit,
@@ -199,21 +242,38 @@ class LayoutEditorPropertyMixin:
             self.placeholder_edit,
             self.default_edit,
         ):
-            w.textChanged.connect(self._sync_form_to_layout)
-        self.text_style_combo.currentIndexChanged.connect(self._sync_form_to_layout)
-        self.width_spin.valueChanged.connect(self._sync_form_to_layout)
+            w.textChanged.connect(self._schedule_sync_form_to_layout)
+        self.text_style_combo.currentIndexChanged.connect(self._on_text_style_changed)
+        self.button_style_combo.currentIndexChanged.connect(self._schedule_sync_form_to_layout)
+        self.src_edit.textChanged.connect(self._schedule_sync_form_to_layout)
+        self.width_spin.valueChanged.connect(self._schedule_sync_form_to_layout)
         for sp in (self.x_spin, self.y_spin, self.x1_spin, self.y1_spin, self.x2_spin, self.y2_spin):
-            sp.valueChanged.connect(self._sync_form_to_layout)
-        self.lua_edit.textChanged.connect(self._sync_form_to_layout)
-        self.options_edit.textChanged.connect(self._sync_form_to_layout)
-        self.min_edit.textChanged.connect(self._sync_form_to_layout)
-        self.max_edit.textChanged.connect(self._sync_form_to_layout)
-        self.required_cb.toggled.connect(self._sync_form_to_layout)
-        self.switch_default_cb.toggled.connect(self._sync_form_to_layout)
-        self.time_start_edit.timeChanged.connect(self._sync_form_to_layout)
-        self.time_end_edit.timeChanged.connect(self._sync_form_to_layout)
+            sp.valueChanged.connect(self._schedule_sync_form_to_layout)
+        self.lua_edit.textChanged.connect(self._schedule_sync_form_to_layout)
+        self.options_edit.textChanged.connect(self._schedule_sync_form_to_layout)
+        self.min_edit.textChanged.connect(self._schedule_sync_form_to_layout)
+        self.max_edit.textChanged.connect(self._schedule_sync_form_to_layout)
+        self.required_cb.toggled.connect(self._schedule_sync_form_to_layout)
+        self.switch_default_cb.toggled.connect(self._schedule_sync_form_to_layout)
+        self.time_start_edit.timeChanged.connect(self._schedule_sync_form_to_layout)
+        self.time_end_edit.timeChanged.connect(self._schedule_sync_form_to_layout)
         for sp in (self.layout_x_spin, self.layout_y_spin, self.layout_w_spin, self.layout_h_spin):
-            sp.valueChanged.connect(self._sync_form_to_layout)
+            sp.valueChanged.connect(self._schedule_sync_form_to_layout)
+
+    def _schedule_sync_form_to_layout(self, *_args) -> None:
+        if self._loading_form:
+            return
+        self._prop_sync_timer.start()
+
+    def _flush_property_sync(self) -> None:
+        """立即写入属性面板（切换界面/保存前须调用，避免防抖或未同步丢失）。"""
+        timer = getattr(self, "_prop_sync_timer", None)
+        if timer is not None and timer.isActive():
+            timer.stop()
+        if getattr(self, "_loading_form", False):
+            return
+        if self._edit_target() is not None:
+            self._sync_form_to_layout()
 
     def _xy_row(self, a: QSpinBox, b: QSpinBox) -> QWidget:
         w = QWidget()
@@ -223,6 +283,10 @@ class LayoutEditorPropertyMixin:
         row.addWidget(b)
         return w
 
+    def _is_simple_mode(self) -> bool:
+        cb = getattr(self, "simple_mode_cb", None)
+        return bool(cb and cb.isChecked())
+
     def _pick_color(self) -> None:
         initial = QColor(self.color_edit.text().strip() or "#2563EB")
         color = QColorDialog.getColor(initial, self, "选择按钮颜色")
@@ -230,7 +294,32 @@ class LayoutEditorPropertyMixin:
             self.color_edit.setText(color.name())
             self._sync_form_to_layout()
 
+    def _refresh_text_style_preview(self) -> None:
+        style = str(self.text_style_combo.currentData() or "normal")
+        if style == "title":
+            self.text_style_preview.setStyleSheet(
+                "color:#0F172A;font-weight:700;font-size:14px;background:transparent;"
+            )
+            self.text_style_preview.setText("标题示例")
+        elif style == "hint":
+            self.text_style_preview.setStyleSheet(
+                "color:#64748B;font-weight:400;font-size:11px;background:transparent;"
+            )
+            self.text_style_preview.setText("提示示例")
+        else:
+            self.text_style_preview.setStyleSheet(
+                "color:#334155;font-weight:400;font-size:12px;background:transparent;"
+            )
+            self.text_style_preview.setText("普通示例")
+
+    def _on_text_style_changed(self, *_args) -> None:
+        self._refresh_text_style_preview()
+        self._schedule_sync_form_to_layout()
+
     def _load_widget_into_form(self, w: dict) -> None:
+        timer = getattr(self, "_prop_sync_timer", None)
+        if timer is not None:
+            timer.stop()
         self._loading_form = True
         blocked: list[tuple[Any, bool]] = []
         for wdg in (
@@ -238,6 +327,8 @@ class LayoutEditorPropertyMixin:
             self.label_edit,
             self.text_edit,
             self.text_style_combo,
+            self.button_style_combo,
+            self.src_edit,
             self.type_combo,
             self.color_edit,
             self.width_spin,
@@ -263,10 +354,21 @@ class LayoutEditorPropertyMixin:
         self.lua_edit.blockSignals(True)
         try:
             self.id_edit.setText(w.get("id", ""))
+            wid = str(w.get("id", "") or "").strip()
+            self.id_hint_label.setText(
+                f'控件 ID：{wid}  ·  脚本里用 panel.get("{wid}") 读取'
+                if wid
+                else ""
+            )
             self.label_edit.setText(w.get("label", ""))
             self.text_edit.setText(w.get("text", ""))
             ts_idx = self.text_style_combo.findData(str(w.get("text_style") or "normal"))
             self.text_style_combo.setCurrentIndex(max(0, ts_idx))
+            self._refresh_text_style_preview()
+            bs = str(w.get("button_style") or "primary") or "primary"
+            bs_idx = self.button_style_combo.findData(bs)
+            self.button_style_combo.setCurrentIndex(max(0, bs_idx))
+            self.src_edit.setText(str(w.get("src") or ""))
             idx = self.type_combo.findData(w.get("type", "tap"))
             self.type_combo.setCurrentIndex(max(0, idx))
             self.color_edit.setText(w.get("color", "#2563EB"))
@@ -303,19 +405,24 @@ class LayoutEditorPropertyMixin:
             self.x2_spin.setValue(int(w.get("x2", 0)))
             self.y2_spin.setValue(int(w.get("y2", 0)))
             self.lua_edit.setPlainText(w.get("lua", ""))
+            self._update_layout_spin_limits(str(wtype))
             self._update_form_visibility(wtype)
         finally:
             self.options_edit.blockSignals(False)
             self.lua_edit.blockSignals(False)
             for wdg, was in blocked:
                 wdg.blockSignals(was)
+            if timer is not None:
+                timer.stop()
             self._loading_form = False
 
     def _on_select_widget(self, row: int) -> None:
+        # 必须先把当前表单写回「旧」选中项，再切换 path，否则会用旧类型覆盖新控件
+        self._flush_property_sync()
         widgets = self._widgets()
         if row < 0 or row >= len(widgets):
-            self._clear_form()
             self._selected_path = ()
+            self._clear_form()
             return
         w = widgets[row]
         self._selected_path = (
@@ -330,12 +437,29 @@ class LayoutEditorPropertyMixin:
     def _clear_form(self) -> None:
         self._selected_path = ()
         self.id_edit.clear()
+        self.id_hint_label.setText(
+            "← 在左侧列表点选一个控件，再改名称和选项" if self._is_simple_mode() else ""
+        )
         self.label_edit.clear()
         self.text_edit.clear()
         self.lua_edit.clear()
 
+    def _on_advanced_layout_toggled(self) -> None:
+        wtype = self.type_combo.currentData() or ""
+        self._update_form_visibility(wtype)
+
+    def _update_layout_spin_limits(self, wtype: str) -> None:
+        min_w, min_h = min_rect_for_type(str(wtype))
+        self.layout_w_spin.setMinimum(min_w)
+        self.layout_h_spin.setMinimum(min_h)
+        if self.layout_w_spin.value() < min_w:
+            self.layout_w_spin.setValue(min_w)
+        if self.layout_h_spin.value() < min_h:
+            self.layout_h_spin.setValue(min_h)
+
     def _on_type_changed(self) -> None:
         wtype = self.type_combo.currentData() or ""
+        self._update_layout_spin_limits(str(wtype))
         self._update_form_visibility(wtype)
         self._sync_form_to_layout()
 
@@ -354,28 +478,54 @@ class LayoutEditorPropertyMixin:
 
         action = is_action_type(wtype)
         free = is_free_mode(self._layout)
-        show_row(self._row_label, wtype not in ("label", "divider", "text"))
-        show_row(self._row_text, wtype in ("label", "text"))
+        simple = self._is_simple_mode()
+        show_row(self._row_id, not simple)
+        show_row(self._row_id_hint, simple and not action)
+        show_row(self._row_type, not simple)
+        show_row(self._row_label, wtype not in ("label", "divider", "text", "section", "image", "hero"))
+        show_row(self._row_text, wtype in ("label", "text", "section", "hero"))
         show_row(self._row_text_style, wtype == "text")
+        show_row(self._row_button_style, action)
+        show_row(self._row_src, wtype in ("image", "hero"))
         if wtype == "text":
-            self._set_form_row_label(self._row_text, "提示文字")
+            self._set_form_row_label(self._row_text, "说明文字" if simple else "提示文字")
         elif wtype == "label":
-            self._set_form_row_label(self._row_text, "标签文本")
-        show_row(self._row_color, action)
+            self._set_form_row_label(self._row_text, "标签文字" if simple else "标签文本")
+        elif wtype == "section":
+            self._set_form_row_label(self._row_text, "分区标题")
+        elif wtype == "hero":
+            self._set_form_row_label(self._row_text, "叠加文案")
+        elif wtype == "input":
+            self._set_form_row_label(self._row_label, "字段名称")
+            self._set_form_row_label(self._row_placeholder, "输入提示")
+        elif wtype in ("select", "radio", "multiselect"):
+            self._set_form_row_label(self._row_label, "字段名称")
+            self._set_form_row_label(self._row_options, "选项（每行一个）")
+        elif wtype == "switch":
+            self._set_form_row_label(self._row_label, "开关名称")
+        elif wtype == "stepper":
+            self._set_form_row_label(self._row_label, "字段名称")
+        else:
+            self._set_form_row_label(self._row_label, "显示文字")
+        show_row(self._row_color, (not simple) and action)
         show_row(self._row_placeholder, wtype in ("input", "textarea"))
         show_row(
             self._row_default,
             wtype in ("input", "select", "radio", "multiselect", "slider", "stepper", "textarea"),
         )
+        if simple and wtype == "switch":
+            self._set_form_row_label(self._row_switch_default, "默认打开")
         show_row(self._row_switch_default, wtype == "switch")
         show_row(self._row_time_range, wtype == "time_range")
         show_row(self._row_options, wtype in ("select", "radio", "multiselect"))
-        show_row(self._row_layout_rect, free)
-        show_row(self._row_layout_size, free)
+        show_advanced = (not simple) and free and self.advanced_layout_cb.isChecked()
+        show_row(self._row_advanced_layout, (not simple) and free)
+        show_row(self._row_layout_rect, show_advanced)
+        show_row(self._row_layout_size, show_advanced)
         show_row(self._row_width, not free)
-        show_row(self._row_required, wtype == "input")
-        show_row(self._row_min, wtype in ("input", "slider", "stepper"))
-        show_row(self._row_max, wtype in ("input", "slider", "stepper"))
+        show_row(self._row_required, (not simple) and wtype == "input")
+        show_row(self._row_min, (not simple) and wtype in ("input", "slider", "stepper"))
+        show_row(self._row_max, (not simple) and wtype in ("input", "slider", "stepper"))
         self._set_form_row_label(self._row_min, "最小值")
         self._set_form_row_label(self._row_max, "最大值")
         if wtype == "time_range":
@@ -385,8 +535,11 @@ class LayoutEditorPropertyMixin:
         show_row(self._row_xy, action and wtype in ("tap", "long_press"))
         show_row(self._row_swipe1, action and wtype == "swipe")
         show_row(self._row_swipe2, action and wtype == "swipe")
-        show_row(self._row_pick, action)
-        show_row(self._row_lua, action and wtype in ("lua", "snippet"))
+        show_row(self._row_pick, (not simple) and action)
+        show_row(self._row_lua, (not simple) and action and wtype in ("lua", "snippet"))
+        from studio.services.panel_lua_snippets import VALUE_WIDGET_TYPES
+
+        show_row(self._row_insert_script, wtype in VALUE_WIDGET_TYPES)
 
     def _set_form_row_label(self, row: int, text: str) -> None:
         parent_form: QFormLayout = self.findChildren(QFormLayout)[0]
@@ -406,7 +559,7 @@ class LayoutEditorPropertyMixin:
             return
         w, path, row = target
         wtype = self.type_combo.currentData() or "tap"
-        w["id"] = self.id_edit.text().strip() or f"w_{row}"
+        w["id"] = self.id_edit.text().strip() or next_widget_id(self._layout)
         w["type"] = wtype
         w["label"] = self.label_edit.text().strip()
         w["text"] = self.text_edit.text().strip()
@@ -414,6 +567,14 @@ class LayoutEditorPropertyMixin:
             w["text_style"] = self.text_style_combo.currentData() or "normal"
         elif "text_style" in w:
             del w["text_style"]
+        if is_action_type(wtype):
+            w["button_style"] = self.button_style_combo.currentData() or "primary"
+        elif "button_style" in w:
+            del w["button_style"]
+        if wtype in ("image", "hero"):
+            w["src"] = self.src_edit.text().strip() or "ui/hero.png"
+        elif "src" in w:
+            del w["src"]
         w["color"] = self.color_edit.text().strip() or "#2563EB"
         w["width"] = self.width_spin.value()
         w["placeholder"] = self.placeholder_edit.text().strip()
@@ -477,6 +638,9 @@ class LayoutEditorPropertyMixin:
             else:
                 w["layout_w"] = self.layout_w_spin.value()
             w["layout_h"] = self.layout_h_spin.value()
+            min_w, min_h = min_rect_for_type(wtype)
+            w["layout_w"] = max(min_w, int(w["layout_w"]))
+            w["layout_h"] = max(min_h, int(w["layout_h"]))
             w["layout_x"] = self.layout_x_spin.value()
             w["layout_y"] = self.layout_y_spin.value()
             lx = snap_design(int(w["layout_x"]))

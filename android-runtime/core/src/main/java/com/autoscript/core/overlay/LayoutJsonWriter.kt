@@ -72,6 +72,8 @@ object LayoutJsonWriter {
         if (w.label.isNotBlank()) put("label", w.label)
         if (w.text.isNotBlank()) put("text", w.text)
         if (w.color != "#2563EB") put("color", w.color)
+        if (w.buttonStyle.isNotBlank()) put("button_style", w.buttonStyle)
+        if (w.src.isNotBlank()) put("src", w.src)
         if (w.width != 1) put("width", w.width)
         if (w.action.isNotBlank()) put("action", w.action)
         if (w.placeholder.isNotBlank()) put("placeholder", w.placeholder)

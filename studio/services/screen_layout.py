@@ -256,12 +256,16 @@ def content_height(layout: dict[str, Any], screen_idx: int, *, min_canvas: int =
     return max(min_canvas, bottom + 80)
 
 
-def repair_screen_widgets(widgets: list[dict[str, Any]]) -> None:
+def repair_screen_widgets(widgets: list[dict[str, Any]], *, design_w: int = DESIGN_W) -> None:
     """修正无效/重叠的自由布局坐标，保证画布可见。"""
     if not widgets:
         return
+    design_w = max(320, int(design_w or DESIGN_W))
+    content_max_w = max(160, design_w - 48)
+    margin_x = max(16, min(24, design_w // 20))
     y = 24
     prev_y = -999
+    prev_bottom = 0
     for i, w in enumerate(widgets):
         ensure_widget_rect(w, i + 1)
         wtype = str(w.get("type", ""))
@@ -271,42 +275,46 @@ def repair_screen_widgets(widgets: list[dict[str, Any]]) -> None:
         if wtype in ("text", "label"):
             style = str(w.get("text_style") or "normal") if wtype == "text" else "normal"
             est_w = estimate_text_layout_width(str(w.get("text") or w.get("label") or ""), style)
+            est_w = min(est_w, content_max_w)
             raw_w = int(w.get("layout_w", est_w))
-            if raw_w > est_w + 32:
+            if raw_w < est_w or raw_w > est_w + 32:
                 w["layout_w"] = est_w
         raw_w = int(w.get("layout_w", 0))
         raw_h = int(w.get("layout_h", 0))
         raw_y = int(w.get("layout_y", y))
-        raw_x = int(w.get("layout_x", 24))
+        raw_x = int(w.get("layout_x", margin_x))
         min_w, min_h = min_rect_for_type(wtype)
         broken = (
             raw_w < min_w
             or raw_h < min_h
             or raw_y < 16
-            or raw_x + raw_w > DESIGN_W
-            or raw_x > DESIGN_W - min_w
+            or raw_x + raw_w > design_w + 8
+            or raw_x > design_w - min_w
         )
         dup = i > 0 and abs(raw_y - prev_y) < 8
-        if broken or dup:
+        overlaps = i > 0 and raw_y < prev_bottom - 2
+        if broken or dup or overlaps:
             raw_y = y
         w["layout_y"] = raw_y
-        w["layout_w"] = max(min_w, min(672, raw_w if raw_w >= min_w else 672))
+        w["layout_w"] = max(min_w, min(content_max_w, raw_w if raw_w >= min_w else content_max_w))
         if wtype == "divider":
             w["layout_h"] = max(8, min(16, raw_h if raw_h >= min_h else 12))
         elif wtype in ("text", "label"):
             w["layout_h"] = max(min_h, raw_h if raw_h >= min_h else 36)
         else:
-            w["layout_h"] = max(40, raw_h if raw_h >= 32 else 56)
-        w["layout_x"] = max(24, min(DESIGN_W - int(w["layout_w"]), int(w.get("layout_x", 24))))
+            w["layout_h"] = max(min_h, raw_h if raw_h >= min_h else max(min_h, 56))
+        w["layout_x"] = max(margin_x, min(design_w - int(w["layout_w"]), int(w.get("layout_x", margin_x))))
         prev_y = raw_y
-        y = raw_y + int(w["layout_h"]) + 16
+        prev_bottom = raw_y + int(w["layout_h"])
+        y = prev_bottom + 16
 
 
 def repair_all_screens(layout: dict[str, Any]) -> None:
     ensure_migrated(layout)
+    design_w = int(layout.get("panel", {}).get("design_width", DESIGN_W) or DESIGN_W)
     for sc in screens(layout):
-        repair_screen_widgets(sc.get("widgets") or [])
-    repair_screen_widgets(chrome_widgets(layout))
+        repair_screen_widgets(sc.get("widgets") or [], design_w=design_w)
+    repair_screen_widgets(chrome_widgets(layout), design_w=design_w)
 
 
 def path_for_chrome(widget_idx: int) -> tuple[int, int]:

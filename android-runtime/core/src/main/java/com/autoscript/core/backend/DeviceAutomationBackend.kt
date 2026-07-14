@@ -110,12 +110,13 @@ class DeviceAutomationBackend(private val config: ProjectConfig) : AutomationBac
     }
 
     override fun isReady(): Boolean {
-        val captureOk = if (useRootCapture) {
-            RootShell.isAvailable()
-        } else {
-            CaptureSession.isActive()
+        val captureOk = when {
+            !config.permissions.screenCapture -> true
+            useRootCapture -> RootShell.isAvailable()
+            else -> CaptureSession.isActive()
         }
         val inputOk = when {
+            !config.permissions.accessibility && !useRootInput && !useShizukuInput -> true
             useShizukuInput -> ShizukuInputBackend.isReady()
             useRootInput -> RootShell.isAvailable()
             else -> AutomationAccessibilityService.isConnected()
@@ -123,9 +124,16 @@ class DeviceAutomationBackend(private val config: ProjectConfig) : AutomationBac
         return captureOk && inputOk
     }
 
-    fun needsAccessibility(): Boolean =
-        screenshotMode == "accessibility" || (!useRootInput && !useShizukuInput) || screenshotMode == "accessibility"
-    fun needsMediaProjection(): Boolean = !useRootCapture && CaptureSession.needsMediaProjection()
+    fun needsAccessibility(): Boolean {
+        if (!config.permissions.accessibility) return false
+        return screenshotMode == "accessibility" || (!useRootInput && !useShizukuInput)
+    }
+
+    fun needsMediaProjection(): Boolean {
+        if (!config.permissions.screenCapture) return false
+        return !useRootCapture && CaptureSession.needsMediaProjection()
+    }
+
     fun usingRoot(): Boolean = useRootInput || useRootCapture
 
     fun captureModeLabel(): String = when {

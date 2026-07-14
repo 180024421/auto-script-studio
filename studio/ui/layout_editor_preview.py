@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -22,7 +22,11 @@ from studio.runtime.panel_state import PanelState
 from studio.ui.app_theme import set_button_role
 from studio.ui.layout_preview_widget import LayoutPreviewWidget
 from studio.ui.minimal_bar_preview import MinimalBarPreviewWidget
-from studio.ui.phone_canvas_widget import DEFAULT_PHONE_SCREEN_PX, PhoneCanvasWidget
+from studio.ui.phone_canvas_widget import (
+    AUTO_FIT_DEVICE,
+    DEFAULT_PHONE_SCREEN_PX,
+    PhoneCanvasWidget,
+)
 from studio.services.layout_clone import clone_layout, clone_widget
 from studio.services.free_layout import is_free_mode
 from studio.services.screen_layout import (
@@ -70,6 +74,13 @@ class LayoutEditorPreviewMixin:
         self.interactive_preview_cb.toggled.connect(self._on_interactive_preview_toggled)
         preview_header.addWidget(self.interactive_preview_cb)
 
+        self.apk_shell_preview_cb = QCheckBox("APK 外壳预览")
+        self.apk_shell_preview_cb.setToolTip("叠加设置 / 启停 / 日志，模拟打包后主界面")
+        self.apk_shell_preview_cb.toggled.connect(self._on_apk_shell_preview_toggled)
+        # 默认开启：简易模式「所见即打包」
+        self.apk_shell_preview_cb.setChecked(True)
+        preview_header.addWidget(self.apk_shell_preview_cb)
+
         preview_add_btn = QPushButton("添加控件")
         set_button_role(preview_add_btn, "accent")
         preview_add_btn.setMinimumHeight(30)
@@ -77,8 +88,11 @@ class LayoutEditorPreviewMixin:
         preview_add_btn.setToolTip("向当前界面添加控件（与左侧「＋ 添加控件」相同）")
         preview_header.addWidget(preview_add_btn)
 
-        preview_header.addWidget(QLabel("手机尺寸"))
+        preview_toolbar = QHBoxLayout()
+        preview_toolbar.setSpacing(8)
+        preview_toolbar.addWidget(QLabel("预览宽度"))
         self.zoom_combo = QComboBox()
+        self.zoom_combo.setMinimumWidth(108)
         self._grid_zoom_items = [
             ("适应宽度", None),
             ("150%", 1.5),
@@ -87,34 +101,48 @@ class LayoutEditorPreviewMixin:
             ("250%", 2.5),
         ]
         self._phone_zoom_items = [
-            ("小 · 280", 280),
-            ("中 · 320", DEFAULT_PHONE_SCREEN_PX),
-            ("大 · 360", 360),
-            ("特大 · 400", 400),
+            ("适应窗口", AUTO_FIT_DEVICE),
+            ("紧凑 · 320", 320),
+            ("中 · 360", DEFAULT_PHONE_SCREEN_PX),
+            ("小米/Pixel · 392", 392),
+            ("大 · 400", 400),
+            ("iPhone 标准 · 390", 390),
+            ("特大 · 440", 440),
+            ("平板窄边 · 480", 480),
         ]
         self._populate_zoom_combo(free_mode=True)
-        self.zoom_combo.setToolTip("自由布局：预览手机屏宽；网格布局：卡片缩放")
+        self.zoom_combo.setToolTip("主面板预览缩放（720×1280 等比，与 APK MainActivity 内表单一致）")
         self.zoom_combo.currentIndexChanged.connect(self._on_preview_zoom_changed)
-        preview_header.addWidget(self.zoom_combo)
+        preview_toolbar.addWidget(self.zoom_combo)
+        preview_toolbar.addStretch(1)
+        self.main_panel_hint = QLabel("APK 主面板 · 启停脚本在「脚本」页底部 · 设置打包进 APK")
+        self.main_panel_hint.setObjectName("HintLabel")
+        preview_toolbar.addWidget(self.main_panel_hint)
+        center_layout.addLayout(preview_toolbar)
 
         self.values_label = QLabel()
         self.values_label.setObjectName("InfoBar")
         self.values_label.setWordWrap(True)
         preview_header.addWidget(self.values_label, 1)
 
-        snippet_btn = QPushButton("Lua 示例")
-        set_button_role(snippet_btn, "ghost")
-        snippet_btn.setToolTip("插入 panel Lua 示例到脚本")
+        snippet_btn = QPushButton("插入面板读取")
+        set_button_role(snippet_btn, "primary")
+        snippet_btn.setToolTip("根据当前 layout.json 生成 panel.get 代码并插入脚本")
         snippet_btn.clicked.connect(self._insert_panel_lua_example)
         preview_header.addWidget(snippet_btn)
         center_layout.addLayout(preview_header)
 
         self.canvas_stack = QStackedWidget()
         self.phone_canvas = PhoneCanvasWidget()
-        self.phone_canvas.set_phone_style(True)
-        self.phone_canvas.set_target_screen_width(DEFAULT_PHONE_SCREEN_PX)
+        self.phone_canvas.set_main_panel_preview(True)
+        self.phone_canvas.set_phone_style(False)
+        self.phone_canvas.set_device_emulation(False)
+        self.phone_canvas.set_auto_fit_device(False)
+        self.phone_canvas.set_target_screen_width(None)
+        self.phone_canvas.set_min_scale(0.25)
         self.phone_canvas.set_compact_preview(True)
-        self.phone_canvas.setMinimumHeight(240)
+        self.phone_canvas.setMinimumHeight(480)
+        self.phone_canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.preview = LayoutPreviewWidget()
         self.preview.setMinimumHeight(420)
         self.canvas_stack.addWidget(self.phone_canvas)
@@ -153,6 +181,9 @@ class LayoutEditorPreviewMixin:
 
     def _on_interactive_preview_toggled(self, checked: bool) -> None:
         self.phone_canvas.set_interactive_preview(checked)
+
+    def _on_apk_shell_preview_toggled(self, checked: bool) -> None:
+        self.phone_canvas.set_apk_shell_preview(checked)
 
     def _show_canvas_context_menu(self, global_pos) -> None:
         if not is_free_mode(self._layout):
@@ -198,9 +229,12 @@ class LayoutEditorPreviewMixin:
         self.zoom_combo.blockSignals(True)
         self.zoom_combo.clear()
         items = self._phone_zoom_items if free_mode else self._grid_zoom_items
-        for label, val in items:
+        default_idx = 0
+        for i, (label, val) in enumerate(items):
             self.zoom_combo.addItem(label, val)
-        self.zoom_combo.setCurrentIndex(1 if free_mode else 0)
+            if free_mode and val == AUTO_FIT_DEVICE:
+                default_idx = i
+        self.zoom_combo.setCurrentIndex(default_idx if free_mode else 0)
         self.zoom_combo.blockSignals(False)
 
     def _sync_canvas_mode(self) -> None:
@@ -208,15 +242,22 @@ class LayoutEditorPreviewMixin:
         self.canvas_stack.setCurrentIndex(0 if free else 1)
         self.design_mode_cb.setVisible(not free)
         self.zoom_combo.setVisible(True)
+        if hasattr(self, "main_panel_hint"):
+            self.main_panel_hint.setVisible(free)
         self._populate_zoom_combo(free_mode=free)
         if free:
             data = self.zoom_combo.currentData()
-            width = int(data) if data is not None else DEFAULT_PHONE_SCREEN_PX
-            self.phone_canvas.set_target_screen_width(width)
+            if data == AUTO_FIT_DEVICE:
+                self.phone_canvas.set_target_screen_width(None)
+            else:
+                width = int(data) if data is not None else DEFAULT_PHONE_SCREEN_PX
+                self.phone_canvas.set_target_screen_width(width)
+            self.phone_canvas.refresh_viewport()
         else:
             self.preview.set_zoom_auto(True)
-        self.interactive_preview_cb.setVisible(free)
-        if not free:
+        simple = self._is_simple_mode()
+        self.interactive_preview_cb.setVisible(free and not simple)
+        if not free or simple:
             self.interactive_preview_cb.setChecked(False)
         self.screen_tabs_editor.setVisible(free)
         for w in getattr(self, "_grid_header_widgets", []):
@@ -298,6 +339,7 @@ class LayoutEditorPreviewMixin:
         patch_list(chrome_widgets(self._layout), incoming.get("widgets") or [])
 
     def _on_canvas_screen_changed(self, idx: int) -> None:
+        self._flush_property_sync()
         self._layout.setdefault("panel", {})["active_screen"] = idx
         self.screen_tabs_editor.set_active_index(idx)
         self._selected_path = ()
@@ -312,8 +354,13 @@ class LayoutEditorPreviewMixin:
     def _on_preview_zoom_changed(self, _index: int = 0) -> None:
         data = self.zoom_combo.currentData()
         if is_free_mode(self._layout):
-            width = int(data) if data is not None else DEFAULT_PHONE_SCREEN_PX
-            self.phone_canvas.set_target_screen_width(width)
+            if data == AUTO_FIT_DEVICE:
+                self.phone_canvas.set_target_screen_width(None)
+            else:
+                self.phone_canvas.set_auto_fit_device(False)
+                width = int(data) if data is not None else DEFAULT_PHONE_SCREEN_PX
+                self.phone_canvas.set_target_screen_width(width)
+            self.phone_canvas.refresh_viewport()
             return
         if data is None:
             self.preview.set_zoom_auto(True)
@@ -323,6 +370,7 @@ class LayoutEditorPreviewMixin:
     def _select_widget_path(self, path: tuple[int, ...]) -> None:
         if not path:
             return
+        self._flush_property_sync()
         if len(path) == 2:
             screen_idx, widget_idx = path
             if screen_idx == CHROME_PATH_TAG:
@@ -415,6 +463,7 @@ class LayoutEditorPreviewMixin:
             )
             if self._selected_path:
                 self.phone_canvas.set_selected_path(self._selected_path)
+            QTimer.singleShot(0, self.phone_canvas.refresh_viewport)
         else:
             selected_path: tuple[int, ...] | None = None
             row = self.widget_list.currentRow()

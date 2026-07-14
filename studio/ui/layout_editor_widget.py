@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMenu,
     QMessageBox,
+    QDialog,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -47,8 +48,15 @@ from studio.ui.page_shell import (
 )
 from studio.ui.screen_tabs_editor import ScreenTabsEditor
 from studio.services.layout_history import LayoutHistory
-from studio.services.layout_validate import validate_layout
+from studio.services.layout_validate import is_auto_repairable, validate_layout
 from studio.services.layout_templates import get_template, template_choices
+from studio.services.layout_wizard_templates import build_wizard_layout, wizard_screen_for_append
+from studio.ui.layout_wizard_dialog import LayoutWizardDialog
+from studio.services.panel_lua_snippets import (
+    lua_reads_block_for_layout,
+    lua_reads_for_widget_spec,
+    widget_lua_spec,
+)
 from studio.services.layout_clone import clone_layout, clone_list, clone_widget
 from studio.services.free_layout import is_free_mode
 from studio.services.screen_layout import (
@@ -66,6 +74,7 @@ from studio.services.screen_layout import (
     resolve_widget,
     screens,
 )
+from studio.services.layout_cleanup import next_widget_id, sanitize_free_layout
 from studio.services.layout_defaults import (
     ACTION_TYPES,
     action_types_for_layout,
@@ -117,53 +126,75 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self.enabled_cb = QComboBox()
         self.enabled_cb.addItems(["启用浮动面板", "禁用浮动面板"])
         top.addWidget(self.enabled_cb)
-        self.theme_combo = QComboBox()
-        for tid, label in PANEL_THEMES:
-            self.theme_combo.addItem(label, tid)
-        top.addWidget(QLabel("布局"))
-        self.layout_mode_combo = QComboBox()
-        self.layout_mode_combo.addItem("手机自由", "free")
-        self.layout_mode_combo.addItem("网格", "grid")
-        self.layout_mode_combo.currentIndexChanged.connect(self._on_layout_mode_changed)
-        top.addWidget(self.layout_mode_combo)
-        top.addWidget(QLabel("主题"))
-        top.addWidget(self.theme_combo)
+        self.simple_mode_cb = QCheckBox("简易模式")
+        self.simple_mode_cb.setChecked(True)
+        self.simple_mode_cb.setToolTip("隐藏坐标、导出等专业项，只保留常用操作")
+        self.simple_mode_cb.toggled.connect(self._on_simple_mode_toggled)
+        top.addWidget(self.simple_mode_cb)
         top.addWidget(QLabel("标题"))
         self.title_edit = QLineEdit()
         self.title_edit.setPlaceholderText("面板标题")
         top.addWidget(self.title_edit, 1)
+        self.header_save_btn = QPushButton("保存")
+        set_button_role(self.header_save_btn, "primary")
+        self.header_save_btn.setMinimumHeight(34)
+        self.header_save_btn.clicked.connect(self.save_to_project)
+        top.addWidget(self.header_save_btn)
+        self.header_load_btn = QPushButton("加载")
+        set_button_role(self.header_load_btn, "ghost")
+        self.header_load_btn.setMinimumHeight(34)
+        self.header_load_btn.clicked.connect(self.load_from_project)
+        top.addWidget(self.header_load_btn)
+
+        self._header_adv_wrap = QWidget()
+        header_adv = QHBoxLayout(self._header_adv_wrap)
+        header_adv.setContentsMargins(0, 0, 0, 0)
+        header_adv.setSpacing(8)
+        self._lbl_layout_mode = QLabel("布局")
+        header_adv.addWidget(self._lbl_layout_mode)
+        self.layout_mode_combo = QComboBox()
+        self.layout_mode_combo.addItem("手机自由", "free")
+        self.layout_mode_combo.addItem("网格", "grid")
+        self.layout_mode_combo.currentIndexChanged.connect(self._on_layout_mode_changed)
+        header_adv.addWidget(self.layout_mode_combo)
+        header_adv.addWidget(QLabel("主题"))
+        self.theme_combo = QComboBox()
+        for tid, label in PANEL_THEMES:
+            self.theme_combo.addItem(label, tid)
+        header_adv.addWidget(self.theme_combo)
         self._lbl_cols = QLabel("列")
-        top.addWidget(self._lbl_cols)
+        header_adv.addWidget(self._lbl_cols)
         self.cols_spin = QSpinBox()
         self.cols_spin.setRange(1, 3)
         self.cols_spin.setValue(2)
-        top.addWidget(self.cols_spin)
+        header_adv.addWidget(self.cols_spin)
         self.width_dp_spin = QSpinBox()
         self.width_dp_spin.setRange(160, 360)
         self.width_dp_spin.setValue(220)
         self._lbl_width = QLabel("宽dp")
-        top.addWidget(self._lbl_width)
-        top.addWidget(self.width_dp_spin)
+        header_adv.addWidget(self._lbl_width)
+        header_adv.addWidget(self.width_dp_spin)
         self._grid_header_widgets = [self._lbl_cols, self.cols_spin, self._lbl_width, self.width_dp_spin]
         self.start_x_spin = QSpinBox()
         self.start_y_spin = QSpinBox()
         for sp in (self.start_x_spin, self.start_y_spin):
             sp.setRange(0, 4096)
-        top.addWidget(QLabel("X"))
-        top.addWidget(self.start_x_spin)
-        top.addWidget(QLabel("Y"))
-        top.addWidget(self.start_y_spin)
+        header_adv.addWidget(QLabel("X"))
+        header_adv.addWidget(self.start_x_spin)
+        header_adv.addWidget(QLabel("Y"))
+        header_adv.addWidget(self.start_y_spin)
         self.allow_design_cb = QCheckBox("实机可设计")
         self.allow_design_cb.setChecked(True)
-        self.allow_design_cb.setToolTip("APK 浮动面板长按标题栏 1.2 秒进入布局设计模式")
-        top.addWidget(self.allow_design_cb)
+        self.allow_design_cb.setToolTip("APK 主页/悬浮窗长按标题栏 1.2 秒进入布局设计模式")
+        header_adv.addWidget(self.allow_design_cb)
         self.start_confirm_cb = QCheckBox("开始需二次确认")
         self.start_confirm_cb.setChecked(True)
         self.start_confirm_cb.setToolTip("点「开始」先收起为悬浮球，再点绿色悬浮球才真正运行脚本")
-        top.addWidget(self.start_confirm_cb)
+        header_adv.addWidget(self.start_confirm_cb)
+        top.addWidget(self._header_adv_wrap)
         root.addWidget(header)
 
-        adv_header, adv_lay = card_frame(compact=True)
+        self.adv_header, adv_lay = card_frame(compact=True)
         adv_row = QHBoxLayout()
         adv_row.setSpacing(8)
         adv_lay.addLayout(adv_row)
@@ -173,7 +204,7 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self.display_mode_combo = QComboBox()
         for mode_id, mode_label in PANEL_DISPLAY_MODES:
             self.display_mode_combo.addItem(mode_label, mode_id)
-        self.display_mode_combo.setToolTip("host=主 Activity 填表+悬浮球；minimal=仅悬浮条；form=悬浮窗内表单")
+        self.display_mode_combo.setToolTip("host=APK 主界面表单+固定启停；minimal=仅悬浮条；form 同 host")
         adv_row.addWidget(self.display_mode_combo)
         self.mode_hint_label = QLabel()
         self.mode_hint_label.setObjectName("InfoBar")
@@ -194,7 +225,7 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         adv_row.addWidget(self.ball_size_spin)
         adv_row.addWidget(QLabel("设计宽"))
         self.design_width_spin = QSpinBox()
-        self.design_width_spin.setRange(320, 1440)
+        self.design_width_spin.setRange(480, 1440)
         self.design_width_spin.setSuffix("px")
         adv_row.addWidget(self.design_width_spin)
         adv_row.addWidget(QLabel("设计高"))
@@ -202,7 +233,7 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self.design_height_spin.setRange(480, 2560)
         self.design_height_spin.setSuffix("px")
         adv_row.addWidget(self.design_height_spin)
-        root.addWidget(adv_header)
+        root.addWidget(self.adv_header)
 
         # —— 左：添加控件 + 标签页 + 列表（可滚动） ——
         left_card, left_card_lay = side_column(300, None)
@@ -215,24 +246,37 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(8)
 
+        workflow_hint = QLabel(
+            "三步：① 从模板创建或添加控件  ② 右边改名称  ③ 保存\n"
+            "排乱了？点「一键整理」；脚本用「插入面板读取」自动生成代码。"
+        )
+        workflow_hint.setObjectName("HintLabel")
+        workflow_hint.setWordWrap(True)
+        self.workflow_hint = workflow_hint
+        left_layout.addWidget(workflow_hint)
+
+        wizard_btn = QPushButton("从模板创建（推荐）")
+        set_button_role(wizard_btn, "primary")
+        wizard_btn.setMinimumHeight(38)
+        wizard_btn.setToolTip("登录 / 运行 / 提醒 / 双列等现代自由布局，不用从零排版")
+        wizard_btn.clicked.connect(self.open_layout_wizard)
+        left_layout.addWidget(wizard_btn)
+
         left_layout.addWidget(section_title("添加控件"))
         add_menu = self._build_add_menu()
         add_main_btn = QPushButton("＋ 添加控件")
         set_button_role(add_main_btn, "accent")
-        add_main_btn.setMinimumHeight(36)
+        add_main_btn.setMinimumHeight(40)
         add_main_btn.setMenu(add_menu)
-        add_main_btn.setToolTip("向当前界面标签页内添加表单或动作控件")
+        add_main_btn.setToolTip("向当前页签添加输入框、下拉等（自动流式落行）")
         left_layout.addWidget(add_main_btn)
 
-        quick_hint = QLabel("快捷：")
-        quick_hint.setObjectName("HintLabel")
-        left_layout.addWidget(quick_hint)
         quick_row = QHBoxLayout()
         quick_row.setSpacing(6)
-        for t, desc in [("text", "文字框"), ("input", "输入框"), ("select", "下拉"), ("switch", "开关")]:
+        for t, desc in [("section", "分区"), ("text", "说明"), ("input", "输入"), ("select", "下拉"), ("switch", "开关")]:
             b = QPushButton(desc)
             set_button_role(b, "ghost")
-            b.setMinimumHeight(30)
+            b.setMinimumHeight(32)
             b.clicked.connect(lambda _c=False, wt=t: self.add_widget(wt))
             quick_row.addWidget(b)
         left_layout.addLayout(quick_row)
@@ -242,11 +286,42 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
 
         left_layout.addWidget(section_title("当前界面控件"))
         self.widget_list = QListWidget()
+        self.widget_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.widget_list.currentRowChanged.connect(self._on_select_widget)
         left_layout.addWidget(self.widget_list, 1)
 
         tool_button_row(
             left_layout,
+            [
+                ("删除", self.remove_widget, "danger"),
+                ("流式重排", self.reflow_layout_manual, "accent"),
+            ],
+            columns=2,
+        )
+        tool_button_row(
+            left_layout,
+            [
+                ("左对齐", self.align_left_manual, "ghost"),
+                ("统一宽度", self.unify_width_manual, "ghost"),
+                ("两列并排", self.pair_columns_manual, "ghost"),
+                ("一键整理", self.repair_layout_manual, "ghost"),
+            ],
+            columns=2,
+        )
+
+        self._left_more_btn = QPushButton("▸ 更多操作（撤销、移动、模板…）")
+        set_button_role(self._left_more_btn, "ghost")
+        self._left_more_btn.setMinimumHeight(32)
+        self._left_more_btn.clicked.connect(self._toggle_left_more)
+        left_layout.addWidget(self._left_more_btn)
+
+        self._left_more_wrap = QWidget()
+        more_layout = QVBoxLayout(self._left_more_wrap)
+        more_layout.setContentsMargins(0, 0, 0, 0)
+        more_layout.setSpacing(8)
+
+        tool_button_row(
+            more_layout,
             [
                 ("撤销", self._undo_layout, "ghost"),
                 ("重做", self._redo_layout, "ghost"),
@@ -257,9 +332,8 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         )
 
         tool_button_row(
-            left_layout,
+            more_layout,
             [
-                ("删除", self.remove_widget, "danger"),
                 ("上移", lambda: self._move_widget(-1), "ghost"),
                 ("下移", lambda: self._move_widget(1), "ghost"),
             ],
@@ -267,7 +341,7 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         )
 
         tool_button_row(
-            left_layout,
+            more_layout,
             [
                 ("加载", self.load_from_project, "ghost"),
                 ("保存", self.save_to_project, "primary"),
@@ -277,15 +351,16 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
             columns=2,
         )
         tool_button_row(
-            left_layout,
+            more_layout,
             [
-                ("模板", self.apply_template, "accent"),
-                ("修复布局", self.repair_layout_manual, "ghost"),
-                ("拉取实机布局", self.pull_device_layout, "ghost"),
+                ("旧版模板", self.apply_legacy_template, "ghost"),
+                ("拉取实机", self.pull_device_layout, "ghost"),
                 ("恢复默认", self.reset_default, "ghost"),
             ],
             columns=2,
         )
+        left_layout.addWidget(self._left_more_wrap)
+        self._left_more_expanded = False
 
         left_scroll.setWidget(left_inner)
         left_card_lay.addWidget(left_scroll)
@@ -329,8 +404,59 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self.layout_mode_combo.setCurrentIndex(max(0, mode_idx))
         self.layout_mode_combo.blockSignals(False)
         self._sync_canvas_mode()
+        self._apply_simple_mode_ui()
         self._refresh_ui()
         self._commit_history()
+
+    def _is_simple_mode(self) -> bool:
+        return self.simple_mode_cb.isChecked()
+
+    def _on_simple_mode_toggled(self, _checked: bool = False) -> None:
+        self._left_more_expanded = False
+        self._apply_simple_mode_ui()
+        # 简易模式默认打开 APK 外壳预览，所见即打包主页
+        if self._is_simple_mode() and hasattr(self, "apk_shell_preview_cb"):
+            self.apk_shell_preview_cb.setChecked(True)
+
+    def _toggle_left_more(self) -> None:
+        self._left_more_expanded = not self._left_more_expanded
+        self._left_more_wrap.setVisible(self._left_more_expanded)
+        self._left_more_btn.setText(
+            "▾ 收起更多操作" if self._left_more_expanded else "▸ 更多操作（撤销、移动、模板…）"
+        )
+
+    def _apply_simple_mode_ui(self) -> None:
+        simple = self._is_simple_mode()
+        self._header_adv_wrap.setVisible(not simple)
+        self.adv_header.setVisible(not simple)
+        self._left_more_btn.setVisible(simple)
+        if simple and not self._left_more_expanded:
+            self._left_more_wrap.setVisible(False)
+        elif not simple:
+            self._left_more_wrap.setVisible(True)
+            self._left_more_btn.setVisible(False)
+        wtype = ""
+        if self.widget_list.currentRow() >= 0:
+            widgets = self._widgets()
+            row = self.widget_list.currentRow()
+            if 0 <= row < len(widgets):
+                wtype = str(widgets[row].get("type", ""))
+        if hasattr(self, "property_form_box"):
+            self.property_form_box.setTitle("编辑这一项" if simple else "控件属性")
+        if wtype:
+            self._update_form_visibility(wtype)
+        elif hasattr(self, "id_hint_label"):
+            self.id_hint_label.setVisible(simple)
+
+    def _flash_status(self, message: str) -> None:
+        self.workflow_hint.setText(message)
+        QTimer.singleShot(4000, self._restore_workflow_hint)
+
+    def _restore_workflow_hint(self) -> None:
+        self.workflow_hint.setText(
+            "三步：① 从模板创建或添加控件  ② 右边改名称  ③ 保存\n"
+            "排乱了？点「一键整理」；脚本用「插入面板读取」自动生成代码。"
+        )
 
     @property
     def is_dirty(self) -> bool:
@@ -353,6 +479,7 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self._emit_layout_changed()
 
     def _on_screens_changed(self) -> None:
+        self._flush_property_sync()
         # screens[] 已与 layout 共享引用，仅同步当前界面索引
         self._layout.setdefault("panel", {})["active_screen"] = self.screen_tabs_editor.active_index()
         self._selected_path = ()
@@ -376,13 +503,86 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         elif self.widget_list.count() and not keep_row and select_row is None:
             self.widget_list.setCurrentRow(0)
 
+    def open_layout_wizard(self) -> None:
+        panel_title = str(self._layout.get("panel", {}).get("title", "") or "")
+        dlg = LayoutWizardDialog(self, default_title=panel_title)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        key = dlg.selected_key()
+        title = dlg.panel_title()
+        try:
+            if dlg.replace_all():
+                self._layout = build_wizard_layout(key, panel_title=title)
+            else:
+                if key == "full":
+                    QMessageBox.information(
+                        self,
+                        "提示",
+                        "「登录+设置」完整模板请选「替换当前全部」。\n"
+                        "追加模式请用登录 / 运行 / 提醒 / 双列。",
+                    )
+                    return
+                sc = wizard_screen_for_append(key)
+                screens(self._layout).append(sc)
+                repair_all_screens(self._layout)
+                if title:
+                    self._layout.setdefault("panel", {})["title"] = title
+        except ValueError as exc:
+            QMessageBox.warning(self, "创建失败", str(exc))
+            return
+        self._commit_history()
+        self._refresh_ui()
+        self._mark_dirty()
+        self._emit_layout_changed()
+        self._flash_status("✓ 模板已创建，请改右侧文字后保存")
+        if self._is_simple_mode():
+            ans = QMessageBox.question(
+                self,
+                "插入脚本读取代码？",
+                "是否根据新界面，自动在脚本里插入 panel.get 读取代码？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if ans == QMessageBox.StandardButton.Yes:
+                self._insert_panel_reads_all()
+
+    def _insert_panel_reads_all(self) -> None:
+        block = lua_reads_block_for_layout(self._layout)
+        self.insert_lua.emit(block)
+
+    def _insert_selected_widget_lua(self) -> None:
+        target = self._edit_target()
+        if target is None:
+            QMessageBox.information(self, "提示", "请先在左侧列表选一个控件")
+            return
+        w, _, _ = target
+        spec = widget_lua_spec(w)
+        if spec is None:
+            QMessageBox.information(self, "提示", "当前控件类型不支持 panel.get 读取")
+            return
+        self.insert_lua.emit(lua_reads_for_widget_spec(spec))
+
     def apply_template(self) -> None:
+        """兼容旧入口：改为推荐向导。"""
+        self.open_layout_wizard()
+
+    def apply_legacy_template(self) -> None:
+        ans = QMessageBox.warning(
+            self,
+            "旧版 grid 模板",
+            "这些模板仍是旧版网格布局，观感与主页表单不一致。\n"
+            "建议改用「从模板创建（推荐）」。\n\n仍要继续套用旧模板吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            return
         choices = template_choices()
         if not choices:
             return
         labels = [c[1] for c in choices]
         keys = [c[0] for c in choices]
-        label, ok = QInputDialog.getItem(self, "套用布局模板", "选择模板:", labels, 0, False)
+        label, ok = QInputDialog.getItem(self, "套用旧版模板", "选择模板:", labels, 0, False)
         if not ok:
             return
         key = keys[labels.index(label)]
@@ -437,11 +637,45 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
             QMessageBox.warning(self, "提示", "请先在「工程」页打开脚本工程")
             return
         self._layout = load_layout(project)
+        if is_free_mode(self._layout):
+            sanitize_free_layout(self._layout)
+        repaired = self._auto_repair_layout_if_needed(refresh=False)
         self._history.clear()
         self._refresh_ui()
         self._commit_history()
         self._clear_dirty()
         self._emit_layout_changed()
+        if repaired:
+            self._mark_dirty()
+
+    def _auto_repair_layout_if_needed(self, *, refresh: bool = True) -> bool:
+        """自由布局下自动整理可修复的坐标/尺寸问题。"""
+        if not is_free_mode(self._layout):
+            return False
+        errors = validate_layout(self._layout)
+        if not errors or not is_auto_repairable(errors):
+            return False
+        sanitize_free_layout(self._layout)
+        if refresh:
+            self._refresh_ui()
+            self._update_preview(force=True)
+            self._emit_layout_changed()
+        return True
+
+    def _validate_for_save(self, *, auto_repair: bool = True) -> tuple[list[str], bool]:
+        """保存前校验；可自动修复时整理后重试。返回 (errors, repaired)."""
+        self._flush_property_sync()
+        if self._edit_target() is None:
+            self._apply_header()
+        errors = validate_layout(self._layout)
+        repaired = False
+        if errors and auto_repair and is_free_mode(self._layout) and is_auto_repairable(errors):
+            sanitize_free_layout(self._layout)
+            repaired = True
+            self._refresh_ui()
+            self._update_preview(force=True)
+            errors = validate_layout(self._layout)
+        return errors, repaired
 
     def current_layout(self) -> dict[str, Any]:
         return clone_layout(self._layout)
@@ -452,9 +686,9 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
             if not silent:
                 QMessageBox.warning(self, "提示", "请先在「工程」页打开脚本工程")
             return False
+        self._flush_property_sync()
         self._apply_header()
-        self._sync_form_to_layout()
-        errors = validate_layout(self._layout)
+        errors, repaired = self._validate_for_save(auto_repair=True)
         if errors:
             if not silent:
                 QMessageBox.warning(self, "布局校验", "\n".join(errors[:10]))
@@ -463,7 +697,16 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self._clear_dirty()
         self.layout_changed.emit(clone_layout(self._layout))
         if not silent:
-            QMessageBox.information(self, "完成", "已保存 ui/layout.json")
+            if self._is_simple_mode():
+                self._flash_status(
+                    "✓ 已保存到 ui/layout.json，并已同步到 APK 资源"
+                    + ("（已自动整理布局）" if repaired else "")
+                )
+            else:
+                msg = "已保存 ui/layout.json，并已同步到 android-runtime/assets"
+                if repaired:
+                    msg += "\n（已自动整理过小/重叠的控件，无需手调坐标）"
+                QMessageBox.information(self, "完成", msg)
         return True
 
     def _commit_history(self) -> None:
@@ -496,19 +739,20 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
     def _paste_widget(self) -> None:
         if not self._clipboard_widget:
             return
+        self._flush_property_sync()
         src = clone_widget(self._clipboard_widget)
         widgets = self._widgets()
         w = default_widget(str(src.get("type", "label")), len(widgets) + 1)
         w.update({k: v for k, v in src.items() if k != "id"})
-        w["id"] = f"{src.get('id', 'w')}_{len(widgets) + 1}"
+        w["id"] = next_widget_id(self._layout)
         w["layout_y"] = int(w.get("layout_y", 40)) + 72
         widgets.append(w)
         row = len(widgets) - 1
-        self._selected_path = (active_screen_index(self._layout), row)
         self._commit_history()
-        self._refresh_widget_list()
-        self.widget_list.setCurrentRow(row)
-        self._load_widget_into_form(widgets[row])
+        self._refresh_widget_list(select_row=row)
+        if self.widget_list.currentRow() != row:
+            self._selected_path = (active_screen_index(self._layout), row)
+            self._load_widget_into_form(widgets[row])
         self._mark_dirty()
         self._update_preview(force=True)
 
@@ -570,25 +814,26 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         project = self._project_dir_getter()
         if not project:
             return False
-        if self.widget_list.currentRow() >= 0:
-            self._sync_form_to_layout()
-        else:
-            self._apply_header()
-        errors = validate_layout(self._layout)
+        errors, repaired = self._validate_for_save(auto_repair=True)
         if errors:
             QMessageBox.warning(
                 self,
                 "布局校验",
-                "自动保存已取消：\n" + "\n".join(errors[:8]),
+                "自动保存已取消：\n" + "\n".join(errors[:8])
+                + "\n\n可点左侧「一键整理」后重试，或检查重复 ID 等问题。",
             )
             return False
         save_layout(project, self._layout)
         self._clear_dirty()
         self.layout_changed.emit(clone_layout(self._layout))
+        if repaired:
+            self._update_preview(force=True)
         return True
 
     def add_widget(self, wtype: str) -> None:
         ensure_migrated(self._layout)
+        # 先把当前属性面板写回旧控件，避免切换选中后把旧类型（如下拉）覆盖到新控件
+        self._flush_property_sync()
         if wtype == "stop_script" and is_free_mode(self._layout):
             QMessageBox.information(
                 self,
@@ -608,9 +853,10 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
                 )
                 return
             widgets = self._chrome_widgets()
-            widgets.append(default_widget(wtype, len(widgets) + 1))
+            w = default_widget(wtype, len(widgets) + 1)
+            w["id"] = next_widget_id(self._layout)
+            widgets.append(w)
             self._selected_path = (CHROME_PATH_TAG, len(widgets) - 1)
-            w = widgets[-1]
             self._load_widget_into_form(w)
         else:
             if is_action_type(wtype) and is_host_display(self._layout.get("panel")):
@@ -622,18 +868,29 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
                 return
             widgets = self._widgets()
             w = default_widget(wtype, len(widgets) + 1)
-            if widgets:
+            w["id"] = next_widget_id(self._layout)
+            if is_free_mode(self._layout):
+                from studio.services.flow_layout import place_widget_in_flow
+                from studio.services.free_layout import panel_design_size
+
+                dw, _ = panel_design_size(self._layout.get("panel") or {})
+                place_widget_in_flow(widgets, w, design_w=dw)
+            elif widgets:
                 bottom = max(
                     int(x.get("layout_y", 0) + x.get("layout_h", 56)) for x in widgets
                 )
                 w["layout_y"] = bottom + 16
             widgets.append(w)
             row = len(widgets) - 1
-            self._selected_path = (active_screen_index(self._layout), row)
             repair_screen_widgets(widgets)
+            if self._is_simple_mode():
+                repair_all_screens(self._layout)
             self._sync_screen_tabs_from_layout()
+            # 选中新行时由 _on_select_widget 再 flush（此时已指向旧控件）并加载新控件
             self._refresh_widget_list(select_row=row)
-            self._load_widget_into_form(widgets[row])
+            if self.widget_list.currentRow() != row:
+                self._selected_path = (active_screen_index(self._layout), row)
+                self._load_widget_into_form(widgets[row])
         self._mark_dirty()
         self._update_preview(force=True)
         self._commit_history()
@@ -680,36 +937,107 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
     def _update_mode_hint(self) -> None:
         mode = self.display_mode_combo.currentData() or "host"
         hints = {
-            "host": "主页面填表 · 启停由悬浮球控制 · 实机设计模式仅 form 模式",
+            "host": "主页面填表 · 启停由悬浮球控制 · 长按主页面板标题可进设计模式",
             "minimal": "仅悬浮球/条 · 无内嵌表单",
             "form": "悬浮窗内完整表单 · 可长按标题栏进入设计模式",
         }
         self.mode_hint_label.setText(hints.get(str(mode), ""))
-        if str(mode) == "host":
-            self.allow_design_cb.setToolTip(
-                "host 模式下表单在 MainActivity，实机 free 拖动请切到 form 或 minimal+悬浮窗"
-            )
-        else:
-            self.allow_design_cb.setToolTip("APK 浮动面板长按标题栏 1.2 秒进入布局设计模式")
+        self.allow_design_cb.setToolTip("APK 主页/悬浮窗长按标题栏 1.2 秒进入布局设计模式")
+
+    def _selected_widget_indices(self) -> list[int]:
+        rows = [i.row() for i in self.widget_list.selectedIndexes()]
+        if not rows and self.widget_list.currentRow() >= 0:
+            rows = [self.widget_list.currentRow()]
+        return sorted(set(rows))
+
+    def _after_geometry_edit(self, flash: str) -> None:
+        self._refresh_widget_list(keep_row=True)
+        self._mark_dirty()
+        self._update_preview(force=True)
+        self._commit_history()
+        self._emit_layout_changed()
+        if self._is_simple_mode():
+            self._flash_status(flash)
+
+    def reflow_layout_manual(self) -> None:
+        if not is_free_mode(self._layout):
+            QMessageBox.information(self, "提示", "仅「手机自由」布局支持流式重排")
+            return
+        from studio.services.flow_layout import reflow_active_screen
+
+        if not reflow_active_screen(self._layout):
+            return
+        self._after_geometry_edit("✓ 已流式重排，记得保存")
+
+    def align_left_manual(self) -> None:
+        if not is_free_mode(self._layout):
+            return
+        from studio.services.flow_layout import align_left
+        from studio.services.free_layout import panel_design_size
+
+        widgets = self._widgets()
+        idxs = self._selected_widget_indices()
+        targets = [widgets[i] for i in idxs] if idxs else widgets
+        dw, _ = panel_design_size(self._layout.get("panel") or {})
+        align_left(targets, design_w=dw)
+        self._after_geometry_edit("✓ 已左对齐")
+
+    def unify_width_manual(self) -> None:
+        if not is_free_mode(self._layout):
+            return
+        from studio.services.flow_layout import unify_width
+        from studio.services.free_layout import panel_design_size
+
+        widgets = self._widgets()
+        idxs = self._selected_widget_indices()
+        targets = [widgets[i] for i in idxs] if idxs else widgets
+        dw, _ = panel_design_size(self._layout.get("panel") or {})
+        unify_width(targets, design_w=dw)
+        self._after_geometry_edit("✓ 已统一宽度")
+
+    def pair_columns_manual(self) -> None:
+        if not is_free_mode(self._layout):
+            return
+        idxs = self._selected_widget_indices()
+        if len(idxs) < 2:
+            QMessageBox.information(self, "提示", "请先在列表中多选至少两个控件，再点「两列并排」")
+            return
+        from studio.services.flow_layout import pair_two_columns
+        from studio.services.free_layout import panel_design_size
+
+        dw, _ = panel_design_size(self._layout.get("panel") or {})
+        pair_two_columns(self._widgets(), idxs, design_w=dw)
+        self._after_geometry_edit("✓ 已两列并排")
 
     def repair_layout_manual(self) -> None:
         if not is_free_mode(self._layout):
-            QMessageBox.information(self, "提示", "仅「手机自由」布局支持修复坐标")
+            QMessageBox.information(self, "提示", "仅「手机自由」布局支持一键整理")
             return
-        ans = QMessageBox.question(
-            self,
-            "修复布局",
-            "将修正重叠、过小控件坐标（按自上而下重排）。是否继续？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if ans != QMessageBox.StandardButton.Yes:
-            return
-        repair_all_screens(self._layout)
+        from studio.services.flow_layout import reflow_active_screen
+
+        reflow_active_screen(self._layout)
+        sanitize_free_layout(self._layout)
         self._refresh_ui()
         self._mark_dirty()
         self._update_preview(force=True)
         self._emit_layout_changed()
-        QMessageBox.information(self, "完成", "布局坐标已修复，请保存后同步到脚本页。")
+        errors = validate_layout(self._layout)
+        if errors:
+            QMessageBox.warning(
+                self,
+                "整理完成",
+                "已重排控件并修正重复 ID，但仍有以下问题需手动处理：\n"
+                + "\n".join(errors[:10]),
+            )
+            return
+        if self._is_simple_mode():
+            self._flash_status("✓ 已一键整理，记得点「保存」")
+        else:
+            QMessageBox.information(
+                self,
+                "完成",
+                "已按自上而下重排控件、修正过小尺寸，并自动修正重复 ID。\n请点「保存」同步到工程。",
+            )
 
     def pull_device_layout(self) -> None:
         project = self._project_dir_getter()
@@ -889,6 +1217,7 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         else:
             self._clear_form()
         self._sync_canvas_mode()
+        self._apply_simple_mode_ui()
 
     def export_active_screen(self) -> None:
         if not is_free_mode(self._layout):
@@ -941,30 +1270,7 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         self._emit_layout_changed()
 
     def _insert_panel_lua_example(self) -> None:
-        snippet = (
-            "-- 浮动面板表单（控件 id 须与 layout.json 一致）\n"
-            'local mode = panel.get("mode")\n'
-            'bot.log("模式: " .. mode)\n\n'
-            'if panel.is("mode", "极速") then\n'
-            '  bot.log("走极速分支")\n'
-            "end\n\n"
-            'if panel.isOn("notify") then\n'
-            '  bot.log("通知已开启")\n'
-            "end\n\n"
-            'local startT, endT = panel.getTimeRange("work_hours")\n'
-            'bot.log("工作时段: " .. startT .. " - " .. endT)\n\n'
-            'if panel.has("tasks", "日常") then\n'
-            '  bot.log("已勾选日常")\n'
-            "end\n\n"
-            'panel.watch("mode", function(v)\n'
-            '  bot.log("模式变为: " .. v)\n'
-            "end)\n\n"
-            'local snap = panel.snapshot()\n'
-            'for k, v in pairs(snap) do bot.log(k .. "=" .. v) end\n\n'
-            'local delay = tonumber(panel.get("delay_ms")) or 500\n'
-            "bot.delay(delay / 1000)\n"
-        )
-        self.insert_lua.emit(snippet)
+        self._insert_panel_reads_all()
 
     def _update_preview(self, *, force: bool = False) -> None:
         self._apply_header()

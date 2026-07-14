@@ -18,7 +18,14 @@ object LuaSnippetRunner {
         val config = assets.loadConfig()
         val vision = VisionEngine(assets, assets.appContext(), config.ocrMode)
         try {
-            val bridge = AutoScriptBridge(backend, vision, config, onLog, config.defaultYoloModel)
+            val bridge = AutoScriptBridge(
+                backend,
+                vision,
+                config,
+                onLog,
+                config.defaultYoloModel,
+                assets.appContext(),
+            )
             val globals = JsePlatform.standardGlobals()
             LuaBindings.install(globals, bridge, onLog)
             globals.load(lua, "snippet").call()

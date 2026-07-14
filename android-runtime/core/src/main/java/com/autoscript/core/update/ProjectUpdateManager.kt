@@ -172,7 +172,12 @@ class ProjectUpdateManager(
         }
         val text = conn.inputStream.bufferedReader().use { it.readText() }
         conn.disconnect()
-        return JSONObject(text)
+        val root = JSONObject(text)
+        return when {
+            root.has("version_code") -> root
+            root.optJSONObject("data")?.has("version_code") == true -> root.getJSONObject("data")
+            else -> root
+        }
     }
 
     private fun downloadZipFile(zipUrl: String): File {

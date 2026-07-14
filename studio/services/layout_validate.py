@@ -7,6 +7,16 @@ from typing import Any
 from studio.services.free_layout import min_rect_for_type
 from studio.services.screen_layout import CHROME_PATH_TAG, ensure_migrated, flatten_all_widgets
 
+# 可由 repair_all_screens / sanitize_free_layout 自动修正的校验项关键词
+_AUTO_REPAIR_MARKERS = ("尺寸过小", "坐标不能为负", "超出设计宽度", "id 重复")
+
+
+def is_auto_repairable(errors: list[str]) -> bool:
+    """错误是否均可通过一键整理自动修复。"""
+    if not errors:
+        return False
+    return all(any(m in e for m in _AUTO_REPAIR_MARKERS) for e in errors)
+
 
 def validate_layout(layout: dict[str, Any]) -> list[str]:
     """返回错误文案列表；空列表表示通过。"""
@@ -31,7 +41,10 @@ def validate_layout(layout: dict[str, Any]) -> list[str]:
             if x < 0 or y < 0:
                 errors.append(f"控件「{w.get('id', '?')}」坐标不能为负")
             if ww < min_w or hh < min_h:
-                errors.append(f"控件「{w.get('id', '?')}」尺寸过小")
+                errors.append(
+                    f"控件「{w.get('id', '?')}」尺寸过小（当前 {ww}×{hh}，"
+                    f"{wtype} 至少 {min_w}×{min_h}）"
+                )
             if x + ww > dw + 8:
                 errors.append(f"控件「{w.get('id', '?')}」超出设计宽度 {dw}")
             if y > dh * 3:

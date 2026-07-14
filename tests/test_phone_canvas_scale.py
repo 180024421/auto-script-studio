@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from studio.ui.phone_canvas_widget import (
     DEFAULT_PHONE_SCREEN_PX,
+    _home_indicator_height,
+    _status_bar_height,
     compute_preview_scale,
 )
 
@@ -49,3 +51,38 @@ def test_target_width_capped_by_viewport():
     )
     scale_w = (260 - 48 - 20) / 720
     assert scale <= scale_w + 0.001
+
+
+def test_main_panel_preview_proportional():
+    scale = compute_preview_scale(
+        design_w=720,
+        design_h=1280,
+        viewport_w=600,
+        viewport_h=500,
+        target_screen_px=None,
+        fit_viewport=True,
+        min_scale=0.25,
+        hint_reserve=0,
+    )
+    scale_w = (600 - 48 - 20) / 720
+    scale_h = (500 - 20) / 1280
+    assert abs(scale - max(0.25, min(scale_w, scale_h))) < 0.01
+
+
+def test_main_panel_target_width_keeps_aspect():
+    scale = compute_preview_scale(
+        design_w=720,
+        design_h=1280,
+        viewport_w=800,
+        viewport_h=900,
+        target_screen_px=360,
+        fit_viewport=True,
+        min_scale=0.25,
+    )
+    assert abs(scale - 360 / 720) < 0.01
+    assert int(1280 * scale) == 640
+
+    s = 0.5
+    assert _status_bar_height(s) >= 18
+    assert _home_indicator_height(s) >= 14
+    assert _status_bar_height(1.0) > _status_bar_height(s)

@@ -74,6 +74,9 @@ def run_gradle(release: bool) -> Path:
             f"未找到 gradlew.bat，请在 {RUNTIME} 执行 gradle wrapper 或安装 Android Studio"
         )
     task = "assembleRelease" if release else "assembleDebug"
+    clean_cmd = [str(GRADLEW), ":app:clean", "--no-daemon"]
+    print("执行:", " ".join(clean_cmd))
+    subprocess.run(clean_cmd, cwd=RUNTIME, check=True)
     cmd = [str(GRADLEW), f":app:{task}", "--no-daemon"]
     print("执行:", " ".join(cmd))
     subprocess.run(cmd, cwd=RUNTIME, check=True)
@@ -95,11 +98,20 @@ def build(
     cfg = read_project_cfg(project_dir)
     write_gradle_props(cfg, PROPS, signing if release else None)
     apk = run_gradle(release)
+    _verify_packaged_layout(project_dir, apk)
     output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(apk, output)
     print(f"已输出: {output} ({output.stat().st_size // 1024} KB)")
     return output
+
+
+def _verify_packaged_layout(project_dir: Path, apk: Path) -> None:
+    from packager.layout_verify import verify_apk_layout
+
+    result = verify_apk_layout(apk, project_dir)
+    if not result.get("ok"):
+        raise RuntimeError(result.get("message", "APK layout 校验失败"))
 
 
 def main(argv: list[str] | None = None) -> int:

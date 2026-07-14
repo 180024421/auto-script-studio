@@ -28,6 +28,10 @@ def min_rect_for_type(wtype: str) -> tuple[int, int]:
     """自由布局控件最小宽/高（设计像素）。"""
     if wtype == "divider":
         return 48, 4
+    if wtype == "section":
+        return 200, 80
+    if wtype in ("image", "hero"):
+        return 120, 64
     if wtype in ("text", "label"):
         return 48, 20
     if wtype in ("input", "textarea", "select", "radio", "multiselect"):
@@ -68,6 +72,12 @@ def default_rect_for_type(wtype: str, index: int) -> dict[str, int]:
         return {"layout_x": 24, "layout_y": y, "layout_w": 672, "layout_h": 120}
     if wtype == "divider":
         return {"layout_x": 24, "layout_y": y, "layout_w": 672, "layout_h": 16}
+    if wtype == "section":
+        return {"layout_x": 16, "layout_y": y, "layout_w": 688, "layout_h": 200}
+    if wtype == "image":
+        return {"layout_x": 24, "layout_y": y, "layout_w": 672, "layout_h": 160}
+    if wtype == "hero":
+        return {"layout_x": 0, "layout_y": y, "layout_w": 720, "layout_h": 200}
     if wtype == "slider":
         return {"layout_x": 24, "layout_y": y, "layout_w": 672, "layout_h": 52}
     if wtype == "stepper":

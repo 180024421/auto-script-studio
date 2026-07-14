@@ -54,6 +54,10 @@ data class WidgetConfig(
     val label: String = "",
     val text: String = "",
     val color: String = "#2563EB",
+    /** primary / secondary / danger；为空时沿用 color。 */
+    val buttonStyle: String = "",
+    /** image/hero 相对工程路径，如 `ui/hero.png`。 */
+    val src: String = "",
     val width: Int = 1,
     val action: String = "",
     val placeholder: String = "",
@@ -137,7 +141,12 @@ data class LayoutConfig(
     }
 
     fun hasHostFormWidgets(): Boolean =
-        resolvedScreens().any { sc -> sc.widgets.any { w -> w.type in WidgetConfig.FORM_VALUE_TYPES || w.type in setOf("text", "label", "divider") } }
+        resolvedScreens().any { sc ->
+            sc.widgets.any { w ->
+                w.type in WidgetConfig.FORM_VALUE_TYPES ||
+                    w.type in setOf("text", "label", "divider", "section", "image", "hero")
+            }
+        }
 
     fun resolvedScreens(): List<ScreenConfig> =
         if (screens.isNotEmpty()) screens else legacyScreensFromWidgets(widgets)
@@ -345,6 +354,8 @@ data class LayoutConfig(
                 label = obj.optString("label", obj.optString("text", "控件")),
                 text = obj.optString("text", ""),
                 color = obj.optString("color", "#2563EB"),
+                buttonStyle = obj.optString("button_style", ""),
+                src = obj.optString("src", ""),
                 width = obj.optInt("width", 1).coerceIn(1, 3),
                 action = obj.optString("action", ""),
                 placeholder = obj.optString("placeholder", ""),

@@ -2,16 +2,16 @@
 
 按键精灵式自定义控制面板：全局水平 **界面标签** + 每页自由布局控件。打包进 APK 后：
 
-- **主页面（MainActivity）**：渲染 `screens[]` 表单控件，供用户填写配置
-- **悬浮窗（OverlayService）**：仅 **开始 / 停止**（及可选日志），不含表单布局
+- **主页面（MainActivity）**：渲染 `screens[]` 表单（`panel.title` 为蓝色标题栏）+ 固定外壳（设置 / 启停 / 运行日志）
+- **悬浮窗（OverlayService）**：悬浮球 ▶/■ 启停（后台运行），不含完整表单
 
-PC Studio「浮动面板」页：**手机画布 WYSIWYG** + 可选 **交互预览**；「抓抓」页可叠加截图对照。
+PC Studio「浮动面板」页：**手机画布 WYSIWYG** + 可选 **交互预览** / **APK 外壳预览**；「抓抓」页可叠加截图对照。
 
 ## 展示模式 `panel.display_mode`
 
 | 值 | APK 主页面 | 悬浮窗 |
 |----|-----------|--------|
-| `host`（推荐默认） | 表单 screens | 悬浮球 ▶/■ 启停（无单独「开始运行」按钮） |
+| `host`（推荐默认） | layout 表单 + 设置/启停/日志 | 悬浮球 ▶/■ 启停 |
 | `form` | 同 host（兼容旧工程） | 同 host |
 | `minimal` | 有 screens 时仍显示表单 | 悬浮球 + 可选展开控制条 |
 
@@ -50,6 +50,10 @@ JSON Schema：`schemas/layout.schema.json`
 | 能力 | 状态 | 说明 |
 |------|------|------|
 | 多界面标签 + 每页自由布局 | ✅ | `screens[]` + `active_screen` |
+| 布局向导（现代 free） | ✅ | 登录 / 运行 / 完整 / 提醒 / 双列；推荐入口 |
+| 半自动流式排版 | ✅ | 添加自动落行；流式重排 / 左对齐 / 统一宽度 / 两列并排 |
+| 主题预设 | ✅ | `light` 商务蓝 / `green` 清爽绿 / `gray` 中性灰 / `dark` |
+| 分区卡片 `section` | ✅ | 圆角底 + 标题，叠在表单下方营造产品页层次 |
 | 表单控件（含 switch/时间范围/滑条等） | ✅ | 见下表 |
 | PC 拖动/缩放/吸附网格 | ✅ | 8px 网格；方向键微调；Delete 删除；Ctrl+D 复制 |
 | 撤销/重做、复制/粘贴 | ✅ | 顶栏与画布右键 |
@@ -57,11 +61,13 @@ JSON Schema：`schemas/layout.schema.json`
 | 保存前校验 | ✅ | ID 唯一、坐标/尺寸 |
 | 脚本读取控件值 | ✅ | `panel.*` Lua API |
 | 实机设计模式（网格） | ✅ | 长按标题栏 |
-| 实机 free 布局拖动保存 | ✅ | form 悬浮窗 + `FreeOverlayDesignFrame`；host 主 Activity 暂无设计模式 |
+| 实机 free 布局拖动保存 | ✅ | form 悬浮窗 / host 主页均支持；长按标题栏进设计模式 |
 | 实机 layout 覆盖拉取 | ✅ | Studio「拉取实机布局」→ merge 工程 |
 | PC 控件内容随框体缩放 | ✅ | 拖动缩放控件时字号/行高自适应 |
 | 设计分辨率变更 | ✅ | 控件 layout 坐标等比缩放 |
-| 双指捏合缩放面板 | 🔜 | Android 规划中 |
+| 旧版 grid「模板库」 | ⚠️ | 更多操作 → 旧版模板（不推荐） |
+| 双指捏合缩放面板 | ✅ | 悬浮窗标题栏双指捏合 0.7–1.4 |
+| `button_style` / `image`·`hero` | ✅ | 主/次/危险按钮；静态图与轻量 banner |
 
 ## 控件类型
 
@@ -71,6 +77,9 @@ JSON Schema：`schemas/layout.schema.json`
 |------|------|----------|
 | `text` | 文字框（提示/说明，只读） | `text`, `text_style`（title/hint/normal）, `align`, `layout_*` |
 | `label` | 标签/说明（兼容旧版） | `text`, `layout_*` |
+| `section` | 分区卡片（圆角背景+标题） | `text`（标题）, `layout_*`；拖动时几何包含的表单会随迁 |
+| `image` | 静态图 | `src`（相对工程路径）, `layout_*` |
+| `hero` | 轻量 banner | `src`, `text`（叠加文案）, `layout_*` |
 | `input` | 输入框 | `label`, `placeholder`, `default`, `id`, `required`, `min`, `max` |
 | `select` | 下拉 | `label`, `options[]`, `default`, `id` |
 | `radio` | 单选 | `label`, `options[]`, `default`, `id` |
@@ -91,6 +100,8 @@ JSON Schema：`schemas/layout.schema.json`
 | `tap` / `swipe` / `long_press` | 坐标动作 |
 | `lua` | Lua 片段 |
 | `collapse` | 收起面板（**▼** 图标） |
+
+动作按钮可选字段：`button_style`=`primary`|`secondary`|`danger`（次要=描边），以及 `color` 覆盖色。
 
 旧版嵌套 `tabs` 控件会在加载时自动迁移为 `screens[]`。
 

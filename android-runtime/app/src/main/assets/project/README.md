@@ -1,30 +1,25 @@
-# demo-game 示例
+# 钉钉打卡提醒
 
-官方推荐的首个示例工程：演示 **找色**、**浮动面板**、**极简悬浮窗**。
+到点 / 离开公司 WiFi 时提醒并打开钉钉。**不代打卡**。
 
-## 快速运行
+## 上班
 
-1. `.\start.cmd` 启动 Studio
-2. 工程页 → 打开本目录
-3. ADB 连接模拟器 → 抓抓页截图（可选）
-4. 脚本页 → **PC 运行**
+主界面「每日提醒时间」→ 默认 `08:55`，可改。
 
-## 找图模板（可选）
+## 下班
 
-找图需要 `image/` 下模板图：
+「下班离开公司 WiFi」：
 
-1. 抓抓页框选区域 → 保存到 `image/`
-2. 在 `main.lua` 中修改 `bot.findImage("image/你的图.png", ...)`
+1. 打开开关（需授权**定位**，系统才能读 WiFi 名）
+2. WiFi 名默认 `HSYYYL-N28`，可改
+3. 最早提醒时刻默认 `17:30`（之前离开公司不提醒，避免午休误报）
+4. 当天只提醒一次
 
-不放置模板图时，脚本仍可通过 **找色** 分支正常运行。
-
-## 面板字段
-
-- `mode`：普通 / 极速（见 `ui/layout.json`）
-- 底部 **开始/停止** 控制脚本
+会有一条低优先级前台通知「监听公司 WiFi」，用于保活。小米请设省电「无限制」。
 
 ## 打包
 
 ```powershell
-python -m packager.packager_cli build examples/demo-game -o dist/demo-game.apk
+cd E:\xiangmu\auto-script-studio
+python -m packager.packager_cli build examples/dingtalk-remind -o dist/dingtalk-remind.apk
 ```

@@ -15,6 +15,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
@@ -54,6 +55,9 @@ class OverlayService : Service() {
 
     private lateinit var wm: WindowManager
     private var panelView: View? = null
+    /** 双指捏合缩放（相对初始尺寸）。 */
+    private var panelScale = 1f
+    private var scaleDetector: ScaleGestureDetector? = null
     private var ballView: View? = null
     private var logView: TextView? = null
     private var titleDragHandle: View? = null
@@ -127,7 +131,10 @@ class OverlayService : Service() {
         }
 
         override fun onRectChange(widgetPath: List<Int>, x: Int, y: Int, w: Int, h: Int) {
-            layoutConfig = LayoutEditorOps.setWidgetRect(layoutConfig, widgetPath, x, y, w, h)
+            val before = layoutConfig
+            var next = LayoutEditorOps.setWidgetRect(layoutConfig, widgetPath, x, y, w, h)
+            next = LayoutEditorOps.offsetSectionContents(before, next, widgetPath, x, y)
+            layoutConfig = next
             rebuildPanel()
         }
     }
@@ -272,8 +279,7 @@ class OverlayService : Service() {
 
     private fun isMinimalDisplay(): Boolean =
         layoutConfig.isHostDisplay() ||
-            layoutConfig.panel.displayMode.equals("minimal", ignoreCase = true) ||
-            layoutConfig.resolvedScreens().any { it.widgets.isNotEmpty() }
+            layoutConfig.panel.displayMode.equals("minimal", ignoreCase = true)
 
     private fun scheduleIdleCollapse() {
         handler.removeCallbacks(idleCollapseRunnable)
@@ -364,6 +370,7 @@ class OverlayService : Service() {
         } else {
             null
         }
+        ensureScaleDetector(panel)
         if (layoutConfig.panel.draggable && !designMode) {
             val dragTarget = if (focusable) titleDragHandle ?: panel else panel
             val onLongPress = if (
@@ -390,6 +397,10 @@ class OverlayService : Service() {
             ballParams = ballLp
         }
         if (!safeAddOverlayView(panel, panelLp)) return false
+        panel.scaleX = panelScale
+        panel.scaleY = panelScale
+        panel.pivotX = 0f
+        panel.pivotY = 0f
         panelView = panel
         layoutParams = panelLp
         if (!unifiedMinimalBar && ballView != null) {
@@ -828,6 +839,22 @@ class OverlayService : Service() {
         }
 
     @SuppressLint("ClickableViewAccessibility")
+    private fun ensureScaleDetector(panel: View) {
+        scaleDetector = ScaleGestureDetector(
+            this,
+            object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScale(detector: ScaleGestureDetector): Boolean {
+                    panelScale = (panelScale * detector.scaleFactor).coerceIn(0.7f, 1.4f)
+                    panel.scaleX = panelScale
+                    panel.scaleY = panelScale
+                    panel.pivotX = 0f
+                    panel.pivotY = 0f
+                    return true
+                }
+            },
+        )
+    }
+
     private fun attachDrag(
         view: View,
         lp: WindowManager.LayoutParams,
@@ -847,7 +874,13 @@ class OverlayService : Service() {
             }
         }
         view.setOnTouchListener { _, event ->
-            when (event.action) {
+            val detector = scaleDetector
+            if (detector != null && event.pointerCount >= 2) {
+                handler.removeCallbacks(longPressRunnable)
+                detector.onTouchEvent(event)
+                return@setOnTouchListener true
+            }
+            when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = event.rawX
                     downY = event.rawY

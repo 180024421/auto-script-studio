@@ -1,48 +1,36 @@
 {
-  "name": "Demo 助手",
-  "package_id": "com.autoscript.demo",
-  "version_code": 2,
-  "version_name": "1.0.1",
+  "name": "钉钉打卡提醒",
+  "package_id": "com.autoscript.dingtalkremind",
+  "version_code": 1,
+  "version_name": "1.0.0",
   "entry": "main.lua",
   "script_language": "lua",
   "permissions": {
-    "accessibility": true,
-    "screen_capture": true,
+    "accessibility": false,
+    "screen_capture": false,
     "overlay": true,
     "foreground_service": true
   },
   "runtime": {
     "default_interval_ms": 300,
-    "default_yolo_conf": 0.4,
     "ocr_mode": "lazy",
-    "input_mode": "auto",
+    "input_mode": "accessibility",
     "screenshot_mode": "media_projection",
     "perf": {
       "opencv_mobile": false,
-      "yolo_nnapi": true,
-      "yolo_imgsz": 320,
-      "capture_cache_ttl_ms": 80
+      "yolo_warmup": false
     }
   },
   "license": {
-    "enabled": false,
-    "api_base": "http://111.229.202.251:8687",
-    "app_name": "com.autoscript.demo",
-    "skip_on_offline": false
-  },
-  "jiaoben": {
-    "api_base": "http://111.229.202.251:8687",
-    "project_id": 1
+    "enabled": false
   },
   "update": {
-    "enabled": true,
-    "manifest_url": "",
-    "check_on_start": true,
-    "allow_local_import": false
+    "enabled": false,
+    "check_on_start": false
   },
   "schedule": {
-    "enabled": false,
-    "daily_time": "08:00"
+    "enabled": true,
+    "daily_time": "08:55"
   },
   "boot": {
     "auto_start": false

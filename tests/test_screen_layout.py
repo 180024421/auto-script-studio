@@ -145,7 +145,7 @@ def test_repair_off_canvas_widget():
     w = widgets[0]
     assert w["layout_x"] + w["layout_w"] <= 720
     assert w["layout_w"] >= 160
-    assert w["layout_h"] >= 40
+    assert w["layout_h"] >= 48
 
 
 def test_repair_overlapping_widgets():
@@ -158,6 +158,69 @@ def test_repair_overlapping_widgets():
     ys = [w["layout_y"] for w in widgets]
     assert len(set(ys)) == 3
     assert all(w["layout_w"] >= 80 for w in widgets)
+
+
+def test_repair_vertical_overlap_stack():
+    widgets = [
+        {"id": "account", "type": "input", "layout_x": 24, "layout_y": 60, "layout_w": 296, "layout_h": 56},
+        {"id": "div", "type": "divider", "layout_x": 24, "layout_y": 72, "layout_w": 296, "layout_h": 16},
+        {"id": "hint", "type": "text", "text": "提示", "layout_x": 24, "layout_y": 104, "layout_w": 48, "layout_h": 36},
+    ]
+    repair_screen_widgets(widgets, design_w=320)
+    bottoms = [w["layout_y"] + w["layout_h"] for w in widgets]
+    for i in range(1, len(widgets)):
+        assert widgets[i]["layout_y"] >= bottoms[i - 1] - 2 or widgets[i]["layout_y"] >= widgets[i - 1]["layout_y"] + 8
+
+
+def test_validate_size_error_detail():
+    layout = migrate_layout(copy.deepcopy(DEFAULT_LAYOUT))
+    ws = screens(layout)[0]["widgets"]
+    ws[0]["layout_w"] = 24
+    ws[0]["layout_h"] = 20
+    errors = validate_layout(layout)
+    assert any("尺寸过小" in e and "至少" in e for e in errors)
+
+
+def test_is_auto_repairable():
+    from studio.services.layout_validate import is_auto_repairable
+
+    assert is_auto_repairable(["控件「a」尺寸过小（当前 24×20，input 至少 160×48）"])
+    assert is_auto_repairable(["控件 id 重复：「a」（text 与 select）"])
+    assert not is_auto_repairable(["存在未设置 id 的控件（type=input）"])
+    assert not is_auto_repairable(
+        [
+            "控件「a」尺寸过小（当前 24×20，input 至少 160×48）",
+            "存在未设置 id 的控件（type=input）",
+        ]
+    )
+
+
+def test_dedupe_widget_ids_on_sanitize():
+    from studio.services.layout_cleanup import sanitize_free_layout
+
+    layout = migrate_layout(copy.deepcopy(DEFAULT_LAYOUT))
+    ws = screens(layout)[0]["widgets"]
+    if len(ws) < 2:
+        ws.append(copy.deepcopy(ws[0]))
+    ws[0]["type"] = "text"
+    ws[0]["id"] = "w_0"
+    ws[1]["type"] = "select"
+    ws[1]["id"] = "w_0"
+    assert any("重复" in e for e in validate_layout(layout))
+    sanitize_free_layout(layout)
+    assert validate_layout(layout) == []
+    ids = [w["id"] for w in ws]
+    assert len(ids) == len(set(ids))
+    assert ids[0] == "w_0"
+    assert ids[1] != "w_0"
+
+
+def test_demo_game_layout_validates():
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "examples" / "demo-game" / "ui" / "layout.json"
+    layout = migrate_layout(json.loads(path.read_text(encoding="utf-8")))
+    assert validate_layout(layout) == []
 
 
 def test_screen_tabs_shared_widgets_list():

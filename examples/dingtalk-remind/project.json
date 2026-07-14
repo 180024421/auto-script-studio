@@ -1,0 +1,38 @@
+{
+  "name": "钉钉打卡提醒",
+  "package_id": "com.autoscript.dingtalkremind",
+  "version_code": 1,
+  "version_name": "1.0.0",
+  "entry": "main.lua",
+  "script_language": "lua",
+  "permissions": {
+    "accessibility": false,
+    "screen_capture": false,
+    "overlay": true,
+    "foreground_service": true
+  },
+  "runtime": {
+    "default_interval_ms": 300,
+    "ocr_mode": "lazy",
+    "input_mode": "accessibility",
+    "screenshot_mode": "media_projection",
+    "perf": {
+      "opencv_mobile": false,
+      "yolo_warmup": false
+    }
+  },
+  "license": {
+    "enabled": false
+  },
+  "update": {
+    "enabled": false,
+    "check_on_start": false
+  },
+  "schedule": {
+    "enabled": true,
+    "daily_time": "08:55"
+  },
+  "boot": {
+    "auto_start": false
+  }
+}

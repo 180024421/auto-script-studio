@@ -169,7 +169,7 @@ class FreeOverlayDesignFrame(
         private val FORM_LIKE_TYPES = setOf(
             "input", "select", "radio", "multiselect", "switch",
             "time_range", "slider", "stepper", "textarea",
-            "text", "label", "divider",
+            "text", "label", "divider", "section",
         )
     }
 }

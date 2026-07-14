@@ -1,3 +1,107 @@
+-- 读取浮动面板（全部页签）
+local account = panel.get("account") or ""
+local password = panel.get("password") or ""
+local auto_login = panel.get("auto_login")
+local w_2 = panel.get("w_2") or "普通"
+local priority = panel.get("priority") or "高"
+local delay_sec = panel.get("delay_sec") or "1"
+local loop_count = panel.get("loop_count") or "1"
+local features = panel.get("features") or ""
+
+bot.log(string.format("账号: %s", tostring(account)))
+bot.log(string.format("密码: %s", password ~= "" and "******" or "(空)"))
+bot.log(string.format("自动登录: %s", tostring(auto_login)))
+bot.log(string.format("等级: %s", tostring(w_2)))
+bot.log(string.format("优先级: %s", tostring(priority)))
+bot.log(string.format("步骤间隔(秒): %s", tostring(delay_sec)))
+bot.log(string.format("循环次数: %s", tostring(loop_count)))
+bot.log(string.format("附加功能: %s", tostring(features)))
+
+if panel.is("w_2", "普通") then
+  bot.log(">> 普通模式")
+elseif panel.is("w_2", "极速") then
+  bot.log(">> 极速模式")
+elseif panel.is("w_2", "省电") then
+  bot.log(">> 省电模式")
+end
+-- 读取浮动面板（全部页签）
+local account = panel.get("account") or ""
+local password = panel.get("password") or ""
+local auto_login = panel.get("auto_login")
+local mode = panel.get("mode") or "普通"
+local priority = panel.get("priority") or "高"
+local delay_sec = panel.get("delay_sec") or "1"
+local loop_count = panel.get("loop_count") or "1"
+local features = panel.get("features") or ""
+
+bot.log(string.format("账号: %s", tostring(account)))
+bot.log(string.format("密码: %s", password ~= "" and "******" or "(空)"))
+bot.log(string.format("自动登录: %s", tostring(auto_login)))
+bot.log(string.format("模式: %s", tostring(mode)))
+bot.log(string.format("优先级: %s", tostring(priority)))
+bot.log(string.format("步骤间隔(秒): %s", tostring(delay_sec)))
+bot.log(string.format("循环次数: %s", tostring(loop_count)))
+bot.log(string.format("附加功能: %s", tostring(features)))
+
+if panel.is("mode", "普通") then
+  bot.log(">> 普通模式")
+elseif panel.is("mode", "极速") then
+  bot.log(">> 极速模式")
+elseif panel.is("mode", "省电") then
+  bot.log(">> 省电模式")
+end
+-- 读取浮动面板（全部页签）
+local account = panel.get("account") or ""
+local password = panel.get("password") or ""
+local auto_login = panel.get("auto_login")
+local mode = panel.get("mode") or "普通"
+local priority = panel.get("priority") or "高"
+local delay_sec = panel.get("delay_sec") or "1"
+local loop_count = panel.get("loop_count") or "1"
+local features = panel.get("features") or ""
+
+bot.log(string.format("账号: %s", tostring(account)))
+bot.log(string.format("密码: %s", password ~= "" and "******" or "(空)"))
+bot.log(string.format("自动登录: %s", tostring(auto_login)))
+bot.log(string.format("模式: %s", tostring(mode)))
+bot.log(string.format("优先级: %s", tostring(priority)))
+bot.log(string.format("步骤间隔(秒): %s", tostring(delay_sec)))
+bot.log(string.format("循环次数: %s", tostring(loop_count)))
+bot.log(string.format("附加功能: %s", tostring(features)))
+
+if panel.is("mode", "普通") then
+  bot.log(">> 普通模式")
+elseif panel.is("mode", "极速") then
+  bot.log(">> 极速模式")
+elseif panel.is("mode", "省电") then
+  bot.log(">> 省电模式")
+end
+-- 读取浮动面板（全部页签）
+local account = panel.get("account") or ""
+local password = panel.get("password") or ""
+local auto_login = panel.get("auto_login")
+local mode = panel.get("mode") or "普通"
+local priority = panel.get("priority") or "高"
+local delay_sec = panel.get("delay_sec") or "1"
+local loop_count = panel.get("loop_count") or "1"
+local features = panel.get("features") or ""
+
+bot.log(string.format("账号: %s", tostring(account)))
+bot.log(string.format("密码: %s", password ~= "" and "******" or "(空)"))
+bot.log(string.format("自动登录: %s", tostring(auto_login)))
+bot.log(string.format("模式: %s", tostring(mode)))
+bot.log(string.format("优先级: %s", tostring(priority)))
+bot.log(string.format("步骤间隔(秒): %s", tostring(delay_sec)))
+bot.log(string.format("循环次数: %s", tostring(loop_count)))
+bot.log(string.format("附加功能: %s", tostring(features)))
+
+if panel.is("mode", "普通") then
+  bot.log(">> 普通模式")
+elseif panel.is("mode", "极速") then
+  bot.log(">> 极速模式")
+elseif panel.is("mode", "省电") then
+  bot.log(">> 省电模式")
+end
 -- Demo Game — 浮动面板展示示例
 -- 读取面板配置并输出日志，便于在实机查看控件效果
 

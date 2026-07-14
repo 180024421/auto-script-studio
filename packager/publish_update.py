@@ -65,6 +65,21 @@ def build_update_zip(project_dir: Path, out_dir: Path, *, bump_version: int | No
         cleanup_staging(staging)
 
 
+def _unwrap_publish_manifest(data: dict) -> dict:
+    """兼容 GlobalResponseWrapper 与 @RawResponse 两种响应。"""
+    if isinstance(data.get("manifest"), dict):
+        return data["manifest"]
+    inner = data.get("data")
+    if isinstance(inner, dict):
+        if isinstance(inner.get("manifest"), dict):
+            return inner["manifest"]
+        if "version_code" in inner:
+            return inner
+    if "version_code" in data:
+        return data
+    return data
+
+
 def publish_to_jiaoben(
     project_dir: Path,
     api_base: str,
@@ -124,7 +139,26 @@ def publish_to_jiaoben(
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"发版失败 HTTP {exc.code}: {detail}") from exc
-    return data.get("manifest", data)
+    return _unwrap_publish_manifest(data)
+
+
+def write_back_version(
+    project_dir: Path,
+    version_code: int,
+    *,
+    version_name: str | None = None,
+) -> dict:
+    """热更新发版成功后写回 project.json 版本号。"""
+    project_dir = project_dir.resolve()
+    path = project_dir / "project.json"
+    cfg = json.loads(path.read_text(encoding="utf-8"))
+    cfg["version_code"] = int(version_code)
+    if version_name is not None and str(version_name).strip():
+        cfg["version_name"] = str(version_name).strip()
+    elif int(cfg.get("version_code", 1)) != int(version_code):
+        cfg["version_name"] = f"1.0.{max(0, int(version_code) - 1)}"
+    path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return cfg
 
 
 def publish_for_scc(project_dir: Path, scc_packages_dir: Path, package_key: str, *, note: str = "") -> dict:

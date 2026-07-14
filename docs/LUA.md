@@ -34,6 +34,8 @@ lib/              # 可选 Lua 模块
 | `bot.findMultiColor(opts)` | 多点找色（opts.points） |
 | `bot.trace(tag, msg)` | 调试 trace 日志 |
 | `bot.log(msg)` | 写日志 |
+| `bot.toast(msg)` | Toast 提醒（真机） |
+| `bot.openApp(packageName)` | 按包名打开应用（如钉钉 `com.alibaba.android.rimet`），无需 root |
 
 ### opts 常用字段
 

@@ -21,6 +21,9 @@ ACTION_TYPES = [
 FORM_WIDGET_TYPES = [
     ("text", "文字框"),
     ("label", "标签"),
+    ("section", "分区卡片"),
+    ("image", "图片"),
+    ("hero", "头图 banner"),
     ("input", "输入框"),
     ("select", "下拉选择"),
     ("radio", "单选框"),
@@ -40,7 +43,9 @@ BUTTON_TYPES = ACTION_TYPES
 WIDGET_TYPE_LABELS = {k: v for k, v in ACTION_TYPES + FORM_WIDGET_TYPES}
 
 PANEL_THEMES = [
-    ("light", "浅色商务"),
+    ("light", "商务蓝"),
+    ("green", "清爽绿"),
+    ("gray", "中性灰"),
     ("dark", "深色经典"),
 ]
 
@@ -83,7 +88,7 @@ DEFAULT_LAYOUT: dict[str, Any] = {
     },
     "screens": [
         {
-            "title": "标签页1",
+            "title": "账号登录",
             "widgets": [
                 {
                     "id": "hint",
@@ -116,39 +121,78 @@ DEFAULT_LAYOUT: dict[str, Any] = {
                     "layout_h": 52,
                 },
                 {
-                    "id": "section_div",
-                    "type": "divider",
-                    "text": "",
+                    "id": "auto_login",
+                    "type": "switch",
+                    "label": "自动登录",
+                    "default": "false",
                     "layout_x": 24,
-                    "layout_y": 192,
+                    "layout_y": 200,
                     "layout_w": 672,
-                    "layout_h": 12,
-                },
-                {
-                    "id": "func_hint",
-                    "type": "text",
-                    "text": "脚本功能选择：",
-                    "text_style": "hint",
-                    "layout_x": 24,
-                    "layout_y": 228,
-                    "layout_w": 112,
-                    "layout_h": 36,
+                    "layout_h": 44,
                 },
             ],
         },
         {
-            "title": "界面1",
+            "title": "运行设置",
             "widgets": [
                 {
                     "id": "mode",
                     "type": "select",
                     "label": "模式",
-                    "options": ["普通", "极速"],
+                    "options": ["普通", "极速", "省电"],
                     "default": "普通",
                     "layout_x": 24,
                     "layout_y": 24,
                     "layout_w": 672,
                     "layout_h": 64,
+                },
+                {
+                    "id": "priority",
+                    "type": "select",
+                    "label": "优先级",
+                    "options": ["高", "中", "低"],
+                    "default": "中",
+                    "layout_x": 24,
+                    "layout_y": 104,
+                    "layout_w": 672,
+                    "layout_h": 64,
+                },
+                {
+                    "id": "delay_sec",
+                    "type": "stepper",
+                    "label": "步骤间隔(秒)",
+                    "default": "2",
+                    "min": 1,
+                    "max": 60,
+                    "step": 1,
+                    "layout_x": 24,
+                    "layout_y": 184,
+                    "layout_w": 672,
+                    "layout_h": 48,
+                },
+                {
+                    "id": "loop_count",
+                    "type": "stepper",
+                    "label": "循环次数",
+                    "default": "1",
+                    "min": 1,
+                    "max": 99,
+                    "step": 1,
+                    "layout_x": 24,
+                    "layout_y": 248,
+                    "layout_w": 672,
+                    "layout_h": 48,
+                },
+                {
+                    "id": "features",
+                    "type": "multiselect",
+                    "label": "附加功能",
+                    "options": ["自动领奖", "自动签到", "跳过动画"],
+                    "default": "",
+                    "layout_x": 24,
+                    "layout_y": 312,
+                    "layout_w": 672,
+                    "layout_h": 120,
                 },
             ],
         },
@@ -192,11 +236,19 @@ def normalize_layout(data: dict[str, Any]) -> dict[str, Any]:
     if is_free_mode(out):
         panel.setdefault("width_mode", "auto")
         design_w = int(panel.get("design_width", 720) or 720)
+        design_h = int(panel.get("design_height", 1280) or 1280)
+        if design_w < 480:
+            from studio.services.free_layout import rescale_layout_for_design_change
+
+            rescale_layout_for_design_change(out, design_w, design_h, 720, design_h)
+            panel["design_width"] = 720
+            design_w = 720
         panel.setdefault("width_dp", int(design_w * 0.9))
-        from studio.services.screen_layout import normalize_chrome_widgets
+        from studio.services.screen_layout import normalize_chrome_widgets, repair_all_screens
 
         out["widgets"] = normalize_chrome_widgets(out.get("widgets") or [], out.get("panel"))
         out = ensure_all_rects(out)
+        repair_all_screens(out)
     from studio.services.screen_layout import is_host_display, strip_action_widgets_from_screens
 
     if is_host_display(out.get("panel")):
@@ -221,6 +273,21 @@ def save_layout(project_dir, data: dict[str, Any]) -> None:
     if "widgets" in payload:
         payload["buttons"] = payload["widgets"]
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    sync_layout_to_runtime_assets(project_dir)
+
+
+def sync_layout_to_runtime_assets(project_dir) -> None:
+    """保存 layout 后同步到 android-runtime assets，避免直编 APK 仍用旧界面。"""
+    from pathlib import Path
+
+    src = layout_path(project_dir)
+    if not src.is_file():
+        return
+    root = Path(__file__).resolve().parents[2]
+    dst = root / "android-runtime" / "app" / "src" / "main" / "assets" / "project" / "ui" / "layout.json"
+    payload = normalize_layout(json.loads(src.read_text(encoding="utf-8")))
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def widget_display_name(w: dict[str, Any]) -> str:
@@ -228,12 +295,28 @@ def widget_display_name(w: dict[str, Any]) -> str:
     label = WIDGET_TYPE_LABELS.get(wtype, wtype)
     if wtype == "divider":
         return f"[{label}]"
+    if wtype == "section":
+        title = w.get("text") or w.get("label") or "分区"
+        return f"▣ {title}  [{label}]"
     title = w.get("label") or w.get("text") or w.get("id", "?")
-    return f"{title}  [{label}]"
+    wid = str(w.get("id", "")).strip()
+    name = f"{title}  [{label}]"
+    if wid:
+        return f"{name}  · {wid}"
+    return name
 
 
 def default_widget(wtype: str, index: int) -> dict[str, Any]:
     wid = f"w_{index}"
+    if wtype == "section":
+        rect = default_rect_for_type("section", index)
+        return {
+            "id": wid,
+            "type": "section",
+            "text": "分组标题",
+            "width": 2,
+            **rect,
+        }
     if wtype == "label":
         rect = default_rect_for_type("label", index)
         return {"id": wid, "type": "label", "text": "说明文字", "width": 2, **rect}
@@ -248,6 +331,16 @@ def default_widget(wtype: str, index: int) -> dict[str, Any]:
             "type": "text",
             "text": sample,
             "text_style": "hint",
+            "width": 2,
+            **rect,
+        }
+    if wtype in ("image", "hero"):
+        rect = default_rect_for_type(wtype, index)
+        return {
+            "id": wid,
+            "type": wtype,
+            "src": "ui/hero.png",
+            "text": "横幅标题" if wtype == "hero" else "",
             "width": 2,
             **rect,
         }

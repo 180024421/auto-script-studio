@@ -5,26 +5,35 @@ import android.graphics.Color
 import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.autoscript.core.overlay.OverlayTheme
 
-/** 与 PC Studio 预览一致的居中标题栏（layout.json panel.title）。 */
+/** 与 PC Studio 预览一致的居中标题栏（layout.json panel.title，固定 48dp）。 */
 object PanelTitleBar {
+
+    private const val TITLE_DP = 48
 
     fun create(
         context: Context,
         title: String,
         dp: (Int) -> Int,
+        theme: OverlayTheme = OverlayTheme.LIGHT,
     ): TextView = TextView(context).apply {
         text = title
-        textSize = 14f
+        textSize = 13f
         paint.isFakeBoldText = true
         gravity = Gravity.CENTER
         textAlignment = android.view.View.TEXT_ALIGNMENT_CENTER
-        setTextColor(Color.WHITE)
-        setBackgroundColor(Color.parseColor("#2563EB"))
-        setPadding(dp(10), dp(8), dp(10), dp(8))
+        setTextColor(titleForeground(theme))
+        setBackgroundColor(titleBackground(theme))
+        setPadding(dp(10), 0, dp(10), 0)
+        minimumHeight = dp(TITLE_DP)
         layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT,
+            dp(TITLE_DP),
         )
     }
+
+    private fun titleBackground(theme: OverlayTheme): Int = theme.titleBarBackground
+
+    private fun titleForeground(theme: OverlayTheme): Int = theme.titleBarText
 }

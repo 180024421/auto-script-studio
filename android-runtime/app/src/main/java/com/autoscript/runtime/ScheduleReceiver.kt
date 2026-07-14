@@ -6,9 +6,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.autoscript.core.project.ProjectAssets
+import com.autoscript.core.project.SchedulePreferences
 import java.util.Calendar
 
-/** 每日定时启动脚本（project.json schedule.daily_time = HH:mm）。 */
+/** 每日定时启动脚本（用户偏好优先，否则 project.json schedule.daily_time = HH:mm）。 */
 class ScheduleReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action == ACTION_SCHEDULE) {
@@ -29,8 +30,13 @@ class ScheduleReceiver : BroadcastReceiver() {
 
         fun scheduleNext(context: Context) {
             val cfg = runCatching { ProjectAssets(context).loadConfig() }.getOrNull() ?: return
-            if (!cfg.schedule.enabled) return
-            val parts = cfg.schedule.dailyTime.split(":")
+            val enabled = SchedulePreferences.effectiveEnabled(context, cfg.schedule)
+            if (!enabled) {
+                cancel(context)
+                return
+            }
+            val dailyTime = SchedulePreferences.effectiveDailyTime(context, cfg.schedule)
+            val parts = dailyTime.split(":")
             if (parts.size < 2) return
             val hour = parts[0].toIntOrNull() ?: return
             val minute = parts[1].toIntOrNull() ?: return

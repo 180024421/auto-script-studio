@@ -11,6 +11,12 @@ TITLE_DP = 48
 TAB_BAR_DP = 44
 
 
+def dp_to_preview_px(dp: float, screen_w: int) -> int:
+    """预览/截图坐标：360dp 屏宽基准（与 layout_preview.dp_to_px 一致）。"""
+    density = max(1.0, screen_w / 360.0)
+    return max(1, int(dp * density))
+
+
 def compute_free_panel_design_height(
     layout: dict[str, Any],
     *,
@@ -44,6 +50,15 @@ class FreePanelOverlayMetrics:
     header_off_design: int
 
 
+@dataclass(frozen=True)
+class PanelOverlayRect:
+    x: int
+    y: int
+    w: int
+    h: int
+    inner_scale: float
+
+
 def compute_free_panel_overlay_metrics(
     layout: dict[str, Any],
     image_w: int,
@@ -73,3 +88,52 @@ def compute_free_panel_overlay_metrics(
         inner_scale=inner_scale,
         header_off_design=TITLE_DP + TAB_BAR_DP,
     )
+
+
+def compute_host_panel_overlay_rect(
+    layout: dict[str, Any],
+    screen_w: int,
+    screen_h: int,
+    *,
+    active_screen: int | None = None,
+    margin_dp: int = 12,
+) -> PanelOverlayRect:
+    """与 Android OverlayService.applyPanelPosition 对齐的浮动面板矩形。"""
+    panel = layout.get("panel", {})
+    metrics = compute_free_panel_overlay_metrics(
+        layout,
+        screen_w,
+        screen_h,
+        dp_to_px_fn=dp_to_preview_px,
+        active_screen=active_screen,
+    )
+    pw, ph = metrics.panel_w_px, metrics.panel_h_px
+    margin = dp_to_preview_px(margin_dp, screen_w)
+    start_x = int(panel.get("start_x", 0))
+    start_y = int(panel.get("start_y", 0))
+    position = str(panel.get("position", "left_center")).lower()
+    min_h = dp_to_preview_px(48, screen_w)
+
+    if position in ("right_center", "right"):
+        x = screen_w - pw - margin - start_x
+        x = max(margin, x)
+    elif position in ("left_center", "left"):
+        x = max(margin, start_x + margin)
+    else:
+        x = max(0, start_x)
+
+    y = max(margin, (screen_h - max(ph, min_h)) // 2 + start_y)
+    return PanelOverlayRect(x=x, y=y, w=pw, h=ph, inner_scale=metrics.inner_scale)
+
+
+def compute_device_screen_px(
+    design_w: int,
+    design_h: int,
+    scale: float,
+    *,
+    landscape: bool,
+) -> tuple[int, int]:
+    """设备仿真外屏尺寸（竖屏=设计宽高，横屏=对调）。"""
+    if landscape:
+        return int(design_h * scale), int(design_w * scale)
+    return int(design_w * scale), int(design_h * scale)

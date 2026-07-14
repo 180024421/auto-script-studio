@@ -24,6 +24,14 @@ data class ScheduleConfig(
     val dailyTime: String = "",
 )
 
+/** project.json permissions：声明是否依赖无障碍/录屏等（为 false 时启动不强制授权）。 */
+data class PermissionConfig(
+    val accessibility: Boolean = true,
+    val screenCapture: Boolean = true,
+    val overlay: Boolean = true,
+    val foregroundService: Boolean = true,
+)
+
 data class BootConfig(
     val autoStart: Boolean = false,
 )

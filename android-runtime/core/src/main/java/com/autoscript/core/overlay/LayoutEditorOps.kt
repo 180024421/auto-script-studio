@@ -66,6 +66,50 @@ object LayoutEditorOps {
     fun setPanelWidthDp(layout: LayoutConfig, dp: Int): LayoutConfig =
         layout.copy(panel = layout.panel.copy(widthDp = dp.coerceIn(120, 480)))
 
+    /**
+     * 若拖动的是 section，同步平移「中心点落在卡片内」的非 section 控件（几何包含关系）。
+     */
+    fun offsetSectionContents(
+        before: LayoutConfig,
+        after: LayoutConfig,
+        widgetPath: List<Int>,
+        newX: Int,
+        newY: Int,
+    ): LayoutConfig {
+        if (widgetPath.size != 2) return after
+        val screenIdx = widgetPath[0]
+        val idx = widgetPath[1]
+        if (screenIdx < 0) return after
+        val screensBefore = before.resolvedScreens()
+        val sc = screensBefore.getOrNull(screenIdx) ?: return after
+        val section = sc.widgets.getOrNull(idx) ?: return after
+        if (section.type != "section") return after
+        val dx = newX - section.layoutX
+        val dy = newY - section.layoutY
+        if (dx == 0 && dy == 0) return after
+        val left = section.layoutX
+        val top = section.layoutY
+        val right = section.layoutX + section.layoutW
+        val bottom = section.layoutY + section.layoutH
+        var layout = after
+        sc.widgets.forEachIndexed { i, w ->
+            if (i == idx || w.type == "section") return@forEachIndexed
+            val cx = w.layoutX + w.layoutW / 2
+            val cy = w.layoutY + w.layoutH / 2
+            if (cx in left..right && cy in top..bottom) {
+                layout = setWidgetRect(
+                    layout,
+                    listOf(screenIdx, i),
+                    w.layoutX + dx,
+                    w.layoutY + dy,
+                    w.layoutW,
+                    w.layoutH,
+                )
+            }
+        }
+        return layout
+    }
+
     private fun getContainerWidgets(layout: LayoutConfig, containerPath: List<Int>): List<WidgetConfig> =
         when (containerPath.size) {
             0 -> if (layout.isFreeMode()) layout.chromeWidgets() else layout.widgets

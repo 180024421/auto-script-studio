@@ -1,18 +1,27 @@
 package com.autoscript.runtime
 
+import android.app.TimePickerDialog
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.text.Editable
+import android.text.TextWatcher
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.SwitchCompat
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.autoscript.core.accessibility.AutomationAccessibilityService
 import com.autoscript.core.backend.DeviceAutomationBackend
 import com.autoscript.core.capture.CaptureSession
@@ -24,6 +33,8 @@ import com.autoscript.core.overlay.LayoutConfig
 import com.autoscript.core.overlay.LayoutOverrideStore
 import com.autoscript.core.overlay.OverlayWidgetStore
 import com.autoscript.core.project.ProjectAssets
+import com.autoscript.core.project.SchedulePreferences
+import com.autoscript.core.project.WifiLeavePreferences
 import com.autoscript.core.root.RootShell
 import com.autoscript.core.root.ShizukuInputBackend
 import com.autoscript.core.update.UpdateNetwork
@@ -31,12 +42,24 @@ import com.autoscript.core.update.UpdatePreferences
 import com.autoscript.core.update.UpdateServer
 import com.autoscript.runtime.shizuku.ShizukuShell
 import org.json.JSONObject
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var capture: ScreenCaptureManager
     private lateinit var statusText: TextView
     private lateinit var logText: TextView
+    private lateinit var switchScheduleEnabled: SwitchCompat
+    private lateinit var btnPickScheduleTime: Button
+    private lateinit var switchWifiLeaveEnabled: SwitchCompat
+    private lateinit var editCompanyWifiSsid: EditText
+    private lateinit var btnUseCurrentWifi: Button
+    private lateinit var btnPickWifiEarliest: Button
+    private var scheduleHour = 8
+    private var scheduleMinute = 55
+    private var wifiEarliestHour = 17
+    private var wifiEarliestMinute = 30
+    private var pendingEnableWifiLeave = false
     private var autoRun = false
     private var autoRunTriggered = false
     private var autoRunAttempts = 0
@@ -45,7 +68,13 @@ class MainActivity : AppCompatActivity() {
     private var updateCheckRunning = false
     private var layoutConfig: LayoutConfig = LayoutConfig.DEFAULT
     private var hostPanelEnabled = false
+    private var hostPanelRenderer: HostPanelRenderer? = null
     private val handler = Handler(Looper.getMainLooper())
+    private val remindLayoutListener: (String, String) -> Unit = { id, _ ->
+        if (id in setOf("remind_on", "wifi_leave_on", "work_hours", "company_wifi")) {
+            syncRemindPrefsFromLayout()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,10 +95,19 @@ class MainActivity : AppCompatActivity() {
 
         statusText = findViewById(R.id.statusText)
         logText = findViewById(R.id.logText)
+        switchScheduleEnabled = findViewById(R.id.switchScheduleEnabled)
+        btnPickScheduleTime = findViewById(R.id.btnPickScheduleTime)
+        switchWifiLeaveEnabled = findViewById(R.id.switchWifiLeaveEnabled)
+        editCompanyWifiSsid = findViewById(R.id.editCompanyWifiSsid)
+        btnUseCurrentWifi = findViewById(R.id.btnUseCurrentWifi)
+        btnPickWifiEarliest = findViewById(R.id.btnPickWifiEarliest)
 
         layoutConfig = loadLayoutConfig()
         OverlayWidgetStore.seedFromLayout(layoutConfig)
+        OverlayWidgetStore.addChangeListener(remindLayoutListener)
         setupHostPanel()
+        setupScheduleUi()
+        setupWifiLeaveUi()
 
         findViewById<ImageButton>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
@@ -83,6 +121,8 @@ class MainActivity : AppCompatActivity() {
         runCatching {
             ScheduleReceiver.scheduleNext(this)
         }
+        WifiLeaveMonitorService.sync(this)
+        maybeRequestNotificationPermission()
 
         appendLog("工程: ${runCatching { ProjectAssets(this).loadConfig().name }.getOrElse { "未打包" }}")
         runCatching {
@@ -95,9 +135,226 @@ class MainActivity : AppCompatActivity() {
         logSink = { msg -> runOnUiThread { appendLog(msg) } }
     }
 
-    private fun loadLayoutConfig(): LayoutConfig =
-        runCatching { LayoutOverrideStore.load(this) }
-            .getOrElse { LayoutConfig.DEFAULT }
+    private fun setupScheduleUi() {
+        val cfg = runCatching { ProjectAssets(this).loadConfig() }.getOrNull()
+        if (cfg == null) {
+            findViewById<LinearLayout>(R.id.scheduleCard)?.visibility = android.view.View.GONE
+            return
+        }
+        val enabled = SchedulePreferences.effectiveEnabled(this, cfg.schedule)
+        val time = SchedulePreferences.effectiveDailyTime(this, cfg.schedule).ifBlank { "08:55" }
+        parseScheduleTime(time)
+        switchScheduleEnabled.setOnCheckedChangeListener(null)
+        switchScheduleEnabled.isChecked = enabled
+        btnPickScheduleTime.text = formatScheduleTime()
+        switchScheduleEnabled.setOnCheckedChangeListener { _, isChecked ->
+            persistAndReschedule(isChecked)
+        }
+        btnPickScheduleTime.setOnClickListener {
+            TimePickerDialog(
+                this,
+                { _, hour, minute ->
+                    scheduleHour = hour
+                    scheduleMinute = minute
+                    btnPickScheduleTime.text = formatScheduleTime()
+                    persistAndReschedule(switchScheduleEnabled.isChecked)
+                },
+                scheduleHour,
+                scheduleMinute,
+                true,
+            ).show()
+        }
+    }
+
+    private fun parseScheduleTime(raw: String) {
+        val parts = raw.split(":")
+        scheduleHour = parts.getOrNull(0)?.toIntOrNull()?.coerceIn(0, 23) ?: 8
+        scheduleMinute = parts.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 59) ?: 55
+    }
+
+    private fun formatScheduleTime(): String =
+        String.format(Locale.US, "%02d:%02d", scheduleHour, scheduleMinute)
+
+    private fun persistAndReschedule(enabled: Boolean) {
+        SchedulePreferences.save(this, enabled, formatScheduleTime())
+        ScheduleReceiver.scheduleNext(this)
+        appendLog(
+            if (enabled) "已设置每日 ${formatScheduleTime()} 提醒"
+            else "已关闭每日定时提醒",
+        )
+        refreshStatus()
+    }
+
+    private fun setupWifiLeaveUi() {
+        switchWifiLeaveEnabled.setOnCheckedChangeListener(null)
+        switchWifiLeaveEnabled.isChecked = WifiLeavePreferences.isEnabled(this)
+        editCompanyWifiSsid.setText(WifiLeavePreferences.ssid(this))
+        parseWifiEarliest(WifiLeavePreferences.earliestTime(this))
+        btnPickWifiEarliest.text = formatWifiEarliest()
+
+        switchWifiLeaveEnabled.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                if (!hasLocationPermission()) {
+                    pendingEnableWifiLeave = true
+                    switchWifiLeaveEnabled.setOnCheckedChangeListener(null)
+                    switchWifiLeaveEnabled.isChecked = false
+                    switchWifiLeaveEnabled.setOnCheckedChangeListener { _, checked ->
+                        onWifiLeaveEnabledChanged(checked)
+                    }
+                    requestLocationPermission()
+                    appendLog("读取公司 WiFi 名需要定位权限，请先授权")
+                    return@setOnCheckedChangeListener
+                }
+            }
+            onWifiLeaveEnabledChanged(isChecked)
+        }
+        btnUseCurrentWifi.setOnClickListener {
+            if (!hasLocationPermission()) {
+                pendingEnableWifiLeave = false
+                requestLocationPermission()
+                appendLog("请先授权定位，再填入当前 WiFi")
+                return@setOnClickListener
+            }
+            val ssid = WifiLeavePreferences.currentConnectedSsid(this)
+            if (ssid.isNullOrBlank()) {
+                appendLog("未读到当前 WiFi，请确认已连网且系统定位开关已开启")
+                return@setOnClickListener
+            }
+            editCompanyWifiSsid.setText(ssid)
+            WifiLeavePreferences.setSsid(this, ssid)
+            appendLog("已填入当前 WiFi：$ssid")
+            WifiLeaveMonitorService.sync(this)
+        }
+        btnPickWifiEarliest.setOnClickListener {
+            TimePickerDialog(
+                this,
+                { _, hour, minute ->
+                    wifiEarliestHour = hour
+                    wifiEarliestMinute = minute
+                    btnPickWifiEarliest.text = formatWifiEarliest()
+                    WifiLeavePreferences.setEarliestTime(this, formatWifiEarliest())
+                    appendLog("下班最早提醒设为 ${formatWifiEarliest()}")
+                    WifiLeaveMonitorService.sync(this)
+                },
+                wifiEarliestHour,
+                wifiEarliestMinute,
+                true,
+            ).show()
+        }
+        editCompanyWifiSsid.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                val ssid = s?.toString()?.trim().orEmpty()
+                if (ssid.isNotEmpty()) {
+                    WifiLeavePreferences.setSsid(this@MainActivity, ssid)
+                }
+            }
+        })
+    }
+
+    private fun onWifiLeaveEnabledChanged(enabled: Boolean) {
+        WifiLeavePreferences.setEnabled(this, enabled)
+        val ssid = editCompanyWifiSsid.text?.toString()?.trim().orEmpty()
+            .ifEmpty { WifiLeavePreferences.DEFAULT_SSID }
+        WifiLeavePreferences.setSsid(this, ssid)
+        WifiLeavePreferences.setEarliestTime(this, formatWifiEarliest())
+        WifiLeaveMonitorService.sync(this)
+        appendLog(
+            if (enabled) "已启用离开 WiFi「$ssid」提醒（${formatWifiEarliest()} 后）"
+            else "已关闭 WiFi 离开提醒",
+        )
+        refreshStatus()
+    }
+
+    private fun parseWifiEarliest(raw: String) {
+        val parts = raw.split(":")
+        wifiEarliestHour = parts.getOrNull(0)?.toIntOrNull()?.coerceIn(0, 23) ?: 17
+        wifiEarliestMinute = parts.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 59) ?: 30
+    }
+
+    private fun formatWifiEarliest(): String =
+        String.format(Locale.US, "%02d:%02d", wifiEarliestHour, wifiEarliestMinute)
+
+    private fun hasLocationPermission(): Boolean {
+        val fine = ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+        return fine || coarse
+    }
+
+    private fun requestLocationPermission() {
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(
+                android.Manifest.permission.ACCESS_FINE_LOCATION,
+                android.Manifest.permission.ACCESS_COARSE_LOCATION,
+            ),
+            REQ_LOCATION,
+        )
+    }
+
+    private fun maybeRequestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33) return
+        if (ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+            REQ_NOTIFICATIONS,
+        )
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_LOCATION) {
+            if (hasLocationPermission()) {
+                appendLog("定位已授权，可读取公司 WiFi 名称")
+                if (pendingEnableWifiLeave) {
+                    pendingEnableWifiLeave = false
+                    switchWifiLeaveEnabled.setOnCheckedChangeListener(null)
+                    switchWifiLeaveEnabled.isChecked = true
+                    switchWifiLeaveEnabled.setOnCheckedChangeListener { _, checked ->
+                        onWifiLeaveEnabledChanged(checked)
+                    }
+                    onWifiLeaveEnabledChanged(true)
+                }
+            } else {
+                pendingEnableWifiLeave = false
+                appendLog("未授权定位，无法根据 WiFi 判断离开公司")
+            }
+        }
+    }
+
+    private fun loadLayoutConfig(): LayoutConfig {
+        val result = runCatching { LayoutOverrideStore.loadWithMeta(this) }
+            .getOrElse {
+                ScriptLog.w("加载 layout.json 失败，使用内置默认布局")
+                return LayoutConfig.DEFAULT
+            }
+        when (result.source) {
+            LayoutOverrideStore.LoadSource.APK_MISSING ->
+                appendLog("警告: 未加载工程 ui/layout.json，当前为内置默认界面。请在 Studio 保存布局后「打包并安装」。")
+            LayoutOverrideStore.LoadSource.USER_OVERRIDE ->
+                appendLog("提示: 当前使用设备端设计模式保存的界面覆盖。")
+            LayoutOverrideStore.LoadSource.APK -> Unit
+        }
+        return result.config
+    }
 
     private fun reloadLayoutUi() {
         layoutConfig = loadLayoutConfig()
@@ -110,37 +367,114 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupHostPanel() {
         val container = findViewById<FrameLayout>(R.id.hostPanelContainer)
-        val title = findViewById<TextView>(R.id.hostPanelTitle)
+        val hostTitle = findViewById<TextView>(R.id.hostPanelTitle)
         val legacy = findViewById<LinearLayout>(R.id.legacyControlSection)
+        val overlayBtn = findViewById<Button>(R.id.btnOverlay)
+        val titleBlock = findViewById<LinearLayout>(R.id.appTitleBlock)
+        val statusCard = findViewById<LinearLayout>(R.id.statusCard)
         hostPanelEnabled = layoutConfig.enabled &&
             layoutConfig.resolvedScreens().any { it.widgets.isNotEmpty() }
         if (!hostPanelEnabled) {
+            hostPanelRenderer = null
             container.visibility = android.view.View.GONE
-            title.visibility = android.view.View.GONE
+            hostTitle.visibility = android.view.View.GONE
+            titleBlock.visibility = android.view.View.VISIBLE
+            statusCard.visibility = android.view.View.VISIBLE
+            findViewById<LinearLayout>(R.id.scheduleCard)?.visibility = android.view.View.VISIBLE
+            findViewById<LinearLayout>(R.id.wifiLeaveCard)?.visibility = android.view.View.VISIBLE
             legacy.visibility = android.view.View.VISIBLE
+            overlayBtn.visibility = android.view.View.VISIBLE
             return
         }
-        legacy.visibility = android.view.View.GONE
-        title.visibility = android.view.View.VISIBLE
+        titleBlock.visibility = android.view.View.GONE
+        statusCard.visibility = android.view.View.GONE
+        hostTitle.visibility = android.view.View.GONE
+        // 配置已在 layout 表单中时隐藏原生提醒卡片，避免双份 UI
+        val hideNativeRemind = layoutConfig.resolvedScreens().any { sc ->
+            sc.widgets.any { it.id in setOf("remind_on", "work_hours", "company_wifi", "wifi_leave_on") }
+        }
+        findViewById<LinearLayout>(R.id.scheduleCard)?.visibility =
+            if (hideNativeRemind) android.view.View.GONE else android.view.View.VISIBLE
+        findViewById<LinearLayout>(R.id.wifiLeaveCard)?.visibility =
+            if (hideNativeRemind) android.view.View.GONE else android.view.View.VISIBLE
+        legacy.visibility = android.view.View.VISIBLE
         container.visibility = android.view.View.VISIBLE
+        overlayBtn.visibility = android.view.View.GONE
+        val keepDesign = hostPanelRenderer?.isDesignMode() == true
         container.post {
             val panelWidth = (container.width - container.paddingLeft - container.paddingRight)
                 .coerceAtLeast(resources.displayMetrics.widthPixels - dp(40))
-            container.removeAllViews()
-            container.addView(
-                HostPanelRenderer(
-                    context = this,
-                    layoutConfig = layoutConfig,
-                    dp = ::dp,
-                    panelWidthPx = panelWidth,
-                ).build(),
+            val renderer = HostPanelRenderer(
+                context = this,
+                layoutConfig = layoutConfig,
+                dp = ::dp,
+                panelWidthPx = panelWidth,
+                onActiveScreenChange = { idx ->
+                    layoutConfig = layoutConfig.copy(
+                        panel = layoutConfig.panel.copy(activeScreen = idx),
+                    )
+                },
+                onLayoutChanged = { cfg ->
+                    layoutConfig = cfg
+                },
+                onLog = { msg -> appendLog(msg) },
             )
+            renderer.onRequestRebuild = {
+                layoutConfig = renderer.currentLayout()
+                setupHostPanel()
+            }
+            if (keepDesign) {
+                renderer.forceDesignMode(true)
+            }
+            hostPanelRenderer = renderer
+            container.removeAllViews()
+            container.addView(renderer.build())
+            syncRemindPrefsFromLayout()
         }
+    }
+
+    /** 从 layout 控件 id 同步上下班提醒偏好（钉钉提醒工程）。 */
+    private fun syncRemindPrefsFromLayout() {
+        val all = layoutConfig.resolvedScreens().flatMap { it.widgets }
+        if (all.none { it.id in setOf("remind_on", "wifi_leave_on", "work_hours", "company_wifi") }) {
+            return
+        }
+        fun valOf(id: String, fallback: String = ""): String {
+            val live = OverlayWidgetStore.get(id)
+            if (live.isNotBlank()) return live
+            val w = all.find { it.id == id } ?: return fallback
+            return when (id) {
+                "work_hours" -> {
+                    val s = w.defaultStart.ifBlank { "08:55" }
+                    val e = w.defaultEnd.ifBlank { "17:30" }
+                    "$s-$e"
+                }
+                else -> w.default.ifBlank { fallback }
+            }
+        }
+        fun asOn(raw: String): Boolean =
+            raw.equals("true", ignoreCase = true) || raw == "1" || raw.equals("on", ignoreCase = true)
+
+        val remindOn = asOn(valOf("remind_on", "true"))
+        val hours = valOf("work_hours", "08:55-17:30")
+        val start = hours.split("-").getOrNull(0)?.trim()?.ifBlank { "08:55" } ?: "08:55"
+        val end = hours.split("-").getOrNull(1)?.trim()?.ifBlank { "17:30" } ?: "17:30"
+        SchedulePreferences.save(this, remindOn, start)
+        ScheduleReceiver.scheduleNext(this)
+
+        val wifiRaw = valOf("wifi_leave_on", "")
+        val wifiOn = if (wifiRaw.isNotBlank()) asOn(wifiRaw) else remindOn
+        WifiLeavePreferences.setEnabled(this, wifiOn)
+        val ssid = valOf("company_wifi", WifiLeavePreferences.DEFAULT_SSID)
+        if (ssid.isNotBlank()) WifiLeavePreferences.setSsid(this, ssid)
+        WifiLeavePreferences.setEarliestTime(this, end)
+        WifiLeaveMonitorService.sync(this)
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
     override fun onDestroy() {
+        OverlayWidgetStore.removeChangeListener(remindLayoutListener)
         handler.removeCallbacksAndMessages(null)
         if (logSink != null) logSink = null
         ShizukuShell.unbind()
@@ -419,9 +753,14 @@ class MainActivity : AppCompatActivity() {
             else -> ""
         }
         statusText.text = when {
-            backend.isReady() ->
-                if (backend.usingRoot()) "就绪 — root/Shizuku 模式$verHint$shizukuHint"
-                else "就绪 — 可运行脚本$verHint$shizukuHint"
+            backend.isReady() -> {
+                val scheduleCfg = cfg.schedule
+                val schedOn = SchedulePreferences.effectiveEnabled(this, scheduleCfg)
+                val schedTime = SchedulePreferences.effectiveDailyTime(this, scheduleCfg)
+                val schedHint = if (schedOn && schedTime.isNotBlank()) " · 每日 $schedTime" else ""
+                if (backend.usingRoot()) "就绪 — root/Shizuku 模式$verHint$shizukuHint$schedHint"
+                else "就绪 — 可运行脚本$verHint$shizukuHint$schedHint"
+            }
             backend.usingRoot() && !RootShell.isAvailable() ->
                 "root 模式：等待 su 授权（见设置）"
             backend.needsAccessibility() && !AutomationAccessibilityService.isConnected() ->
@@ -440,5 +779,8 @@ class MainActivity : AppCompatActivity() {
     companion object {
         @Volatile
         var logSink: ((String) -> Unit)? = null
+
+        private const val REQ_LOCATION = 4001
+        private const val REQ_NOTIFICATIONS = 4002
     }
 }

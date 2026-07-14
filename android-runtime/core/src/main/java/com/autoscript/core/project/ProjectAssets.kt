@@ -28,6 +28,7 @@ data class ProjectConfig(
     val schedule: ScheduleConfig = ScheduleConfig(),
     val boot: BootConfig = BootConfig(),
     val perf: PerfConfig = PerfConfig(),
+    val permissions: PermissionConfig = PermissionConfig(),
 ) {
     fun usesLua(): Boolean = when (scriptLanguage.lowercase()) {
         "lua" -> true
@@ -50,6 +51,7 @@ class ProjectAssets(private val context: Context) {
         val scheduleObj = obj.optJSONObject("schedule")
         val bootObj = obj.optJSONObject("boot")
         val perfObj = runtime?.optJSONObject("perf") ?: obj.optJSONObject("perf")
+        val permObj = obj.optJSONObject("permissions")
         return ProjectConfig(
             name = obj.getString("name"),
             packageId = obj.getString("package_id"),
@@ -95,6 +97,12 @@ class ProjectAssets(private val context: Context) {
                 yoloSegFast = perfObj?.optBoolean("yolo_seg_fast", false) ?: false,
                 yoloMaxMaskDecode = perfObj?.optInt("yolo_max_mask_decode", 50) ?: 50,
                 yoloBackend = perfObj?.optString("yolo_backend", "onnx") ?: "onnx",
+            ),
+            permissions = PermissionConfig(
+                accessibility = permObj?.optBoolean("accessibility", true) ?: true,
+                screenCapture = permObj?.optBoolean("screen_capture", true) ?: true,
+                overlay = permObj?.optBoolean("overlay", true) ?: true,
+                foregroundService = permObj?.optBoolean("foreground_service", true) ?: true,
             ),
         )
     }

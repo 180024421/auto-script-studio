@@ -18,6 +18,7 @@ import com.autoscript.core.license.LicenseStore
 import com.autoscript.core.license.LicenseVerifier
 import com.autoscript.core.perf.PerfMonitor
 import com.autoscript.core.project.ProjectAssets
+import com.autoscript.core.project.runtimePerfSummary
 import com.autoscript.core.root.RootShell
 import com.autoscript.core.root.ShizukuInputBackend
 import com.autoscript.core.update.UpdatePreferences
@@ -31,6 +32,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var capture: ScreenCaptureManager
     private lateinit var authStatusText: TextView
     private lateinit var updateServerText: TextView
+    private lateinit var perfConfigText: TextView
     private lateinit var perfStatsText: TextView
     private var updateDialogShown = false
 
@@ -66,14 +68,23 @@ class SettingsActivity : AppCompatActivity() {
 
         authStatusText = findViewById(R.id.authStatusText)
         updateServerText = findViewById(R.id.updateServerText)
+        perfConfigText = findViewById(R.id.perfConfigText)
         perfStatsText = findViewById(R.id.perfStatsText)
 
         findViewById<ImageButton>(R.id.btnBack).setOnClickListener { finish() }
-        findViewById<Button>(R.id.btnAccessibility).setOnClickListener {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        val cfg = runCatching { ProjectAssets(this).loadConfig() }.getOrNull()
+        val backend = cfg?.let { DeviceAutomationBackend(it) }
+        findViewById<Button>(R.id.btnAccessibility).apply {
+            visibility = if (backend?.needsAccessibility() == true) android.view.View.VISIBLE else android.view.View.GONE
+            setOnClickListener {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
         }
-        findViewById<Button>(R.id.btnCapture).setOnClickListener {
-            startActivityForResult(capture.createCaptureIntent(), ScreenCaptureManager.REQUEST_MEDIA_PROJECTION)
+        findViewById<Button>(R.id.btnCapture).apply {
+            visibility = if (backend?.needsMediaProjection() == true) android.view.View.VISIBLE else android.view.View.GONE
+            setOnClickListener {
+                startActivityForResult(capture.createCaptureIntent(), ScreenCaptureManager.REQUEST_MEDIA_PROJECTION)
+            }
         }
         findViewById<Button>(R.id.btnOverlayPerm).setOnClickListener { requestOverlayPermission() }
         findViewById<Button>(R.id.btnLicense).setOnClickListener { promptLicense() }
@@ -129,7 +140,9 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun refreshPerfStats() {
-        val backend = DeviceAutomationBackend(ProjectAssets(this).loadConfig())
+        val cfg = ProjectAssets(this).loadConfig()
+        val backend = DeviceAutomationBackend(cfg)
+        perfConfigText.text = cfg.runtimePerfSummary()
         perfStatsText.text = buildString {
             appendLine("点击: ${backend.inputModeLabel()} · 截屏: ${backend.captureModeLabel()}")
             append(PerfMonitor.summary())

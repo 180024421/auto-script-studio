@@ -2,7 +2,8 @@ package com.autoscript.script.lua
 
 import com.autoscript.core.model.Detection
 import com.autoscript.core.overlay.OverlayWidgetStore
-import org.luaj.vm2.Globalsimport org.luaj.vm2.LuaInteger
+import org.luaj.vm2.Globals
+import org.luaj.vm2.LuaInteger
 import org.luaj.vm2.LuaString
 import org.luaj.vm2.LuaTable
 import org.luaj.vm2.LuaValue
@@ -10,6 +11,7 @@ import org.luaj.vm2.Varargs
 import org.luaj.vm2.lib.OneArgFunction
 import org.luaj.vm2.lib.TwoArgFunction
 import org.luaj.vm2.lib.VarArgFunction
+import kotlinx.coroutines.runBlocking
 
 object LuaBindings {
     private var watchListener: ((String, String) -> Unit)? = null
@@ -41,6 +43,13 @@ object LuaBindings {
         bot.set("load_bases", LoadBasesFn())
         bot.set("set_memory_pid", SetMemoryPidFn())
         bot.set("set_pointer_size", SetPointerSizeFn())
+        bot.set("openApp", OpenAppFn(bridge))
+        bot.set("toast", object : OneArgFunction() {
+            override fun call(msg: LuaValue): LuaValue {
+                bridge.toast(msg.tojstring())
+                return NIL
+            }
+        })
         bot.set("log", object : OneArgFunction() {
             override fun call(msg: LuaValue): LuaValue {
                 onLog(msg.tojstring())
@@ -138,6 +147,11 @@ object LuaBindings {
                 return NONE
             }
         })
+    }
+
+    private class OpenAppFn(private val bridge: AutoScriptBridge) : OneArgFunction() {
+        override fun call(packageName: LuaValue): LuaValue =
+            LuaValue.valueOf(bridge.openApp(packageName.tojstring()))
     }
 
     private class DelayFn(private val bridge: AutoScriptBridge) : OneArgFunction() {
@@ -376,10 +390,10 @@ object LuaBindings {
             t.set("top", d.rect.y)
             t.set("width", d.rect.w)
             t.set("height", d.rect.h)
-            t.set("has_mask", d.hasMask)
+            t.set("has_mask", if (d.hasMask) 1 else 0)
             if (d.hasMask && d.maskCenterX != null && d.maskCenterY != null) {
-                t.set("mask_center_x", d.maskCenterX)
-                t.set("mask_center_y", d.maskCenterY)
+                t.set("mask_center_x", d.maskCenterX!!)
+                t.set("mask_center_y", d.maskCenterY!!)
                 t.set("mask_area", d.maskArea)
             }
             arr.set(i + 1, t)

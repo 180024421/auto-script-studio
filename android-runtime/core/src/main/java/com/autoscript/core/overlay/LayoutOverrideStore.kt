@@ -21,26 +21,56 @@ object LayoutOverrideStore {
     private const val KEY_APK_LAYOUT_CRC = "apk_layout_crc"
     private const val KEY_USER_OVERRIDE = "user_layout_override"
 
+    enum class LoadSource {
+        APK,
+        USER_OVERRIDE,
+        APK_MISSING,
+    }
+
+    data class LoadResult(
+        val config: LayoutConfig,
+        val source: LoadSource,
+    )
+
     fun overrideFile(context: Context): File =
         File(context.filesDir, "layout-overrides/$RELATIVE_PATH")
 
-    fun load(context: Context): LayoutConfig {
+    fun load(context: Context): LayoutConfig = loadWithMeta(context).config
+
+    fun loadWithMeta(context: Context): LoadResult {
         purgeStaleLayoutCaches(context)
-        val apkText = apkLayoutText(context) ?: return LayoutConfig.DEFAULT.normalizedForRuntime()
-        val apkCfg = LayoutConfig.parse(apkText).normalizedForRuntime()
+        val apkText = apkLayoutText(context)
+        if (apkText == null) {
+            com.autoscript.core.log.ScriptLog.w(
+                "layout.json 未打入 APK（assets/$APK_ASSETS_PATH），使用内置默认界面",
+            )
+            return LoadResult(LayoutConfig.DEFAULT.normalizedForRuntime(), LoadSource.APK_MISSING)
+        }
+        val apkCfg = runCatching {
+            LayoutConfig.parse(apkText).normalizedForRuntime()
+        }.getOrElse { err ->
+            com.autoscript.core.log.ScriptLog.w(
+                "layout.json 解析失败，使用内置默认界面: ${err.message}",
+            )
+            return LoadResult(LayoutConfig.DEFAULT.normalizedForRuntime(), LoadSource.APK_MISSING)
+        }
 
         val override = overrideFile(context)
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val userOverride = prefs.getBoolean(KEY_USER_OVERRIDE, false)
         if (override.isFile && userOverride) {
-            return runCatching {
+            val cfg = runCatching {
                 LayoutConfig.parse(override.readText()).normalizedForRuntime()
-            }.getOrElse { apkCfg }
+            }.getOrElse {
+                com.autoscript.core.log.ScriptLog.w("设备 layout 覆盖解析失败，回退 APK 内置 layout")
+                apkCfg
+            }
+            return LoadResult(cfg, LoadSource.USER_OVERRIDE)
         }
         if (override.isFile) {
             override.delete()
         }
-        return apkCfg
+        return LoadResult(apkCfg, LoadSource.APK)
     }
 
     fun save(context: Context, layout: LayoutConfig): File {

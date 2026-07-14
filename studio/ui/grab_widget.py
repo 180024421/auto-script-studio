@@ -762,6 +762,17 @@ class GrabWidget(QWidget):
         self._pick_panel_pos = False
         self._pick_mode = ""
 
+    def current_screen_pixmap(self):
+        """抓抓页当前截图 → QPixmap（供浮动面板设备背景同步）。"""
+        if self._screen is None:
+            return None
+        from PySide6.QtGui import QImage, QPixmap
+
+        rgb = cv2.cvtColor(self._screen, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb.shape
+        qimg = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888)
+        return QPixmap.fromImage(qimg.copy())
+
     def capture(self) -> None:
         try:
             png = self._adb.capture_png(self._serial() or None)

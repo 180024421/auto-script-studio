@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, QProcessEnvironment, Qt
+from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QFont, QGuiApplication, QKeySequence, QPixmap, QShortcut, QShowEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -55,8 +55,12 @@ from studio.services.adb_service import AdbService
 from studio.services.async_command import AsyncCommand
 from studio.ui.apk_pack_dialog import ApkPackDialog
 from studio.ui.publish_update_dialog import PublishUpdateDialog
+from studio.ui.pack_result_dialog import PackResultDialog
+from studio.ui.perf_scenario_dialog import PerfScenarioDialog
+from studio.services.pack_result import build_pack_result_summary
 from studio.services.pack_preflight import validate_before_pack
-from studio.services.runtime_presets import PRESETS, apply_preset
+from studio.services.runtime_presets import PRESETS, apply_preset, detect_current_preset
+from packager.publish_update import write_back_version
 from studio.services.jiaoben_api import fetch_projects_for_combo
 from studio.services.jiaoben_project_id import resolve_jiaoben_project_id
 from packager.pack_metadata import read_project_cfg, save_pack_metadata, validate_pack_fields
@@ -70,6 +74,10 @@ from studio.services.project_persistence import (
     remember_project,
 )
 from studio.ui.onboarding_dialog import OnboardingDialog, should_show_onboarding
+from studio.ui.permissions_checklist_dialog import (
+    ask_open_grab_after_install,
+    show_permissions_checklist,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / "studio" / "resources" / "project-template"
@@ -93,6 +101,7 @@ class MainWindow(QMainWindow):
         self._pack_serial: str | None = None
         self._pack_package_id = ""
         self._pack_install_after = False
+        self._pack_launched = False
         self._script_dirty = False
         self._tab_titles = ("工程", "抓抓", "浮动面板", "脚本")
 
@@ -133,6 +142,8 @@ class MainWindow(QMainWindow):
         self.script_panel = ScriptPanelWidget(lambda: self.project_dir)
         self.script_panel.insert_lua.connect(self._insert_lua_to_script)
         self.script_panel.copy_lua.connect(self._copy_lua_snippet)
+        self.script_panel.start_script.connect(self.run_lua_pc)
+        self.script_panel.stop_script.connect(self.stop_lua_pc)
         self.image_gallery = ImageGalleryWidget(lambda: self.project_dir)
         self.yolo_models = YoloModelsWidget(lambda: self.project_dir)
         self.yolo_models.models_changed.connect(self.grab.refresh_yolo_models)
@@ -154,7 +165,8 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         self._refresh_recent_list()
         self.statusBar().showMessage("就绪")
-        self._try_restore_last_project()
+        if not should_show_onboarding():
+            self._try_restore_last_project()
         self._setup_help_menu()
 
     def _setup_help_menu(self) -> None:
@@ -169,7 +181,13 @@ class MainWindow(QMainWindow):
 
     def _show_onboarding(self) -> None:
         dlg = OnboardingDialog(self, adb_path=self.adb.adb_path)
+        dlg.request_open_demo.connect(lambda: self.open_demo_game(trial_run=True))
+        dlg.request_open_grab.connect(self._open_grab_tab)
         dlg.exec()
+
+    def _open_grab_tab(self) -> None:
+        self.tabs.setCurrentWidget(self.grab)
+        self.append("已切换到抓抓页：连接设备后点「截屏」即可取色/框选")
 
     def _build_project_tab(self) -> QWidget:
         w = QWidget()
@@ -182,7 +200,7 @@ class MainWindow(QMainWindow):
             [
                 ("新建工程", self.new_project, "primary"),
                 ("打开工程", self.open_project, "accent"),
-                ("demo-game", self.open_demo_game, "ghost"),
+                ("试玩示例", lambda: self.open_demo_game(trial_run=True), "ghost"),
             ],
             columns=1,
         )
@@ -201,28 +219,39 @@ class MainWindow(QMainWindow):
         self.recent_list.setObjectName("RecentProjectList")
         self.recent_list.itemDoubleClicked.connect(self._on_recent_item_activated)
         left_lay.addWidget(self.recent_list, 1)
-        left_lay.addWidget(section_title("构建"))
-        build_grid = QWidget()
-        build_grid_lay = QHBoxLayout(build_grid)
-        build_grid_lay.setContentsMargins(0, 0, 0, 0)
-        build_col = QVBoxLayout()
-        build_col.setSpacing(8)
+        left_lay.addWidget(section_title("打包到手机"))
+        install_btn = QPushButton("打包并安装到当前设备")
+        set_button_role(install_btn, "primary")
+        install_btn.setMinimumHeight(42)
+        install_btn.clicked.connect(self.build_and_install)
+        left_lay.addWidget(install_btn)
+        self._pack_action_buttons.append(install_btn)
+
+        self._project_build_more_btn = QPushButton("▸ 更多构建选项")
+        set_button_role(self._project_build_more_btn, "ghost")
+        self._project_build_more_btn.clicked.connect(self._toggle_project_build_more)
+        left_lay.addWidget(self._project_build_more_btn)
+
+        self._project_build_more_wrap = QWidget()
+        build_more_lay = QVBoxLayout(self._project_build_more_wrap)
+        build_more_lay.setContentsMargins(0, 0, 0, 0)
+        build_more_lay.setSpacing(8)
         for text, slot, role in (
             ("校验工程", self.validate_project, "ghost"),
             ("YAML→Lua", self.convert_yaml_to_lua, "ghost"),
-            ("打包 APK", self.build_apk, "accent"),
-            ("打包安装", self.build_and_install, "primary"),
+            ("仅打包 APK", self.build_apk, "accent"),
             ("发布热更新", self.publish_hot_update, "ghost"),
         ):
             btn = QPushButton(text)
             set_button_role(btn, role)
             btn.setMinimumHeight(34)
             btn.clicked.connect(slot)
-            build_col.addWidget(btn)
-            if text in ("打包 APK", "打包安装", "校验工程"):
+            build_more_lay.addWidget(btn)
+            if text in ("仅打包 APK", "校验工程"):
                 self._pack_action_buttons.append(btn)
-        build_grid_lay.addLayout(build_col)
-        left_lay.addWidget(build_grid)
+        self._project_build_more_wrap.setVisible(False)
+        left_lay.addWidget(self._project_build_more_wrap)
+        self._project_build_more_expanded = False
 
         left_lay.addWidget(section_title("打包应用信息"))
         pack_form = QFormLayout()
@@ -232,10 +261,6 @@ class MainWindow(QMainWindow):
         self.pack_pkg_edit = QLineEdit()
         self.pack_pkg_edit.setPlaceholderText("com.example.myscript")
         pack_form.addRow("包名", self.pack_pkg_edit)
-        self.pack_project_combo = QComboBox()
-        self.pack_project_combo.setEditable(True)
-        self.pack_project_combo.setPlaceholderText("jiaoben 发卡项目")
-        pack_form.addRow("发卡项目", self.pack_project_combo)
         icon_row = QHBoxLayout()
         self.pack_icon_edit = QLineEdit()
         self.pack_icon_edit.setPlaceholderText("留空=默认图标；可点右侧选择")
@@ -247,12 +272,44 @@ class MainWindow(QMainWindow):
         icon_wrap = QWidget()
         icon_wrap.setLayout(icon_row)
         pack_form.addRow("应用图标", icon_wrap)
-        self.pack_show_log_cb = QCheckBox("悬浮窗显示运行日志")
-        self.pack_show_log_cb.setToolTip("勾选后 APK 悬浮窗可展开小块日志区，不影响脚本运行")
-        pack_form.addRow("", self.pack_show_log_cb)
         pack_form_box = QWidget()
         pack_form_box.setLayout(pack_form)
         left_lay.addWidget(pack_form_box)
+
+        self._project_pack_adv_btn = QPushButton("▸ 高级打包选项")
+        set_button_role(self._project_pack_adv_btn, "ghost")
+        self._project_pack_adv_btn.clicked.connect(self._toggle_project_pack_adv)
+        left_lay.addWidget(self._project_pack_adv_btn)
+
+        self._project_pack_adv_wrap = QWidget()
+        pack_adv_lay = QVBoxLayout(self._project_pack_adv_wrap)
+        pack_adv_lay.setContentsMargins(0, 0, 0, 0)
+        pack_adv_lay.setSpacing(8)
+        pack_adv_form = QFormLayout()
+        self.pack_project_combo = QComboBox()
+        self.pack_project_combo.setEditable(True)
+        self.pack_project_combo.setPlaceholderText("jiaoben 发卡项目")
+        pack_adv_form.addRow("发卡项目", self.pack_project_combo)
+        self.pack_show_log_cb = QCheckBox("悬浮窗显示运行日志")
+        self.pack_show_log_cb.setToolTip("勾选后 APK 悬浮窗可展开小块日志区，不影响脚本运行")
+        pack_adv_form.addRow("", self.pack_show_log_cb)
+        pack_adv_box = QWidget()
+        pack_adv_box.setLayout(pack_adv_form)
+        pack_adv_lay.addWidget(pack_adv_box)
+        preset_row = QHBoxLayout()
+        scenario_btn = QPushButton("性能场景向导…")
+        set_button_role(scenario_btn, "accent")
+        scenario_btn.clicked.connect(self._open_perf_scenario_wizard)
+        preset_row.addWidget(scenario_btn)
+        preset_row.addStretch()
+        preset_wrap = QWidget()
+        preset_wrap.setLayout(preset_row)
+        pack_adv_lay.addWidget(QLabel("性能配置"))
+        pack_adv_lay.addWidget(preset_wrap)
+        self._project_pack_adv_wrap.setVisible(False)
+        left_lay.addWidget(self._project_pack_adv_wrap)
+        self._project_pack_adv_expanded = False
+
         self.pack_icon_preview = QLabel()
         self.pack_icon_preview.setFixedSize(56, 56)
         self.pack_icon_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -264,17 +321,6 @@ class MainWindow(QMainWindow):
         set_button_role(save_pack_btn, "ghost")
         save_pack_btn.clicked.connect(lambda: self._save_pack_fields(show_ok=True))
         left_lay.addWidget(save_pack_btn)
-
-        left_lay.addWidget(section_title("性能预设"))
-        preset_row = QHBoxLayout()
-        for key, preset in PRESETS.items():
-            btn = QPushButton(str(preset["label"]).split("（")[0])
-            set_button_role(btn, "ghost")
-            btn.clicked.connect(lambda _c=False, k=key: self._apply_runtime_preset(k))
-            preset_row.addWidget(btn)
-        preset_wrap = QWidget()
-        preset_wrap.setLayout(preset_row)
-        left_lay.addWidget(preset_wrap)
 
         self.pack_icon_edit.textChanged.connect(self._refresh_pack_icon_preview)
 
@@ -335,8 +381,13 @@ class MainWindow(QMainWindow):
         self.run_lua_btn = QPushButton("运行")
         set_button_role(self.run_lua_btn, "primary")
         self.run_lua_btn.clicked.connect(self.run_lua_pc)
+        panel_lua_btn = QPushButton("插入面板读取")
+        set_button_role(panel_lua_btn, "accent")
+        panel_lua_btn.setToolTip("根据 ui/layout.json 生成 panel.get 代码")
+        panel_lua_btn.clicked.connect(self._insert_panel_reads_to_script)
         toolbar_row.addWidget(save_btn)
         toolbar_row.addWidget(self.run_lua_btn)
+        toolbar_row.addWidget(panel_lua_btn)
 
         self._script_panel_expanded = True
         self._stop_lua_action = None
@@ -409,7 +460,7 @@ class MainWindow(QMainWindow):
         self._script_side_tabs = QTabWidget()
         self._script_side_tabs.setObjectName("ScriptSideTabs")
         self._script_side_tabs.setDocumentMode(True)
-        self._script_side_tabs.addTab(self.script_panel, "浮动面板")
+        self._script_side_tabs.addTab(self.script_panel, "主面板")
         self._script_side_tabs.addTab(self.image_gallery, "附件")
         self._script_side_tabs.addTab(self.yolo_models, "模型")
         v_split.addWidget(self._script_side_tabs)
@@ -554,6 +605,15 @@ class MainWindow(QMainWindow):
         entry = cfg.get("entry", "main.lua")
         return self.project_dir / entry
 
+    def _insert_panel_reads_to_script(self) -> None:
+        if not self._require_project():
+            return
+        from studio.services.layout_defaults import load_layout
+        from studio.services.panel_lua_snippets import lua_reads_block_for_layout
+
+        layout = load_layout(self.project_dir)
+        self._insert_lua_to_script(lua_reads_block_for_layout(layout))
+
     def _insert_lua_to_script(self, snippet: str) -> None:
         if not self.project_dir:
             QMessageBox.warning(self, "提示", "请先在「工程」页打开脚本工程")
@@ -633,14 +693,40 @@ class MainWindow(QMainWindow):
         self._pack_phase = "yaml_lua"
         self._run([sys.executable, str(ROOT / "tools" / "yaml_to_lua.py"), str(src)])
 
-    def open_demo_game(self) -> None:
+    def _toggle_project_build_more(self) -> None:
+        self._project_build_more_expanded = not self._project_build_more_expanded
+        self._project_build_more_wrap.setVisible(self._project_build_more_expanded)
+        self._project_build_more_btn.setText(
+            "▾ 收起构建选项" if self._project_build_more_expanded else "▸ 更多构建选项"
+        )
+
+    def _toggle_project_pack_adv(self) -> None:
+        self._project_pack_adv_expanded = not self._project_pack_adv_expanded
+        self._project_pack_adv_wrap.setVisible(self._project_pack_adv_expanded)
+        self._project_pack_adv_btn.setText(
+            "▾ 收起高级打包" if self._project_pack_adv_expanded else "▸ 高级打包选项"
+        )
+
+    def open_demo_game(self, *, trial_run: bool = False) -> None:
         demo = ROOT / "examples" / "demo-game"
         if not (demo / "project.json").is_file():
             QMessageBox.warning(self, "提示", f"未找到示例工程: {demo}")
             return
         self._set_project(demo)
-        self.tabs.setCurrentWidget(self.grab)
-        self.append("已打开 demo-game，建议先 ADB 截图查看面板预览")
+        self.tabs.setCurrentWidget(self.layout_editor)
+        self.append(
+            "已打开 demo 示例。可在「浮动面板」页预览表单；"
+            "实机用悬浮球 ▶ 启停脚本（主界面填表模式）。"
+        )
+        if trial_run:
+            QTimer.singleShot(400, self.run_demo_trial)
+
+    def run_demo_trial(self) -> None:
+        """保存并在 PC 上试跑当前工程（无需截图）。"""
+        if not self.project_dir:
+            return
+        self.append("正在 PC 试跑 demo（看脚本页下方日志）…")
+        self.run_lua_pc()
 
     def open_project(self) -> None:
         dest = QFileDialog.getExistingDirectory(self, "打开脚本工程")
@@ -767,6 +853,25 @@ class MainWindow(QMainWindow):
                 self.pack_project_combo.setEditText(current)
         self.pack_project_combo.blockSignals(False)
 
+    def _open_perf_scenario_wizard(self) -> None:
+        if not self._require_project():
+            return
+        try:
+            cfg = read_project_cfg(self.project_dir)
+            current = detect_current_preset(cfg)
+        except Exception:
+            current = "yolo_fast"
+        dlg = PerfScenarioDialog(self, current_key=current)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            label = apply_preset(self.project_dir, dlg.selected_key())
+        except Exception as exc:
+            QMessageBox.warning(self, "场景应用失败", str(exc))
+            return
+        self.append(f"已应用性能场景: {label}")
+        QMessageBox.information(self, "完成", f"已写入 project.json runtime\n{label}")
+
     def _apply_runtime_preset(self, key: str) -> None:
         if not self._require_project():
             return
@@ -786,11 +891,15 @@ class MainWindow(QMainWindow):
             return
         try:
             manifest = dlg.publish()
+            ver = int(manifest.get("version_code") or dlg.version_spin.value())
+            vname = str(manifest.get("version_name") or "").strip()
+            write_back_version(self.project_dir, ver, version_name=vname or None)
+            self._load_pack_fields()
         except Exception as exc:
             QMessageBox.warning(self, "发版失败", str(exc))
             return
-        self.append(f"jiaoben 热更新已发布: v{manifest.get('version_code', '?')}")
-        QMessageBox.information(self, "发版成功", f"已发布 v{manifest.get('version_code')}")
+        self.append(f"jiaoben 热更新已发布: v{manifest.get('version_code', '?')}（已写回 project.json）")
+        QMessageBox.information(self, "发版成功", f"已发布 v{manifest.get('version_code')}，版本号已同步到工程")
 
     def _run_pack_preflight(self) -> bool:
         errors, warnings = validate_before_pack(self.project_dir)
@@ -997,6 +1106,20 @@ class MainWindow(QMainWindow):
             self.tabs.setTabText(script_idx, title)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self._async_cmd.is_running():
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("任务进行中")
+            box.setText("打包/安装仍在进行，确定要退出吗？")
+            box.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            box.setDefaultButton(QMessageBox.StandardButton.No)
+            if box.exec() != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+            self._async_cmd.kill()
+
         unsaved: list[str] = []
         if self.layout_editor.is_dirty:
             unsaved.append("ui/layout.json")
@@ -1079,6 +1202,7 @@ class MainWindow(QMainWindow):
         self.run_lua_btn.setEnabled(False)
         if self._stop_lua_action is not None:
             self._stop_lua_action.setEnabled(True)
+        self.script_panel.set_script_running(True)
 
     def _on_lua_process_error(self, err: QProcess.ProcessError) -> None:
         if self._lua_proc is None:
@@ -1089,6 +1213,7 @@ class MainWindow(QMainWindow):
         if self._lua_proc is not None and self._lua_proc.state() != QProcess.NotRunning:
             self._lua_proc.kill()
             self.append_lua_log("已请求停止 Lua 运行")
+        self.script_panel.set_script_running(False)
 
     def _on_lua_output(self) -> None:
         if self._lua_proc is None:
@@ -1118,6 +1243,7 @@ class MainWindow(QMainWindow):
         self.run_lua_btn.setEnabled(True)
         if self._stop_lua_action is not None:
             self._stop_lua_action.setEnabled(False)
+        self.script_panel.set_script_running(False)
         self.append_lua_log("Lua 运行完成" if code == 0 else f"Lua 运行失败，退出码 {code}")
 
     def _save_all_before_build(self) -> None:
@@ -1222,6 +1348,7 @@ class MainWindow(QMainWindow):
     def _start_pack_launch(self) -> None:
         if not self._pack_package_id or not self._pack_serial:
             self._finish_pack_task(True, f"已安装: {self._pack_apk_out.name if self._pack_apk_out else 'APK'}")
+            self._show_pack_result(installed=True, launched=False)
             return
         self._pack_phase = "launch"
         self._set_pack_busy(True, "正在启动应用…")
@@ -1239,6 +1366,7 @@ class MainWindow(QMainWindow):
         self.append(f"$ {self.adb.adb_path} " + " ".join(args))
         if not self._async_cmd.start(self.adb.adb_path, args):
             self._finish_pack_task(True, f"已安装（启动失败）: {self._pack_apk_out.name}")
+            self._show_pack_result(installed=True, launched=False)
 
     def _set_pack_busy(self, busy: bool, message: str = "") -> None:
         for btn in self._pack_action_buttons:
@@ -1247,6 +1375,34 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(message or "后台任务执行中…")
         else:
             self.statusBar().showMessage("就绪")
+
+    def _show_pack_result(self, *, installed: bool, launched: bool) -> None:
+        if not self.project_dir or not self._pack_apk_out:
+            return
+        can_publish = bool(self.pack_project_combo.currentText().strip())
+        summary = build_pack_result_summary(
+            self.project_dir,
+            apk_path=self._pack_apk_out,
+            installed=installed,
+            launched=launched,
+            device_serial=str(self._pack_serial or ""),
+        )
+        dlg = PackResultDialog(self, summary, can_publish=can_publish)
+        dlg.exec()
+        if not summary.get("layout_ok"):
+            QMessageBox.warning(
+                self,
+                "Layout 校验",
+                summary.get("layout_message", "APK 内 layout 与工程不一致"),
+            )
+        if installed:
+            show_permissions_checklist(self)
+        if dlg.want_open_grab():
+            self._open_grab_tab()
+        elif installed and ask_open_grab_after_install(self):
+            self._open_grab_tab()
+        if dlg.want_publish():
+            self.publish_hot_update()
 
     def _finish_pack_task(self, ok: bool, message: str) -> None:
         self._pack_phase = ""
@@ -1267,8 +1423,8 @@ class MainWindow(QMainWindow):
             if getattr(self, "_pack_install_after", False):
                 self._start_pack_install()
             else:
-                self._finish_pack_task(True, "完成")
-                self._offer_publish_after_pack()
+                self._finish_pack_task(True, "打包完成")
+                self._show_pack_result(installed=False, launched=False)
             return
         if phase == "install":
             if code != 0:
@@ -1279,11 +1435,12 @@ class MainWindow(QMainWindow):
             return
         if phase == "launch":
             name = self._pack_apk_out.name if self._pack_apk_out else "APK"
-            if code == 0:
+            launched = code == 0
+            if launched:
                 self._finish_pack_task(True, f"已安装并启动: {name}")
             else:
                 self._finish_pack_task(True, f"已安装（启动退出码 {code}）: {name}")
-            self._offer_publish_after_pack()
+            self._show_pack_result(installed=True, launched=launched)
             return
         if phase == "yaml_lua":
             self._set_pack_busy(False)
@@ -1298,19 +1455,6 @@ class MainWindow(QMainWindow):
         self._pack_phase = ""
         self._set_pack_busy(False)
         self.append("完成" if code == 0 else f"退出码 {code}")
-
-    def _offer_publish_after_pack(self) -> None:
-        if not self.project_dir:
-            return
-        ans = QMessageBox.question(
-            self,
-            "发布热更新",
-            "APK 已打包完成。是否立即发布脚本热更新到 jiaoben？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if ans == QMessageBox.StandardButton.Yes:
-            self.publish_hot_update()
 
     def _require_project(self) -> bool:
         if self.project_dir and (self.project_dir / "project.json").is_file():
@@ -1328,22 +1472,6 @@ class MainWindow(QMainWindow):
         if not self._async_cmd.start(cmd[0], cmd[1:]):
             self._set_pack_busy(False)
             self.append("错误: 无法启动子进程")
-
-    def closeEvent(self, event: QCloseEvent) -> None:
-        if self._async_cmd.is_running():
-            box = QMessageBox(self)
-            box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle("任务进行中")
-            box.setText("打包/安装仍在进行，确定要退出吗？")
-            box.setStandardButtons(
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            box.setDefaultButton(QMessageBox.StandardButton.No)
-            if box.exec() != QMessageBox.StandardButton.Yes:
-                event.ignore()
-                return
-            self._async_cmd.kill()
-        super().closeEvent(event)
 
 
 def run_app() -> int:

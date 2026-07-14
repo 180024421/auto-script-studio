@@ -220,6 +220,7 @@ class OverlayScreenPanelBuilder(
         "textarea" -> 72
         "switch", "slider", "stepper", "time_range" -> 44
         "text", "label" -> 28
+        "section" -> 80
         "divider" -> 8
         "start_script", "stop_script", "collapse", "tap", "lua" -> 40
         else -> 36

@@ -28,6 +28,7 @@ from studio.services.panel_lua_snippets import (
     lua_all_values_for_layout,
     lua_panel_example,
     lua_read_snippet,
+    lua_reads_block_for_layout,
     resolve_layout_widget,
     widget_lua_spec,
 )
@@ -44,6 +45,8 @@ log = logging.getLogger(__name__)
 class ScriptPanelWidget(QWidget):
     insert_lua = Signal(str)
     copy_lua = Signal(str)
+    start_script = Signal()
+    stop_script = Signal()
 
     def __init__(self, project_dir_getter: Callable[[], Path | None]) -> None:
         super().__init__()
@@ -57,7 +60,7 @@ class ScriptPanelWidget(QWidget):
         root.setSpacing(6)
 
         bar = QHBoxLayout()
-        bar.addWidget(section_title("浮动面板预览"))
+        bar.addWidget(section_title("APK 预览"))
         self.values_label = QLabel()
         self.values_label.setObjectName("InfoBar")
         self.values_label.setWordWrap(True)
@@ -65,8 +68,9 @@ class ScriptPanelWidget(QWidget):
         example_btn = QPushButton("Lua 示例")
         set_button_role(example_btn, "ghost")
         example_btn.clicked.connect(lambda: self.insert_lua.emit(lua_panel_example()))
-        all_btn = QPushButton("全部值")
-        set_button_role(all_btn, "ghost")
+        all_btn = QPushButton("插入面板读取")
+        set_button_role(all_btn, "accent")
+        all_btn.setToolTip("根据 layout.json 生成全部 panel.get 代码")
         all_btn.clicked.connect(self._insert_all_values)
         refresh_btn = QPushButton("刷新")
         set_button_role(refresh_btn, "ghost")
@@ -82,7 +86,10 @@ class ScriptPanelWidget(QWidget):
         self.preview_free.set_editable(False)
         self.preview_free.set_selectable(True)
         self.preview_free.set_interactive_preview(True)
-        self.preview_free.set_phone_style(True)
+        self.preview_free.set_main_panel_preview(True)
+        self.preview_free.set_apk_shell_preview(True)
+        self.preview_free.set_phone_style(False)
+        self.preview_free.set_device_emulation(False)
         self.preview_free.set_compact_preview(True)
         self.preview_free.set_fit_viewport(True)
         self.preview_free.set_min_scale(0.15)
@@ -132,6 +139,26 @@ class ScriptPanelWidget(QWidget):
         insert_lay.addWidget(self.insert_row)
         root.addWidget(self.insert_card)
 
+        script_ctrl = QFrame()
+        script_ctrl.setObjectName("Card")
+        ctrl_lay = QVBoxLayout(script_ctrl)
+        ctrl_lay.setContentsMargins(10, 8, 10, 8)
+        ctrl_lay.setSpacing(6)
+        ctrl_lay.addWidget(hint_label("打包 APK 后：主界面表单 + 下方启停按钮 + 右上角设置（固定内置）"))
+        ctrl_row = QHBoxLayout()
+        self.start_script_btn = QPushButton("开始脚本")
+        set_button_role(self.start_script_btn, "primary")
+        self.start_script_btn.setToolTip("PC 试跑（对应 APK 主界面「开始脚本」）")
+        self.stop_script_btn = QPushButton("停止脚本")
+        set_button_role(self.stop_script_btn, "ghost")
+        self.stop_script_btn.setEnabled(False)
+        self.stop_script_btn.setToolTip("停止 PC 试跑（对应 APK「停止脚本」）")
+        ctrl_row.addWidget(self.start_script_btn)
+        ctrl_row.addWidget(self.stop_script_btn)
+        ctrl_row.addStretch(1)
+        ctrl_lay.addLayout(ctrl_row)
+        root.addWidget(script_ctrl)
+
         self.preview_free.values_changed.connect(self._refresh_value_summary)
         self.preview_grid.values_changed.connect(self._refresh_value_summary)
         self.preview_free.widget_selected.connect(self._on_widget_selected)
@@ -139,6 +166,12 @@ class ScriptPanelWidget(QWidget):
         PanelState.add_listener(self._refresh_value_summary)
 
         self._show_insert_hint()
+        self.start_script_btn.clicked.connect(self.start_script.emit)
+        self.stop_script_btn.clicked.connect(self.stop_script.emit)
+
+    def set_script_running(self, running: bool) -> None:
+        self.start_script_btn.setEnabled(not running)
+        self.stop_script_btn.setEnabled(running)
 
     def refresh_viewport(self) -> None:
         if self._layout and is_free_mode(self._layout):
@@ -237,8 +270,7 @@ class ScriptPanelWidget(QWidget):
         if not self._layout:
             self.insert_lua.emit(lua_all_values())
             return
-        idx = active_screen_index(self._layout) if is_free_mode(self._layout) else None
-        self.insert_lua.emit(lua_all_values_for_layout(self._layout, screen_index=idx))
+        self.insert_lua.emit(lua_reads_block_for_layout(self._layout))
 
     def _insert_selected(self) -> None:
         if self._selected_spec:

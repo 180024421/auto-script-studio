@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +54,38 @@ PRESETS: dict[str, dict[str, Any]] = {
         },
     },
 }
+
+
+SCENARIO_HINTS: dict[str, str] = {
+    "yolo_fast": "有 root、追求 YOLO 与截屏速度。适合高频找图/找 UI。",
+    "less_perm": "无 root，仅无障碍截图。授权少，单次截屏较慢。",
+    "yolo_seg_fast": "seg 掩码模型（adb-ide 导入）。限制掩码解码数量以提速。",
+    "root_compat": "老设备或 NNAPI 不稳定时关闭 NNAPI，兼容性优先。",
+}
+
+
+def detect_current_preset(cfg: dict) -> str:
+    runtime = cfg.get("runtime") or {}
+    perf = runtime.get("perf") or {}
+    for key, preset in PRESETS.items():
+        pr = preset.get("runtime") or {}
+        pp = pr.get("perf") or {}
+        match = True
+        for k, v in pr.items():
+            if k == "perf":
+                continue
+            if runtime.get(k) != v:
+                match = False
+                break
+        if not match:
+            continue
+        for k, v in pp.items():
+            if perf.get(k) != v:
+                match = False
+                break
+        if match:
+            return key
+    return "yolo_fast"
 
 
 def apply_preset(project_dir: Path, preset_key: str) -> str:

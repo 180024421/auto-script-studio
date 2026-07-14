@@ -12,6 +12,10 @@ def effective_content_scale(
     max_factor: float = 2.5,
 ) -> float:
     """画布 scale × 当前像素高度 / 设计高度对应像素，使控件内容随框体缩放。"""
+    if layout_h_design < 44:
+        min_factor = max(min_factor, 0.52)
+    if pixel_h < 28:
+        min_factor = max(min_factor, 0.58)
     ref_px = max(1.0, float(layout_h_design) * max(0.01, canvas_scale))
     factor = max(min_factor, min(max_factor, pixel_h / ref_px))
     return max(0.01, canvas_scale * factor)

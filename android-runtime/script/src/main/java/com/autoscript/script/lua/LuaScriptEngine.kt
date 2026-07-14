@@ -1,6 +1,7 @@
 package com.autoscript.script.lua
 
 import com.autoscript.core.backend.AutomationBackend
+import com.autoscript.core.perf.PerfMonitor
 import com.autoscript.core.project.ProjectAssets
 import com.autoscript.core.project.ProjectConfig
 import com.autoscript.core.script.ScriptTrace
@@ -38,9 +39,17 @@ class LuaScriptEngine(
             yoloImgsz = config.perf.yoloImgsz,
             perf = config.perf,
         )
-        bridge = AutoScriptBridge(backend, vision, config, onLog, config.defaultYoloModel)
+        bridge = AutoScriptBridge(
+            backend,
+            vision,
+            config,
+            onLog,
+            config.defaultYoloModel,
+            assets.appContext(),
+        )
         val source = assets.readEntryScript()
         onLog("开始 Lua: ${config.entry}")
+        PerfMonitor.onPeriodicLog = onLog
         try {
             withContext(Dispatchers.Default) {
                 coroutineScope {
@@ -67,6 +76,8 @@ class LuaScriptEngine(
             onLog("Lua 脚本完成")
         } catch (e: LuaError) {
             throw IllegalStateException("Lua 错误: ${e.message}", e)
+        } finally {
+            PerfMonitor.onPeriodicLog = null
         }
     }
 

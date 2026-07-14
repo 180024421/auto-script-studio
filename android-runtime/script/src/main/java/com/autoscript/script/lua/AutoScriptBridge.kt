@@ -1,5 +1,10 @@
 package com.autoscript.script.lua
 
+import android.content.Context
+import android.content.Intent
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
 import com.autoscript.core.accessibility.AccessibilityFinder
 import com.autoscript.core.backend.AutomationBackend
 import com.autoscript.core.capture.CaptureCache
@@ -23,8 +28,48 @@ class AutoScriptBridge(
     private val config: ProjectConfig,
     private val onLog: (String) -> Unit,
     private val defaultYoloModel: String? = null,
+    private val appContext: Context? = null,
 ) {
     private val captureCache = CaptureCache(config.perf.captureCacheTtlMs)
+
+    /** 按包名打开应用（如钉钉 `com.alibaba.android.rimet`）。 */
+    fun openApp(packageName: String): Boolean {
+        val pkg = packageName.trim()
+        if (pkg.isEmpty()) {
+            onLog("openApp: 包名为空")
+            return false
+        }
+        val ctx = appContext
+        if (ctx == null) {
+            onLog("openApp: 无 Context，仅真机 APK 可用")
+            return false
+        }
+        val launch = ctx.packageManager.getLaunchIntentForPackage(pkg)
+        if (launch == null) {
+            onLog("openApp: 未安装或无法启动 $pkg")
+            return false
+        }
+        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return try {
+            ctx.startActivity(launch)
+            onLog("openApp: 已打开 $pkg")
+            true
+        } catch (e: Exception) {
+            onLog("openApp 失败: ${e.message}")
+            false
+        }
+    }
+
+    /** 弹出 Toast 提醒（真机）。 */
+    fun toast(message: String) {
+        val msg = message.trim()
+        if (msg.isEmpty()) return
+        onLog(msg)
+        val ctx = appContext ?: return
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+        }
+    }
 
     suspend fun delaySeconds(seconds: Double) {
         val total = (seconds * 1000).toLong().coerceAtLeast(0)

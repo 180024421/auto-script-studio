@@ -67,6 +67,12 @@ def install_bot(lua, bot) -> None:
     def log_raw(msg):
         bot.log(str(msg))
 
+    def toast(msg):
+        bot.toast(str(msg))
+
+    def open_app(package_name):
+        return bool(bot.open_app(str(package_name)))
+
     bot_table = lua.table_from(
         {
             "delay": delay,
@@ -85,6 +91,8 @@ def install_bot(lua, bot) -> None:
             "waitStable": lambda opts=None: bot.wait_stable(table_to_dict(opts)),
             "findMultiColor": lambda opts=None: _ret_point(bot.find_multi_color(table_to_dict(opts))),
             "trace": lambda tag, msg: bot.trace(str(tag), str(msg)),
+            "toast": toast,
+            "openApp": open_app,
             "log": log,
             "__logRaw": log_raw,
         }

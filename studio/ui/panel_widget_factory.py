@@ -12,10 +12,10 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QRadioButton,
     QSlider,
     QSizePolicy,
-    QSpinBox,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -41,7 +41,9 @@ INTERACTIVE_TYPES = frozenset(
     }
 )
 
-FORM_PREVIEW_TYPES = INTERACTIVE_TYPES | frozenset({"label", "text", "divider"})
+FORM_PREVIEW_TYPES = INTERACTIVE_TYPES | frozenset(
+    {"label", "text", "divider", "section", "image", "hero"}
+)
 
 _CONTROL_HINTS: dict[str, str] = {
     "input": "输入框",
@@ -217,17 +219,6 @@ def _style_combo(cb: QComboBox, *, scale: float, row_h: int) -> None:
     )
 
 
-def _style_spin(sp: QSpinBox, *, scale: float, row_h: int) -> None:
-    sp.setObjectName("PanelField")
-    fs = _font_px(12, scale)
-    sp.setMinimumHeight(row_h)
-    sp.setMaximumHeight(row_h)
-    sp.setStyleSheet(
-        f"QSpinBox#PanelField {{ font-size:{fs}px; padding:0 4px; "
-        f"border:1px solid #CBD5E1; border-radius:3px; background:#FFF; }}"
-    )
-
-
 def _style_radio(rb: QRadioButton, *, scale: float) -> None:
     fs = _font_px(12, scale)
     ind = max(12, int(14 * max(0.45, min(1.0, scale))))
@@ -363,21 +354,59 @@ def _build_stepper(
     interactive: bool,
     wid: str = "",
     on_change: OnChange = None,
-) -> QSpinBox:
+) -> QWidget:
     lo = int(spec.get("min", 0) or 0)
     hi = int(spec.get("max", 99) or 99)
+    step = max(1, int(spec.get("step", 1) or 1))
     row_h = _default_row_h(scale, container_h)
-    sp = QSpinBox()
-    sp.setRange(lo, hi)
-    sp.setValue(max(lo, min(hi, value)))
-    sp.setEnabled(interactive)
-    sp.setButtonSymbols(
-        QSpinBox.ButtonSymbols.UpDownArrows if interactive else QSpinBox.ButtonSymbols.NoButtons
+    fs = _font_px(13, scale)
+    btn_w = max(28, _scaled_px(36, scale, floor=24))
+
+    host = QWidget()
+    lay = QHBoxLayout(host)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(max(2, _scaled_px(4, scale, floor=2)))
+    host.setMinimumHeight(row_h)
+    host.setMaximumHeight(row_h)
+
+    state = {"v": max(lo, min(hi, value))}
+    val_lbl = QLabel(str(state["v"]))
+    val_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    val_lbl.setStyleSheet(f"color:#0F172A;font-size:{fs}px;background:transparent;")
+
+    btn_style = (
+        f"QPushButton {{ font-size:{fs}px; min-width:{btn_w}px; max-width:{btn_w}px; "
+        f"min-height:{row_h}px; max-height:{row_h}px; border:1px solid #CBD5E1; "
+        f"border-radius:3px; background:#F8FAFC; color:#0F172A; padding:0; }}"
+        "QPushButton:disabled { color:#94A3B8; background:#F1F5F9; }"
     )
-    _style_spin(sp, scale=scale, row_h=row_h)
-    if interactive and wid:
-        sp.valueChanged.connect(lambda v, i=wid: (PanelState.set(i, str(v)), on_change()))
-    return sp
+
+    def apply(v: int) -> None:
+        state["v"] = max(lo, min(hi, v))
+        val_lbl.setText(str(state["v"]))
+        if wid:
+            PanelState.set(wid, str(state["v"]))
+        if on_change:
+            on_change()
+
+    minus = QPushButton("−")
+    plus = QPushButton("+")
+    minus.setEnabled(interactive)
+    plus.setEnabled(interactive)
+    minus.setStyleSheet(btn_style)
+    plus.setStyleSheet(btn_style)
+    if interactive:
+        minus.clicked.connect(lambda: apply(state["v"] - step))
+        plus.clicked.connect(lambda: apply(state["v"] + step))
+
+    lay.addWidget(minus)
+    lay.addWidget(val_lbl, 1)
+    lay.addWidget(plus)
+
+    if wid:
+        PanelState.set(wid, str(state["v"]))
+
+    return host
 
 
 def _build_textarea(
@@ -427,8 +456,28 @@ def _form_row(
     scale: float = 1.0,
     container_h: int | None = None,
 ) -> QWidget:
+    compact_vertical = (
+        not str(label).strip()
+        and container_h is not None
+        and 0 < container_h < 44
+    )
     host = QWidget()
     host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+    if compact_vertical:
+        lay = QVBoxLayout(host)
+        m = max(0, _scaled_px(2, scale, floor=0))
+        lay.setContentsMargins(m, m, m, m)
+        lay.setSpacing(max(1, _scaled_px(2, scale, floor=1)))
+        host.setMaximumHeight(container_h)
+        if label:
+            lbl = QLabel(label)
+            fs = _font_px(10, scale)
+            lbl.setStyleSheet(f"color:#475569;font-size:{fs}px;background:transparent;padding:0;")
+            lay.addWidget(lbl)
+        control.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        lay.addWidget(control, 1)
+        return host
+
     lay = QHBoxLayout(host)
     m = max(0, _scaled_px(4, scale, floor=0))
     lay.setContentsMargins(m, 0, m, 0)
@@ -445,15 +494,13 @@ def _form_row(
         lbl.setStyleSheet(f"color:#475569;font-size:{fs}px;background:transparent;padding:0;")
         lay.addWidget(lbl)
     control.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-    fixed_height = isinstance(control, (QLineEdit, QComboBox, QFrame, QSpinBox, QSlider))
+    fixed_height = isinstance(control, (QLineEdit, QComboBox, QFrame, QSlider))
     if fixed_height:
         if not isinstance(control, (QSlider,)):
             if isinstance(control, QLineEdit):
                 _style_line_edit(control, scale=scale, row_h=row_h)
             elif isinstance(control, QComboBox):
                 _style_combo(control, scale=scale, row_h=row_h)
-            elif isinstance(control, QSpinBox):
-                _style_spin(control, scale=scale, row_h=row_h)
             else:
                 control.setMinimumHeight(row_h)
                 control.setMaximumHeight(row_h)
@@ -529,6 +576,86 @@ def _divider_line_widget(*, scale: float = 1.0) -> QWidget:
     return host
 
 
+def _image_widget(spec: dict[str, Any], *, scale: float = 1.0, theme: str = "light") -> QWidget:
+    """静态图 / hero：优先加载工程相对路径，失败时占位。"""
+    from pathlib import Path
+
+    from PySide6.QtGui import QPixmap
+    from studio.services.panel_theme import panel_theme_colors
+
+    colors = panel_theme_colors(theme)
+    host = QFrame()
+    host.setObjectName("ImageWidget")
+    lay = QVBoxLayout(host)
+    lay.setContentsMargins(0, 0, 0, 0)
+    src = str(spec.get("src") or "ui/hero.png").strip()
+    label = QLabel()
+    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    pix = QPixmap()
+    # 相对当前工程：调用方可把绝对路径写进 _abs_src；否则占位
+    abs_src = str(spec.get("_abs_src") or "")
+    if abs_src and Path(abs_src).is_file():
+        pix.load(abs_src)
+    elif Path(src).is_file():
+        pix.load(src)
+    if not pix.isNull():
+        label.setPixmap(
+            pix.scaled(
+                max(40, int(300 * scale)),
+                max(24, int(120 * scale)),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+    else:
+        title = str(spec.get("text") or spec.get("label") or src)
+        label.setText(f"🖼 {title}")
+        fs = _font_px(12, scale)
+        label.setStyleSheet(
+            f"color:{colors.label_muted};font-size:{fs}px;"
+            f"background:{colors.section_bg};border:1px dashed {colors.section_border};"
+            f"border-radius:{_scaled_px(8, scale, floor=6)}px;padding:{_scaled_px(12, scale)}px;"
+        )
+    lay.addWidget(label)
+    if str(spec.get("type")) == "hero" and (spec.get("text") or spec.get("label")):
+        cap = QLabel(str(spec.get("text") or spec.get("label")))
+        cap.setStyleSheet(
+            f"color:#FFFFFF;background:rgba(0,0,0,0.4);padding:{_scaled_px(6, scale)}px;"
+            f"font-size:{_font_px(12, scale)}px;"
+        )
+        lay.addWidget(cap)
+    return host
+
+
+def _section_card_widget(spec: dict[str, Any], *, scale: float = 1.0, theme: str = "light") -> QWidget:
+    from studio.services.panel_theme import panel_theme_colors
+
+    colors = panel_theme_colors(theme)
+    title = str(spec.get("text") or spec.get("label") or "分组")
+    host = QFrame()
+    host.setObjectName("SectionCard")
+    radius = _scaled_px(12, scale, floor=8)
+    pad = _scaled_px(14, scale, floor=8)
+    host.setStyleSheet(
+        f"QFrame#SectionCard {{"
+        f"background:{colors.section_bg};"
+        f"border:1px solid {colors.section_border};"
+        f"border-radius:{radius}px;"
+        f"}}"
+    )
+    lay = QVBoxLayout(host)
+    lay.setContentsMargins(pad, pad, pad, pad)
+    lay.setSpacing(4)
+    label = QLabel(title)
+    fs = _font_px(14, scale)
+    label.setStyleSheet(
+        f"color:{colors.section_title};font-weight:700;font-size:{fs}px;background:transparent;border:none;"
+    )
+    lay.addWidget(label)
+    lay.addStretch(1)
+    return host
+
+
 def _text_display_widget(spec: dict[str, Any], *, scale: float = 1.0) -> QLabel:
     content = str(spec.get("text") or spec.get("label") or "提示文字")
     style = str(spec.get("text_style") or "normal").lower()
@@ -573,6 +700,10 @@ def build_design_preview(
     wtype = spec.get("type", "")
     if wtype == "divider":
         return _divider_line_widget(scale=scale)
+    if wtype == "section":
+        return _section_card_widget(spec, scale=scale, theme=theme)
+    if wtype in ("image", "hero"):
+        return _image_widget(spec, scale=scale, theme=theme)
     if wtype not in FORM_PREVIEW_TYPES:
         return None
     label = str(spec.get("label") or spec.get("text") or spec.get("id", ""))
@@ -651,16 +782,14 @@ def build_design_preview(
     if wtype == "stepper":
         lo = int(spec.get("min", 0) or 0)
         cur = int(float(spec.get("default", lo) or lo))
-        row = QWidget()
-        lay = QHBoxLayout(row)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.addStretch(1)
-        lay.addWidget(
+        return _form_row(
+            label,
             _build_stepper(
                 spec, scale=scale, container_h=container_h, value=cur, interactive=False
-            )
+            ),
+            scale=scale,
+            container_h=container_h,
         )
-        return _form_row(label, row, scale=scale, container_h=container_h)
     if wtype == "textarea":
         return _form_row(
             label,
@@ -805,16 +934,20 @@ def build_interactive_widget(
     if wtype == "stepper":
         lo = int(spec.get("min", 0) or 0)
         cur = int(float(PanelState.get(wid) or spec.get("default", lo) or lo))
-        row = QWidget()
-        lay = QHBoxLayout(row)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.addStretch(1)
-        lay.addWidget(
+        return _form_row(
+            label,
             _build_stepper(
-                spec, scale=scale, container_h=container_h, value=cur, interactive=True, wid=wid, on_change=emit
-            )
+                spec,
+                scale=scale,
+                container_h=container_h,
+                value=cur,
+                interactive=True,
+                wid=wid,
+                on_change=emit,
+            ),
+            scale=scale,
+            container_h=container_h,
         )
-        return _form_row(label, row, scale=scale, container_h=container_h)
 
     if wtype == "textarea":
         return _form_row(

@@ -6,6 +6,7 @@ import com.autoscript.core.model.MatchResult
 import com.autoscript.core.model.Rect
 import com.autoscript.core.model.ScreenFrame
 import com.autoscript.core.model.TextHit
+import com.autoscript.core.perf.PerfMonitor
 import com.autoscript.core.project.PerfConfig
 import com.autoscript.core.project.ProjectAssets
 import com.autoscript.vision.color.ColorFinder

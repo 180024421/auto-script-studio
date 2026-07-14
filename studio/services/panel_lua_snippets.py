@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from typing import Any
 
 from studio.services.free_layout import is_free_mode
@@ -20,6 +22,35 @@ VALUE_WIDGET_TYPES = frozenset(
         "textarea",
     }
 )
+
+_LUA_IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def safe_lua_var(widget_id: str) -> str:
+    wid = str(widget_id or "").strip()
+    if _LUA_IDENT.match(wid):
+        return wid
+    return f"v_{wid.replace('-', '_')}"
+
+
+def _default_suffix(widget: dict[str, Any]) -> str:
+    wtype = str(widget.get("type", ""))
+    default = widget.get("default")
+    if wtype == "switch":
+        return ""
+    if wtype in ("select", "radio"):
+        opts = widget.get("options") or []
+        sample = str(default or (opts[0] if opts else ""))
+        return f' or "{sample}"'
+    if wtype == "stepper":
+        return f' or "{default or "1"}"'
+    if wtype in ("input", "textarea"):
+        return ' or ""'
+    if wtype == "multiselect":
+        return ' or ""'
+    if default is not None and str(default) != "":
+        return f' or "{default}"'
+    return ' or ""'
 
 
 def list_value_widgets(
@@ -203,3 +234,59 @@ def lua_all_values_for_layout(
         label = w.get("label") or wid
         lines.append(f'bot.log("{label}=" .. tostring(panel.get("{wid}")))')
     return "\n".join(lines)
+
+
+def lua_reads_block_for_layout(
+    layout: dict[str, Any], *, screen_index: int | None = None
+) -> str:
+    """生成带 local 变量与日志的完整读取块（适合插入 main.lua）。"""
+    widgets = list_value_widgets(layout, screen_index=screen_index)
+    if not widgets:
+        return lua_panel_example()
+
+    scope = "当前页签" if screen_index is not None else "全部页签"
+    lines = [f"-- 读取浮动面板（{scope}）"]
+    for w in widgets:
+        wid = w["id"]
+        var = safe_lua_var(wid)
+        lines.append(f'local {var} = panel.get("{wid}"){_default_suffix(w)}')
+
+    lines.append("")
+    for w in widgets:
+        label = w.get("label") or w["id"]
+        var = safe_lua_var(w["id"])
+        wtype = w.get("type", "")
+        if wtype == "switch":
+            lines.append(f'bot.log(string.format("{label}: %s", tostring({var})))')
+        elif wtype == "input" and w["id"] == "password":
+            lines.append(
+                f'bot.log(string.format("{label}: %s", {var} ~= "" and "******" or "(空)"))'
+            )
+        else:
+            lines.append(f'bot.log(string.format("{label}: %s", tostring({var})))')
+
+    for w in widgets:
+        if w.get("type") not in ("select", "radio"):
+            continue
+        opts = w.get("options") or []
+        if not opts:
+            continue
+        wid = w["id"]
+        var = safe_lua_var(wid)
+        lines.append("")
+        for i, opt in enumerate(opts[:3]):
+            branch = "if" if i == 0 else "elseif"
+            lines.append(f'{branch} panel.is("{wid}", "{opt}") then')
+            lines.append(f'  bot.log(">> {opt}模式")')
+        lines.append("end")
+        break
+
+    return "\n".join(lines)
+
+
+def lua_reads_for_widget_spec(spec: dict[str, Any]) -> str:
+    """单个控件的读取片段（含注释）。"""
+    wid = spec["id"]
+    label = spec.get("label") or wid
+    header = f"-- {label} ({wid})"
+    return header + "\n" + lua_read_snippet(spec)

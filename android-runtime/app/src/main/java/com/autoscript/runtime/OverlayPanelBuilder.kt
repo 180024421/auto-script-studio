@@ -2,6 +2,7 @@ package com.autoscript.runtime
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.text.Editable
 import android.text.InputType
@@ -13,6 +14,8 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -26,6 +29,7 @@ import com.autoscript.core.overlay.OverlayWidgetStore
 import com.autoscript.core.overlay.TabConfig
 import com.autoscript.core.overlay.WidgetConfig
 import com.autoscript.core.overlay.WidgetValidator
+import com.autoscript.core.project.ProjectAssets
 
 /**
  * 将 layout.json 控件渲染为 Android 视图（网格 + 标签页）。
@@ -347,8 +351,74 @@ class OverlayPanelBuilder(
             setBackgroundColor(0xFFCBD5E1.toInt())
             minimumHeight = dp(1)
         }
+        "section" -> buildSectionCard(cfg)
+        "image", "hero" -> buildImage(cfg)
         "tabs" -> buildTabs(cfg, cols, widgetPath)
         else -> makeActionButton(cfg)
+    }
+
+    private fun buildImage(cfg: WidgetConfig): View {
+        val wrap = FrameLayout(context)
+        val path = cfg.src.trim().ifBlank { "ui/hero.png" }
+        val iv = ImageView(context).apply {
+            scaleType = if (cfg.type == "hero") ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = true
+            contentDescription = cfg.label.ifBlank { cfg.text }.ifBlank { "图片" }
+        }
+        runCatching {
+            val bytes = ProjectAssets(context).readBytes(path)
+            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            if (bmp != null) iv.setImageBitmap(bmp)
+        }.onFailure {
+            iv.setBackgroundColor(theme.sectionBackground)
+        }
+        wrap.addView(
+            iv,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+        if (cfg.type == "hero" && (cfg.text.isNotBlank() || cfg.label.isNotBlank())) {
+            wrap.addView(
+                TextView(context).apply {
+                    text = cfg.text.ifBlank { cfg.label }
+                    setTextColor(android.graphics.Color.WHITE)
+                    textSize = textSp(13f)
+                    setPadding(padDp(12), padDp(8), padDp(12), padDp(8))
+                    setBackgroundColor(0x66000000)
+                    gravity = Gravity.BOTTOM or Gravity.START
+                },
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.BOTTOM,
+                ),
+            )
+        }
+        return wrap
+    }
+
+    private fun buildSectionCard(cfg: WidgetConfig): View {
+        val card = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = theme.sectionDrawable(padDp(12).toFloat())
+            setPadding(padDp(14), padDp(12), padDp(14), padDp(12))
+        }
+        val title = TextView(context).apply {
+            text = cfg.text.ifBlank { cfg.label }.ifBlank { "分组" }
+            textSize = textSp(14f)
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(theme.sectionTitle)
+        }
+        card.addView(
+            title,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        return card
     }
 
     private fun buildTextDisplay(cfg: WidgetConfig): TextView =
@@ -471,16 +541,34 @@ class OverlayPanelBuilder(
         return wrap
     }
 
+    private fun resolveButtonColor(cfg: WidgetConfig): String {
+        val style = cfg.buttonStyle.lowercase().trim()
+        val custom = cfg.color.takeIf { it.isNotBlank() && it != "#2563EB" }
+        return when (style) {
+            "danger" -> custom ?: "#DC2626"
+            "secondary" -> custom ?: "#64748B"
+            "primary" -> custom ?: "#2563EB"
+            else -> cfg.color.ifBlank { "#2563EB" }
+        }
+    }
+
     private fun makeActionButton(cfg: WidgetConfig): Button =
         Button(context).apply {
             text = actionButtonIcon(cfg)
             textSize = if (cfg.type == "start_script" || cfg.type == "collapse") textSp(18f) else textSp(12f)
-            setTextColor(theme.buttonTextColor(cfg.color))
+            val style = cfg.buttonStyle.lowercase().trim()
+            val colorHex = resolveButtonColor(cfg)
             isAllCaps = false
             stateListAnimator = null
             elevation = 0f
             minHeight = dp(40)
-            background = theme.buttonDrawable(cfg.color, dp(8).toFloat())
+            if (style == "secondary") {
+                background = theme.buttonOutlineDrawable(colorHex, dp(8).toFloat())
+                setTextColor(theme.parseButtonColor(colorHex))
+            } else {
+                background = theme.buttonDrawable(colorHex, dp(8).toFloat())
+                setTextColor(theme.buttonTextColor(colorHex))
+            }
             setPadding(padDp(4), padDp(4), padDp(4), padDp(4))
             isEnabled = !designMode
             contentDescription = cfg.label.ifBlank { cfg.type }
