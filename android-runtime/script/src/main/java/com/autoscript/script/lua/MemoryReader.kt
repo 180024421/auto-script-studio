@@ -297,6 +297,115 @@ object MemoryReader {
         return true
     }
 
+    private fun matchesMasked(buf: ByteArray, offset: Int, pattern: ByteArray, mask: ByteArray): Boolean {
+        if (offset + pattern.size > buf.size) return false
+        for (i in pattern.indices) {
+            if (mask[i] != 0.toByte() && buf[offset + i] != pattern[i]) return false
+        }
+        return true
+    }
+
+    /** 解析 `48 8B ?? 00` 为 pattern + mask（mask 0=通配）。 */
+    fun parseAob(patternText: String): Pair<ByteArray, ByteArray> {
+        val tokens = patternText.replace(",", " ").trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (tokens.isEmpty()) throw IllegalArgumentException("aob pattern empty")
+        val values = ByteArray(tokens.size)
+        val mask = ByteArray(tokens.size)
+        tokens.forEachIndexed { i, tok ->
+            when (tok) {
+                "?", "??" -> {
+                    values[i] = 0
+                    mask[i] = 0
+                }
+                else -> {
+                    values[i] = tok.toInt(16).toByte()
+                    mask[i] = 0xFF.toByte()
+                }
+            }
+        }
+        if (mask.all { it == 0.toByte() }) throw IllegalArgumentException("aob has no fixed bytes")
+        return values to mask
+    }
+
+    /**
+     * AOB 特征码扫描。
+     * @param moduleHint 非空时优先扫路径/名包含该串的映射（如 libil2cpp.so）
+     * @return 命中地址列表（特征码起点）
+     */
+    fun aobScan(
+        patternText: String,
+        moduleHint: String? = null,
+        maxHits: Int = 16,
+    ): List<Long> {
+        val (pattern, mask) = parseAob(patternText)
+        val plen = pattern.size
+        val regions = listAobRegions(moduleHint)
+        val hits = mutableListOf<Long>()
+        val mem = File("/proc/$targetPid/mem")
+        if (!mem.canRead()) throw IllegalStateException("cannot read /proc/$targetPid/mem (need root?)")
+
+        RandomAccessFile(mem, "r").use { raf ->
+            val chunk = ByteArray(1024 * 1024)
+            for (region in regions) {
+                if (hits.size >= maxHits) break
+                val size = region.end - region.start
+                if (size <= 0 || size > maxRegionBytes) continue
+                var addr = region.start
+                while (addr + plen <= region.end && hits.size < maxHits) {
+                    val toRead = minOf(chunk.size.toLong(), region.end - addr).toInt()
+                    if (toRead < plen) break
+                    try {
+                        raf.seek(addr)
+                        val n = raf.read(chunk, 0, toRead)
+                        if (n < plen) break
+                        var i = 0
+                        while (i + plen <= n && hits.size < maxHits) {
+                            if (matchesMasked(chunk, i, pattern, mask)) {
+                                hits.add(addr + i)
+                            }
+                            i++
+                        }
+                        val advance = (n - plen + 1).coerceAtLeast(1)
+                        addr += advance.toLong()
+                    } catch (_: Exception) {
+                        break
+                    }
+                }
+            }
+        }
+        return hits
+    }
+
+    /** AOB 扫描区域：有模块提示时扫匹配映射；否则扫可读映射（含 .so）。 */
+    fun listAobRegions(moduleHint: String? = null): List<Region> {
+        val maps = File("/proc/$targetPid/maps")
+        if (!maps.canRead()) return emptyList()
+        val needle = moduleHint?.trim()?.lowercase().orEmpty()
+        val out = mutableListOf<Region>()
+        maps.forEachLine { line ->
+            val parts = line.trim().split(Regex("\\s+"), limit = 6)
+            if (parts.size < 5) return@forEachLine
+            val perms = parts[1]
+            if (!perms.contains('r')) return@forEachLine
+            val range = parts[0].split("-")
+            if (range.size != 2) return@forEachLine
+            val start = range[0].toLongOrNull(16) ?: return@forEachLine
+            val end = range[1].toLongOrNull(16) ?: return@forEachLine
+            val path = parts.getOrElse(5) { "" }
+            if (needle.isNotEmpty()) {
+                val name = path.substringAfterLast('/')
+                if (!path.lowercase().contains(needle) && !name.lowercase().contains(needle)) {
+                    return@forEachLine
+                }
+            } else {
+                // 无提示：优先文件映射与堆，跳过超大纯匿名可另限
+                if (path.isBlank() && end - start > maxRegionBytes) return@forEachLine
+            }
+            out.add(Region(start, end, path))
+        }
+        return out
+    }
+
     fun listSearchRegions(): List<Region> {
         val maps = File("/proc/$targetPid/maps")
         if (!maps.canRead()) return emptyList()

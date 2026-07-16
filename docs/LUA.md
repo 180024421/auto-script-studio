@@ -57,6 +57,8 @@ lib/              # 可选 Lua 模块
 | `mem.candidates(key)` | 当前候选数量 |
 | `mem.clear(key?)` | 清除一个或全部会话 |
 | `mem.lock(key, address, type?)` | 手动锁定地址 |
+| `mem.aob_scan(pattern [, module] [, all])` | AOB 扫描；默认返回首个 `0x...`，`all=true` 返回地址表 |
+| `mem.read(address, type?)` | 按地址读类型值（配合 aob_scan） |
 | `mem.list_modules(refresh?)` | 模块基址表 |
 | `mem.read_chain` / `mem.load_bases` | 同 `bot.*` |
 

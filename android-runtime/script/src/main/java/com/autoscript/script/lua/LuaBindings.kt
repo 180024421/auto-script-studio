@@ -148,6 +148,37 @@ object LuaBindings {
                 return NONE
             }
         })
+        mem.set("aob_scan", object : VarArgFunction() {
+            override fun invoke(args: Varargs): Varargs {
+                val pattern = args.arg(1).checkjstring()
+                val module = if (args.narg() >= 2 && !args.arg(2).isnil()) args.arg(2).checkjstring() else null
+                val all = args.narg() >= 3 && args.arg(3).toboolean()
+                val hits = MemoryReader.aobScan(pattern, module?.ifBlank { null }, maxHits = if (all) 32 else 8)
+                if (hits.isEmpty()) return NIL
+                if (!all) {
+                    return LuaString.valueOf("0x${hits[0].toString(16)}")
+                }
+                val t = LuaTable()
+                hits.forEachIndexed { i, addr ->
+                    t.set(i + 1, LuaString.valueOf("0x${addr.toString(16)}"))
+                }
+                return t
+            }
+        })
+        mem.set("read", object : VarArgFunction() {
+            override fun invoke(args: Varargs): Varargs {
+                val addr = parseHexOrLong(args.arg(1))
+                val typ = if (args.narg() >= 2 && !args.arg(2).isnil()) args.arg(2).checkjstring() else "int32"
+                val value = MemoryReader.readTyped(addr, typ)
+                return when (value) {
+                    is Int -> LuaInteger.valueOf(value)
+                    is Long -> LuaInteger.valueOf(value)
+                    is Float -> LuaValue.valueOf(value.toDouble())
+                    is Double -> LuaValue.valueOf(value)
+                    else -> LuaString.valueOf(value.toString())
+                }
+            }
+        })
         globals.set("mem", mem)
         val panel = LuaTable()
         panel.set("get", object : OneArgFunction() {
