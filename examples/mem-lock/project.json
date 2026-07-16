@@ -1,0 +1,13 @@
+{
+  "name": "mem-lock",
+  "package_id": "com.autoscript.memlock",
+  "version_code": 1,
+  "version_name": "0.1.0",
+  "entry": "main.lua",
+  "script_language": "lua",
+  "description": "浮动面板会话内存搜值锁定示例（名称自填 + 应用选择 + 初搜/过滤）",
+  "runtime": {
+    "input_mode": "root",
+    "default_interval_ms": 300
+  }
+}

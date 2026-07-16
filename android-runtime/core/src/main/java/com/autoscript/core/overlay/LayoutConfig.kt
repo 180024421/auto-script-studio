@@ -65,6 +65,8 @@ data class WidgetConfig(
     val defaultStart: String = "",
     val defaultEnd: String = "",
     val options: List<String> = emptyList(),
+    /** select 专用：`launchable_apps` = 从已安装可启动应用填充下拉，存值为包名。 */
+    val optionsSource: String = "",
     val tabs: List<TabConfig> = emptyList(),
     val x: Int = 0,
     val y: Int = 0,
@@ -363,6 +365,7 @@ data class LayoutConfig(
                 defaultStart = obj.optString("default_start", ""),
                 defaultEnd = obj.optString("default_end", ""),
                 options = parseStringArray(obj.optJSONArray("options")),
+                optionsSource = obj.optString("options_source", ""),
                 tabs = tabs,
                 x = obj.optInt("x", 0),
                 y = obj.optInt("y", 0),

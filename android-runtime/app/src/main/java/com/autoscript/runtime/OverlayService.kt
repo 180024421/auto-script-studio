@@ -33,6 +33,8 @@ import com.autoscript.core.overlay.LayoutOverrideStore
 import com.autoscript.core.overlay.OverlayWidgetStore
 import com.autoscript.core.overlay.OverlayTheme
 import com.autoscript.core.overlay.PanelHeightResolver
+import com.autoscript.core.overlay.PanelReloadDispatcher
+import com.autoscript.core.overlay.PanelWidgetPreferences
 import com.autoscript.core.overlay.PanelWidthResolver
 import com.autoscript.core.overlay.WidgetConfig
 import com.autoscript.core.project.ProjectAssets
@@ -145,7 +147,10 @@ class OverlayService : Service() {
         super.onCreate()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         layoutConfig = loadLayout()
-        OverlayWidgetStore.seedFromLayout(layoutConfig)
+        attachPanelStore(layoutConfig)
+        PanelReloadDispatcher.reload = {
+            startService(Intent(this, OverlayService::class.java).apply { action = ACTION_RELOAD })
+        }
         startForeground(NOTIFICATION_ID, buildNotification("浮动面板运行中"))
         if (layoutConfig.enabled && layoutConfig.panel.showOnLaunch) {
             if (showOverlay()) {
@@ -165,7 +170,7 @@ class OverlayService : Service() {
                 removeOverlay()
                 layoutModeReset()
                 layoutConfig = loadLayout()
-                OverlayWidgetStore.seedFromLayout(layoutConfig)
+                attachPanelStore(layoutConfig)
                 if (layoutConfig.enabled) {
                     if (!showOverlay()) {
                         ScriptLog.w("重新加载后无法显示浮动面板")
@@ -195,6 +200,7 @@ class OverlayService : Service() {
         cancelIdleCollapse()
         removeOverlay()
         snippetJob?.cancel()
+        PanelReloadDispatcher.reload = null
         super.onDestroy()
     }
 
@@ -243,6 +249,11 @@ class OverlayService : Service() {
             ScriptLog.w("加载 layout.json 失败，使用默认布局")
             LayoutConfig.DEFAULT
         }
+    }
+
+    private fun attachPanelStore(layout: LayoutConfig) {
+        val projectId = runCatching { ProjectAssets(this).loadConfig().packageId }.getOrDefault("default")
+        PanelWidgetPreferences.attach(this, projectId, layout)
     }
 
     private fun screenWidthPx(): Int {

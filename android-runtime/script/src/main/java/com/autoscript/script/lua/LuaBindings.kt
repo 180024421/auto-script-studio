@@ -44,6 +44,22 @@ object LuaBindings {
         bot.set("set_memory_pid", SetMemoryPidFn())
         bot.set("set_pointer_size", SetPointerSizeFn())
         bot.set("openApp", OpenAppFn(bridge))
+        bot.set("listApps", object : OneArgFunction() {
+            override fun call(_arg: LuaValue): LuaValue {
+                val t = LuaTable()
+                bridge.listApps().forEachIndexed { i, app ->
+                    val row = LuaTable()
+                    row.set("label", LuaString.valueOf(app["label"].orEmpty()))
+                    row.set("package", LuaString.valueOf(app["package"].orEmpty()))
+                    t.set(i + 1, row)
+                }
+                return t
+            }
+        })
+        bot.set("reloadPanel", object : OneArgFunction() {
+            override fun call(_arg: LuaValue): LuaValue =
+                LuaValue.valueOf(bridge.reloadPanel())
+        })
         bot.set("toast", object : OneArgFunction() {
             override fun call(msg: LuaValue): LuaValue {
                 bridge.toast(msg.tojstring())
@@ -66,6 +82,70 @@ object LuaBindings {
                 val t = LuaTable()
                 mods.forEach { (k, v) -> t.set(k, LuaInteger.valueOf(v)) }
                 return t
+            }
+        })
+        mem.set("find_pid", object : OneArgFunction() {
+            override fun call(pkg: LuaValue): LuaValue =
+                LuaInteger.valueOf(MemoryReader.findPidByPackage(pkg.checkjstring()))
+        })
+        mem.set("search", object : VarArgFunction() {
+            override fun invoke(args: Varargs): Varargs {
+                val key = args.arg(1).checkjstring()
+                val value = args.arg(2).todouble()
+                val typ = if (args.narg() >= 3 && !args.arg(3).isnil()) args.arg(3).checkjstring() else "int32"
+                val n = MemoryReader.searchValue(key, value, typ)
+                return LuaInteger.valueOf(n)
+            }
+        })
+        mem.set("refine", object : TwoArgFunction() {
+            override fun call(key: LuaValue, newValue: LuaValue): LuaValue {
+                val (count, locked) = MemoryReader.refineValue(key.checkjstring(), newValue.todouble())
+                val t = LuaTable()
+                t.set("count", LuaInteger.valueOf(count))
+                t.set("locked", LuaValue.valueOf(locked))
+                val addr = MemoryReader.getLockedAddress(key.checkjstring())
+                if (addr != null) t.set("address", LuaString.valueOf("0x${addr.toString(16)}"))
+                return t
+            }
+        })
+        mem.set("get_address", object : OneArgFunction() {
+            override fun call(key: LuaValue): LuaValue {
+                val addr = MemoryReader.getLockedAddress(key.checkjstring()) ?: return NIL
+                return LuaString.valueOf("0x${addr.toString(16)}")
+            }
+        })
+        mem.set("candidates", object : OneArgFunction() {
+            override fun call(key: LuaValue): LuaValue =
+                LuaInteger.valueOf(MemoryReader.candidateCount(key.checkjstring()))
+        })
+        mem.set("read_cached", object : VarArgFunction() {
+            override fun invoke(args: Varargs): Varargs {
+                val key = args.arg(1).checkjstring()
+                val typ = if (args.narg() >= 2 && !args.arg(2).isnil()) args.arg(2).checkjstring() else null
+                val value = MemoryReader.readCached(key, typ)
+                return when (value) {
+                    is Int -> LuaInteger.valueOf(value)
+                    is Long -> LuaInteger.valueOf(value)
+                    is Float -> LuaValue.valueOf(value.toDouble())
+                    is Double -> LuaValue.valueOf(value)
+                    else -> LuaString.valueOf(value.toString())
+                }
+            }
+        })
+        mem.set("clear", object : VarArgFunction() {
+            override fun invoke(args: Varargs): Varargs {
+                val key = if (args.narg() >= 1 && !args.arg(1).isnil()) args.arg(1).checkjstring() else null
+                MemoryReader.clearSession(key)
+                return NONE
+            }
+        })
+        mem.set("lock", object : VarArgFunction() {
+            override fun invoke(args: Varargs): Varargs {
+                val key = args.arg(1).checkjstring()
+                val addr = parseHexOrLong(args.arg(2))
+                val typ = if (args.narg() >= 3 && !args.arg(3).isnil()) args.arg(3).checkjstring() else "int32"
+                MemoryReader.lockAddress(key, addr, typ)
+                return NONE
             }
         })
         globals.set("mem", mem)

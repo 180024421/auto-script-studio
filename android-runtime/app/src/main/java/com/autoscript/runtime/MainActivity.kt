@@ -32,6 +32,8 @@ import com.autoscript.core.license.LicenseVerifier
 import com.autoscript.core.overlay.LayoutConfig
 import com.autoscript.core.overlay.LayoutOverrideStore
 import com.autoscript.core.overlay.OverlayWidgetStore
+import com.autoscript.core.overlay.PanelReloadDispatcher
+import com.autoscript.core.overlay.PanelWidgetPreferences
 import com.autoscript.core.project.ProjectAssets
 import com.autoscript.core.project.SchedulePreferences
 import com.autoscript.core.project.WifiLeavePreferences
@@ -103,7 +105,7 @@ class MainActivity : AppCompatActivity() {
         btnPickWifiEarliest = findViewById(R.id.btnPickWifiEarliest)
 
         layoutConfig = loadLayoutConfig()
-        OverlayWidgetStore.seedFromLayout(layoutConfig)
+        attachPanelStore(layoutConfig)
         OverlayWidgetStore.addChangeListener(remindLayoutListener)
         setupHostPanel()
         setupScheduleUi()
@@ -356,9 +358,14 @@ class MainActivity : AppCompatActivity() {
         return result.config
     }
 
+    private fun attachPanelStore(layout: LayoutConfig) {
+        val projectId = runCatching { ProjectAssets(this).loadConfig().packageId }.getOrDefault("default")
+        PanelWidgetPreferences.attach(this, projectId, layout)
+    }
+
     private fun reloadLayoutUi() {
         layoutConfig = loadLayoutConfig()
-        OverlayWidgetStore.seedFromLayout(layoutConfig)
+        attachPanelStore(layoutConfig)
         setupHostPanel()
         startService(Intent(this, OverlayService::class.java).apply {
             action = OverlayService.ACTION_RELOAD
@@ -486,7 +493,7 @@ class MainActivity : AppCompatActivity() {
         val latest = loadLayoutConfig()
         if (latest != layoutConfig) {
             layoutConfig = latest
-            OverlayWidgetStore.seedFromLayout(layoutConfig)
+            attachPanelStore(layoutConfig)
             setupHostPanel()
         }
         refreshStatus()

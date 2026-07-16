@@ -36,6 +36,31 @@ lib/              # 可选 Lua 模块
 | `bot.log(msg)` | 写日志 |
 | `bot.toast(msg)` | Toast 提醒（真机） |
 | `bot.openApp(packageName)` | 按包名打开应用（如钉钉 `com.alibaba.android.rimet`），无需 root |
+| `bot.listApps()` | 可启动应用列表，每项 `{label, package}` |
+| `bot.reloadPanel()` | 刷新浮动面板（更新应用下拉等） |
+| `bot.read_chain(module, offset, offsets, type?)` | 按模块+偏移链读内存（需 root） |
+| `bot.load_bases(jsonPath)` | 加载 ce-base SCC JSON，返回可调用读数表 |
+| `bot.set_memory_pid(pid)` | 设置读内存目标 PID |
+| `bot.set_pointer_size(4\|8)` | 指针宽度 |
+
+### 内存会话搜值（全局 `mem`，需 root）
+
+用于「无稳定基址」时：按画面值搜索 → 变数过滤 → 本局锁定地址。
+
+| 函数 | 说明 |
+|------|------|
+| `mem.find_pid(package)` | 按包名找 PID |
+| `mem.search(key, value, type?)` | 精确搜值，返回候选数；`type` 默认 `int32`，可选 `float`/`int64` |
+| `mem.refine(key, newValue)` | 在候选上过滤；返回 `{count, locked, address?}` |
+| `mem.read_cached(key, type?)` | 读已锁定地址 |
+| `mem.get_address(key)` | 返回 `0x...` 或 nil |
+| `mem.candidates(key)` | 当前候选数量 |
+| `mem.clear(key?)` | 清除一个或全部会话 |
+| `mem.lock(key, address, type?)` | 手动锁定地址 |
+| `mem.list_modules(refresh?)` | 模块基址表 |
+| `mem.read_chain` / `mem.load_bases` | 同 `bot.*` |
+
+示例工程：`examples/mem-lock`（浮动面板 3 槽位，名称自填）。
 
 ### opts 常用字段
 

@@ -4,6 +4,11 @@ object OverlayWidgetStore {
 
     private val values = linkedMapOf<String, String>()
     private val changeListeners = mutableListOf<(String, String) -> Unit>()
+    private var persistHook: ((String, String) -> Unit)? = null
+
+    fun setPersistHook(hook: ((String, String) -> Unit)?) {
+        persistHook = hook
+    }
 
     fun reset(defaults: Map<String, String>) {
         values.clear()
@@ -16,6 +21,7 @@ object OverlayWidgetStore {
         val old = values[id]
         values[id] = value
         if (old != value) {
+            persistHook?.invoke(id, value)
             changeListeners.toList().forEach { it(id, value) }
         }
     }
@@ -57,7 +63,7 @@ object OverlayWidgetStore {
         return "" to ""
     }
 
-    fun seedFromLayout(layout: LayoutConfig) {
+    fun seedFromLayout(layout: LayoutConfig, savedValues: Map<String, String> = emptyMap()) {
         val defaults = linkedMapOf<String, String>()
         for (w in layout.flattenWidgets()) {
             if (w.id.isBlank()) continue
@@ -77,6 +83,11 @@ object OverlayWidgetStore {
             }
         }
         reset(defaults)
+        savedValues.forEach { (id, value) ->
+            if (defaults.containsKey(id) && value.isNotBlank()) {
+                values[id] = value
+            }
+        }
     }
 
     @Deprecated("Use seedFromLayout", ReplaceWith("seedFromLayout(layout)"))

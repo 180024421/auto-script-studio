@@ -23,6 +23,7 @@ import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import com.autoscript.core.overlay.LaunchableApps
 import com.autoscript.core.overlay.OverlayTabButton
 import com.autoscript.core.overlay.OverlayTheme
 import com.autoscript.core.overlay.OverlayWidgetStore
@@ -162,20 +163,7 @@ class OverlayPanelBuilder(
             group
         }
         "select" -> fieldWrap(cfg) {
-            Spinner(context).apply {
-                val opts = cfg.options.ifEmpty { listOf("选项1", "选项2") }
-                adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, opts)
-                val current = OverlayWidgetStore.get(cfg.id).ifBlank { cfg.default }
-                val idx = opts.indexOf(current).coerceAtLeast(0)
-                setSelection(idx)
-                isEnabled = !designMode
-                onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                    override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                        OverlayWidgetStore.set(cfg.id, opts[position])
-                    }
-                    override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-                }
-            }
+            buildSelectSpinner(cfg)
         }
         "multiselect" -> fieldWrap(cfg) {
             val wrap = LinearLayout(context).apply {
@@ -451,6 +439,42 @@ class OverlayPanelBuilder(
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
         }
+
+    private fun buildSelectSpinner(cfg: WidgetConfig): Spinner {
+        val appEntries = if (cfg.optionsSource.equals("launchable_apps", ignoreCase = true)) {
+            LaunchableApps.list(context)
+        } else {
+            null
+        }
+        val displayOpts = if (appEntries != null) {
+            appEntries.map { it.displayLabel() }
+        } else {
+            cfg.options.ifEmpty { listOf("选项1", "选项2") }
+        }
+        return Spinner(context).apply {
+            adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, displayOpts)
+            val current = OverlayWidgetStore.get(cfg.id).ifBlank { cfg.default }
+            val idx = if (appEntries != null) {
+                appEntries.indexOfFirst { it.packageName == current }.let { if (it >= 0) it else 0 }
+            } else {
+                displayOpts.indexOf(current).coerceAtLeast(0)
+            }
+            setSelection(idx)
+            isEnabled = !designMode
+            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    val value = if (appEntries != null) {
+                        appEntries.getOrNull(position)?.packageName.orEmpty()
+                    } else {
+                        displayOpts.getOrNull(position).orEmpty()
+                    }
+                    OverlayWidgetStore.set(cfg.id, value)
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+        }
+    }
 
     private fun fieldWrap(cfg: WidgetConfig, child: () -> View): LinearLayout =
         LinearLayout(context).apply {

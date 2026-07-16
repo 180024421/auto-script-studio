@@ -81,7 +81,7 @@ JSON Schema：`schemas/layout.schema.json`
 | `image` | 静态图 | `src`（相对工程路径）, `layout_*` |
 | `hero` | 轻量 banner | `src`, `text`（叠加文案）, `layout_*` |
 | `input` | 输入框 | `label`, `placeholder`, `default`, `id`, `required`, `min`, `max` |
-| `select` | 下拉 | `label`, `options[]`, `default`, `id` |
+| `select` | 下拉 | `label`, `options[]`, `default`, `id`；`options_source: launchable_apps` 时自动填充已安装应用（存包名） |
 | `radio` | 单选 | `label`, `options[]`, `default`, `id` |
 | `multiselect` | 多选 | `label`, `options[]`, `default`(逗号分隔), `id` |
 | `switch` | 开关 | `label`, `default`（true/false）, `id` |

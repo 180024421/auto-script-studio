@@ -1,0 +1,352 @@
+{
+  "version": 4,
+  "enabled": true,
+  "panel": {
+    "title": "内存会话锁定",
+    "theme": "green",
+    "layout_mode": "free",
+    "design_width": 720,
+    "design_height": 1400,
+    "active_screen": 0,
+    "width_mode": "auto",
+    "width_dp": 360,
+    "height_mode": "wrap",
+    "display_mode": "overlay",
+    "show_on_launch": true,
+    "opacity": 0.94,
+    "position": "left_center",
+    "columns": 2,
+    "ball_size_dp": 40,
+    "show_log": true,
+    "log_height_dp": 120,
+    "draggable": true,
+    "collapsible": true,
+    "allow_design": true,
+    "start_confirm_collapse": false
+  },
+  "screens": [
+    {
+      "title": "锁定",
+      "widgets": [
+        {
+          "id": "hint",
+          "type": "text",
+          "text": "名称自填。先选目标应用（只需选一次会记住），再初搜→变数→过滤锁定。需 Root。",
+          "text_style": "hint",
+          "layout_x": 16,
+          "layout_y": 12,
+          "layout_w": 688,
+          "layout_h": 48
+        },
+        {
+          "id": "game_pkg",
+          "type": "select",
+          "label": "目标应用",
+          "default": "",
+          "options_source": "launchable_apps",
+          "layout_x": 16,
+          "layout_y": 68,
+          "layout_w": 440,
+          "layout_h": 56
+        },
+        {
+          "id": "btn_refresh_apps",
+          "type": "lua",
+          "label": "刷新",
+          "lua": "require('mem_slots').refresh_apps()",
+          "layout_x": 472,
+          "layout_y": 68,
+          "layout_w": 100,
+          "layout_h": 56
+        },
+        {
+          "id": "pointer_size",
+          "type": "select",
+          "label": "指针宽",
+          "default": "8",
+          "options": ["8", "4"],
+          "layout_x": 584,
+          "layout_y": 68,
+          "layout_w": 120,
+          "layout_h": 56
+        },
+        {
+          "id": "sec1",
+          "type": "section",
+          "text": "槽位 1",
+          "layout_x": 16,
+          "layout_y": 140,
+          "layout_w": 688,
+          "layout_h": 320
+        },
+        {
+          "id": "mem_name_1",
+          "type": "input",
+          "label": "名称",
+          "placeholder": "如 gold",
+          "layout_x": 40,
+          "layout_y": 188,
+          "layout_w": 300,
+          "layout_h": 52
+        },
+        {
+          "id": "mem_type_1",
+          "type": "select",
+          "label": "类型",
+          "default": "int32",
+          "options": ["int32", "float", "int64"],
+          "layout_x": 360,
+          "layout_y": 188,
+          "layout_w": 320,
+          "layout_h": 52
+        },
+        {
+          "id": "mem_v1_1",
+          "type": "input",
+          "label": "当前值",
+          "placeholder": "画面上的数",
+          "layout_x": 40,
+          "layout_y": 252,
+          "layout_w": 300,
+          "layout_h": 52
+        },
+        {
+          "id": "mem_v2_1",
+          "type": "input",
+          "label": "新值",
+          "placeholder": "变化后",
+          "layout_x": 360,
+          "layout_y": 252,
+          "layout_w": 320,
+          "layout_h": 52
+        },
+        {
+          "id": "mem_status_1",
+          "type": "text",
+          "text": "未搜索",
+          "text_style": "hint",
+          "layout_x": 40,
+          "layout_y": 312,
+          "layout_w": 640,
+          "layout_h": 32
+        },
+        {
+          "id": "btn_s1",
+          "type": "lua",
+          "label": "初搜",
+          "lua": "require('mem_slots').search_slot(1)",
+          "layout_x": 40,
+          "layout_y": 352,
+          "layout_w": 200,
+          "layout_h": 48
+        },
+        {
+          "id": "btn_r1",
+          "type": "lua",
+          "label": "过滤锁定",
+          "lua": "require('mem_slots').refine_slot(1)",
+          "layout_x": 260,
+          "layout_y": 352,
+          "layout_w": 220,
+          "layout_h": 48
+        },
+        {
+          "id": "btn_c1",
+          "type": "lua",
+          "label": "清除",
+          "lua": "require('mem_slots').clear_slot(1)",
+          "layout_x": 500,
+          "layout_y": 352,
+          "layout_w": 180,
+          "layout_h": 48
+        },
+        {
+          "id": "sec2",
+          "type": "section",
+          "text": "槽位 2",
+          "layout_x": 16,
+          "layout_y": 480,
+          "layout_w": 688,
+          "layout_h": 320
+        },
+        {
+          "id": "mem_name_2",
+          "type": "input",
+          "label": "名称",
+          "placeholder": "如 silver",
+          "layout_x": 40,
+          "layout_y": 528,
+          "layout_w": 300,
+          "layout_h": 52
+        },
+        {
+          "id": "mem_type_2",
+          "type": "select",
+          "label": "类型",
+          "default": "int32",
+          "options": ["int32", "float", "int64"],
+          "layout_x": 360,
+          "layout_y": 528,
+          "layout_w": 320,
+          "layout_h": 52
+        },
+        {
+          "id": "mem_v1_2",
+          "type": "input",
+          "label": "当前值",
+          "layout_x": 40,
+          "layout_y": 592,
+          "layout_w": 300,
+          "layout_h": 52
+        },
+        {
+          "id": "mem_v2_2",
+          "type": "input",
+          "label": "新值",
+          "layout_x": 360,
+          "layout_y": 592,
+          "layout_w": 320,
+          "layout_h": 52
+        },
+        {
+          "id": "mem_status_2",
+          "type": "text",
+          "text": "未搜索",
+          "text_style": "hint",
+          "layout_x": 40,
+          "layout_y": 652,
+          "layout_w": 640,
+          "layout_h": 32
+        },
+        {
+          "id": "btn_s2",
+          "type": "lua",
+          "label": "初搜",
+          "lua": "require('mem_slots').search_slot(2)",
+          "layout_x": 40,
+          "layout_y": 692,
+          "layout_w": 200,
+          "layout_h": 48
+        },
+        {
+          "id": "btn_r2",
+          "type": "lua",
+          "label": "过滤锁定",
+          "lua": "require('mem_slots').refine_slot(2)",
+          "layout_x": 260,
+          "layout_y": 692,
+          "layout_w": 220,
+          "layout_h": 48
+        },
+        {
+          "id": "btn_c2",
+          "type": "lua",
+          "label": "清除",
+          "lua": "require('mem_slots').clear_slot(2)",
+          "layout_x": 500,
+          "layout_y": 692,
+          "layout_w": 180,
+          "layout_h": 48
+        },
+        {
+          "id": "sec3",
+          "type": "section",
+          "text": "槽位 3",
+          "layout_x": 16,
+          "layout_y": 820,
+          "layout_w": 688,
+          "layout_h": 320
+        },
+        {
+          "id": "mem_name_3",
+          "type": "input",
+          "label": "名称",
+          "placeholder": "如 gem",
+          "layout_x": 40,
+          "layout_y": 868,
+          "layout_w": 300,
+          "layout_h": 52
+        },
+        {
+          "id": "mem_type_3",
+          "type": "select",
+          "label": "类型",
+          "default": "int32",
+          "options": ["int32", "float", "int64"],
+          "layout_x": 360,
+          "layout_y": 868,
+          "layout_w": 320,
+          "layout_h": 52
+        },
+        {
+          "id": "mem_v1_3",
+          "type": "input",
+          "label": "当前值",
+          "layout_x": 40,
+          "layout_y": 932,
+          "layout_w": 300,
+          "layout_h": 52
+        },
+        {
+          "id": "mem_v2_3",
+          "type": "input",
+          "label": "新值",
+          "layout_x": 360,
+          "layout_y": 932,
+          "layout_w": 320,
+          "layout_h": 52
+        },
+        {
+          "id": "mem_status_3",
+          "type": "text",
+          "text": "未搜索",
+          "text_style": "hint",
+          "layout_x": 40,
+          "layout_y": 992,
+          "layout_w": 640,
+          "layout_h": 32
+        },
+        {
+          "id": "btn_s3",
+          "type": "lua",
+          "label": "初搜",
+          "lua": "require('mem_slots').search_slot(3)",
+          "layout_x": 40,
+          "layout_y": 1032,
+          "layout_w": 200,
+          "layout_h": 48
+        },
+        {
+          "id": "btn_r3",
+          "type": "lua",
+          "label": "过滤锁定",
+          "lua": "require('mem_slots').refine_slot(3)",
+          "layout_x": 260,
+          "layout_y": 1032,
+          "layout_w": 220,
+          "layout_h": 48
+        },
+        {
+          "id": "btn_c3",
+          "type": "lua",
+          "label": "清除",
+          "lua": "require('mem_slots').clear_slot(3)",
+          "layout_x": 500,
+          "layout_y": 1032,
+          "layout_w": 180,
+          "layout_h": 48
+        },
+        {
+          "id": "start",
+          "type": "start_script",
+          "label": "开始读数循环",
+          "layout_x": 16,
+          "layout_y": 1180,
+          "layout_w": 688,
+          "layout_h": 56
+        }
+      ]
+    }
+  ],
+  "widgets": []
+}

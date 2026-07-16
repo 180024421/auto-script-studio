@@ -8,6 +8,8 @@ import android.widget.Toast
 import com.autoscript.core.accessibility.AccessibilityFinder
 import com.autoscript.core.backend.AutomationBackend
 import com.autoscript.core.capture.CaptureCache
+import com.autoscript.core.overlay.LaunchableApps
+import com.autoscript.core.overlay.PanelReloadDispatcher
 import com.autoscript.core.perf.PerfMonitor
 import com.autoscript.core.model.Detection
 import com.autoscript.core.model.Rect
@@ -59,6 +61,17 @@ class AutoScriptBridge(
             false
         }
     }
+
+    /** 已安装可启动应用列表（label + package），不含占位项。 */
+    fun listApps(): List<Map<String, String>> {
+        val ctx = appContext ?: return emptyList()
+        return LaunchableApps.list(ctx, includePlaceholder = false).map {
+            mapOf("label" to it.displayLabel(), "package" to it.packageName)
+        }
+    }
+
+    /** 刷新浮动面板（如应用下拉列表）。 */
+    fun reloadPanel(): Boolean = PanelReloadDispatcher.requestReload()
 
     /** 弹出 Toast 提醒（真机）。 */
     fun toast(message: String) {
