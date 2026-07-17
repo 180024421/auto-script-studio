@@ -62,7 +62,7 @@
 
 ## PC Studio 功能
 
-启动：`.\start.cmd` 或 `python -m studio`
+启动：`.\start.cmd`（增量装依赖）或 `.\run-studio.cmd` / `python -m studio.main`
 
 ### 1. 工程页
 
@@ -165,23 +165,26 @@ PC 与设备实现不同，但 **`bot.*` API 语义一致**，联调通过的脚
 
 ## 快速开始
 
-详见 **[5 分钟上手](docs/getting-started.md)**。
+详见 **[5 分钟上手](docs/getting-started.md)**（路径 A 仅联调 / 路径 B 出 APK）。
 
 ```powershell
 cd auto-script-studio
-.\start.cmd
+.\start.cmd                 # 首次装依赖；之后依赖未变会跳过
+# 或日常直接：
+.\run-studio.cmd
 ```
 
-1. 工程页 → **打开** `examples/demo-game`
+1. 工程页 → **试玩示例** 或打开 `examples/demo-game`
 2. 抓抓页 → ADB 连接设备 → 截图取色
 3. 浮动面板页 → 预览/编辑布局
 4. 脚本页 → 编辑 `main.lua` → PC 运行测试
-5. 工程页 → **打包安装** → 设备授权无障碍与悬浮窗 → 运行
+5. 工程页 → **打包并安装**（可勾选快速重打包）→ 授权无障碍与悬浮窗
+6. 改脚本后可用 **推送到设备（热替换）** 跳过完整 Gradle
 
 ### 命令行打包
 
 ```powershell
-python -m packager.packager_cli build examples/demo-game -o dist/demo-game.apk
+python -m packager.packager_cli build examples/demo-game -o dist/demo-game.apk --no-clean
 ```
 
 需 JDK 17 + Android SDK，详见 [打包指南](docs/pack-guide.md)。
@@ -220,7 +223,7 @@ python -m pytest tests/ -q
 
 ## 技术栈
 
-- **PC**：Python 3.11+、PySide6、OpenCV、可选 PaddleOCR / Ultralytics
+- **PC**：Python 3.10+（推荐 3.11）、PySide6、OpenCV、可选 PaddleOCR / Ultralytics
 - **Android**：Kotlin、LuaJ、ONNX Runtime、ML Kit、AccessibilityService
 - **构建**：Gradle (AGP)、JDK 17
 

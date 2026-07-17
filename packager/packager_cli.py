@@ -68,16 +68,21 @@ def sync_assets(project_dir: Path) -> None:
         cleanup_staging(staging)
 
 
-def run_gradle(release: bool) -> Path:
+def run_gradle(release: bool, *, clean: bool = True) -> Path:
     if not GRADLEW.is_file():
         raise FileNotFoundError(
             f"未找到 gradlew.bat，请在 {RUNTIME} 执行 gradle wrapper 或安装 Android Studio"
         )
     task = "assembleRelease" if release else "assembleDebug"
-    clean_cmd = [str(GRADLEW), ":app:clean", "--no-daemon"]
-    print("执行:", " ".join(clean_cmd))
-    subprocess.run(clean_cmd, cwd=RUNTIME, check=True)
-    cmd = [str(GRADLEW), f":app:{task}", "--no-daemon"]
+    if clean:
+        clean_cmd = [str(GRADLEW), ":app:clean", "--no-daemon"]
+        print("执行:", " ".join(clean_cmd))
+        subprocess.run(clean_cmd, cwd=RUNTIME, check=True)
+    else:
+        print("跳过 :app:clean（快速重打包）")
+    # 日常迭代保留 Gradle daemon，加快二次构建
+    daemon_flag = [] if not clean else ["--no-daemon"]
+    cmd = [str(GRADLEW), f":app:{task}", *daemon_flag]
     print("执行:", " ".join(cmd))
     subprocess.run(cmd, cwd=RUNTIME, check=True)
     variant = "release" if release else "debug"
@@ -92,12 +97,14 @@ def build(
     output: Path,
     release: bool = False,
     signing: dict | None = None,
+    *,
+    clean: bool = True,
 ) -> Path:
     validate_project(project_dir)
     sync_assets(project_dir)
     cfg = read_project_cfg(project_dir)
     write_gradle_props(cfg, PROPS, signing if release else None)
-    apk = run_gradle(release)
+    apk = run_gradle(release, clean=clean)
     _verify_packaged_layout(project_dir, apk)
     output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -122,6 +129,11 @@ def main(argv: list[str] | None = None) -> int:
     p_build.add_argument("project", type=Path, help="脚本工程目录")
     p_build.add_argument("-o", "--output", type=Path, required=True, help="输出 APK 路径")
     p_build.add_argument("--release", action="store_true", help="Release 构建")
+    p_build.add_argument(
+        "--no-clean",
+        action="store_true",
+        help="跳过 Gradle :app:clean（日常快速重打包；Release 建议仍 clean）",
+    )
     p_build.add_argument("--keystore", type=Path, help="Release 签名 keystore 路径")
     p_build.add_argument("--ks-pass", type=str, default="", help="keystore 密码")
     p_build.add_argument("--key-alias", type=str, default="", help="密钥别名")
@@ -164,7 +176,13 @@ def main(argv: list[str] | None = None) -> int:
                 "key_alias": args.key_alias,
                 "key_pass": args.key_pass or args.ks_pass,
             }
-        build(args.project, args.output, release=args.release, signing=signing)
+        build(
+            args.project,
+            args.output,
+            release=args.release,
+            signing=signing,
+            clean=not args.no_clean,
+        )
         return 0
     if args.cmd == "publish-update":
         from packager.publish_update import build_update_zip, publish_for_scc, publish_to_jiaoben

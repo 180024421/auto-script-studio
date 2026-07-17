@@ -78,6 +78,8 @@ from studio.ui.permissions_checklist_dialog import (
     ask_open_grab_after_install,
     show_permissions_checklist,
 )
+from studio.ui.pack_env_dialog import ensure_pack_environment
+from studio.services.push_overlay import push_project_overlay
 
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / "studio" / "resources" / "project-template"
@@ -228,6 +230,18 @@ class MainWindow(QMainWindow):
         left_lay.addWidget(install_btn)
         self._pack_action_buttons.append(install_btn)
 
+        self.pack_fast_cb = QCheckBox("快速重打包（跳过 clean）")
+        self.pack_fast_cb.setChecked(True)
+        self.pack_fast_cb.setToolTip("日常改脚本/资源推荐勾选；正式 Release 或异常构建时请取消")
+        left_lay.addWidget(self.pack_fast_cb)
+
+        push_btn = QPushButton("推送到设备（热替换）")
+        set_button_role(push_btn, "accent")
+        push_btn.setToolTip("将工程推到已安装 debug APK 的 project_overlay，无需 Gradle")
+        push_btn.clicked.connect(self.push_overlay_to_device)
+        left_lay.addWidget(push_btn)
+        self._pack_action_buttons.append(push_btn)
+
         self._project_build_more_btn = QPushButton("▸ 更多构建选项")
         set_button_role(self._project_build_more_btn, "ghost")
         self._project_build_more_btn.clicked.connect(self._toggle_project_build_more)
@@ -254,7 +268,17 @@ class MainWindow(QMainWindow):
         left_lay.addWidget(self._project_build_more_wrap)
         self._project_build_more_expanded = False
 
-        left_lay.addWidget(section_title("打包应用信息"))
+        self._project_pack_adv_btn = QPushButton("▸ 应用信息与发布选项")
+        set_button_role(self._project_pack_adv_btn, "ghost")
+        self._project_pack_adv_btn.clicked.connect(self._toggle_project_pack_adv)
+        left_lay.addWidget(self._project_pack_adv_btn)
+
+        self._project_pack_adv_wrap = QWidget()
+        pack_adv_lay = QVBoxLayout(self._project_pack_adv_wrap)
+        pack_adv_lay.setContentsMargins(0, 0, 0, 0)
+        pack_adv_lay.setSpacing(8)
+
+        pack_adv_lay.addWidget(section_title("打包应用信息"))
         pack_form = QFormLayout()
         self.pack_name_edit = QLineEdit()
         self.pack_name_edit.setPlaceholderText("安装后显示的应用名称")
@@ -275,17 +299,20 @@ class MainWindow(QMainWindow):
         pack_form.addRow("应用图标", icon_wrap)
         pack_form_box = QWidget()
         pack_form_box.setLayout(pack_form)
-        left_lay.addWidget(pack_form_box)
+        pack_adv_lay.addWidget(pack_form_box)
 
-        self._project_pack_adv_btn = QPushButton("▸ 高级打包选项")
-        set_button_role(self._project_pack_adv_btn, "ghost")
-        self._project_pack_adv_btn.clicked.connect(self._toggle_project_pack_adv)
-        left_lay.addWidget(self._project_pack_adv_btn)
+        self.pack_icon_preview = QLabel()
+        self.pack_icon_preview.setFixedSize(56, 56)
+        self.pack_icon_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.pack_icon_preview.setStyleSheet(
+            "border:1px solid #CBD5E1;border-radius:8px;background:#F8FAFC;"
+        )
+        pack_adv_lay.addWidget(self.pack_icon_preview)
+        save_pack_btn = QPushButton("保存应用信息")
+        set_button_role(save_pack_btn, "ghost")
+        save_pack_btn.clicked.connect(lambda: self._save_pack_fields(show_ok=True))
+        pack_adv_lay.addWidget(save_pack_btn)
 
-        self._project_pack_adv_wrap = QWidget()
-        pack_adv_lay = QVBoxLayout(self._project_pack_adv_wrap)
-        pack_adv_lay.setContentsMargins(0, 0, 0, 0)
-        pack_adv_lay.setSpacing(8)
         pack_adv_form = QFormLayout()
         self.pack_project_combo = QComboBox()
         self.pack_project_combo.setEditable(True)
@@ -310,18 +337,6 @@ class MainWindow(QMainWindow):
         self._project_pack_adv_wrap.setVisible(False)
         left_lay.addWidget(self._project_pack_adv_wrap)
         self._project_pack_adv_expanded = False
-
-        self.pack_icon_preview = QLabel()
-        self.pack_icon_preview.setFixedSize(56, 56)
-        self.pack_icon_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.pack_icon_preview.setStyleSheet(
-            "border:1px solid #CBD5E1;border-radius:8px;background:#F8FAFC;"
-        )
-        left_lay.addWidget(self.pack_icon_preview)
-        save_pack_btn = QPushButton("保存应用信息")
-        set_button_role(save_pack_btn, "ghost")
-        save_pack_btn.clicked.connect(lambda: self._save_pack_fields(show_ok=True))
-        left_lay.addWidget(save_pack_btn)
 
         self.pack_icon_edit.textChanged.connect(self._refresh_pack_icon_preview)
 
@@ -705,7 +720,9 @@ class MainWindow(QMainWindow):
         self._project_pack_adv_expanded = not self._project_pack_adv_expanded
         self._project_pack_adv_wrap.setVisible(self._project_pack_adv_expanded)
         self._project_pack_adv_btn.setText(
-            "▾ 收起高级打包" if self._project_pack_adv_expanded else "▸ 高级打包选项"
+            "▾ 收起应用信息"
+            if self._project_pack_adv_expanded
+            else "▸ 应用信息与发布选项"
         )
 
     def open_demo_game(self, *, trial_run: bool = False) -> None:
@@ -903,6 +920,8 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "发版成功", f"已发布 v{manifest.get('version_code')}，版本号已同步到工程")
 
     def _run_pack_preflight(self) -> bool:
+        if not ensure_pack_environment(self, adb_path=self.adb.adb_path):
+            return False
         errors, warnings = validate_before_pack(self.project_dir)
         if not errors and not warnings:
             return True
@@ -929,6 +948,27 @@ class MainWindow(QMainWindow):
                 QMessageBox.StandardButton.Yes,
             )
         return ans == QMessageBox.StandardButton.Yes
+
+    def push_overlay_to_device(self) -> None:
+        if not self._require_project():
+            return
+        serial = self.grab._serial() or self.adb.default_serial()
+        if not serial:
+            QMessageBox.warning(self, "提示", "未检测到 ADB 设备，请先连接模拟器或真机")
+            return
+        self._save_all_before_build()
+        try:
+            msg = push_project_overlay(
+                self.project_dir,
+                adb_path=self.adb.adb_path,
+                serial=serial,
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "热替换失败", str(exc))
+            self.append(f"热替换失败: {exc}")
+            return
+        self.append(msg.replace("\n", " | "))
+        QMessageBox.information(self, "热替换成功", msg)
 
     def _load_pack_fields(self) -> None:
         if not self.project_dir or not (self.project_dir / "project.json").is_file():
@@ -1326,6 +1366,8 @@ class MainWindow(QMainWindow):
             "-o",
             str(self._pack_apk_out),
         ]
+        if getattr(self, "pack_fast_cb", None) is not None and self.pack_fast_cb.isChecked():
+            cmd.append("--no-clean")
         self._set_pack_busy(True, "正在打包 APK（可继续编辑，输出见下方日志）…")
         self.append("$ " + " ".join(cmd))
         if not self._async_cmd.start(sys.executable, cmd[1:], cwd=str(ROOT)):
@@ -1397,7 +1439,12 @@ class MainWindow(QMainWindow):
                 summary.get("layout_message", "APK 内 layout 与工程不一致"),
             )
         if installed:
-            show_permissions_checklist(self)
+            show_permissions_checklist(
+                self,
+                adb_path=self.adb.adb_path,
+                serial=str(self._pack_serial or "") or None,
+                package_id=str(self._pack_package_id or ""),
+            )
         if dlg.want_open_grab():
             self._open_grab_tab()
         elif installed and ask_open_grab_after_install(self):

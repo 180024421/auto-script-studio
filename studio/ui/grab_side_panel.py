@@ -89,6 +89,28 @@ class GrabSidePanel(QWidget):
         self._simple_mode = True
         self.set_simple_mode(True)
 
+    @staticmethod
+    def _ocr_status_text() -> str:
+        try:
+            import importlib.util
+
+            if importlib.util.find_spec("paddleocr") is None:
+                return "未安装 PaddleOCR：pip install paddleocr paddlepaddle（识字测试将失败）"
+            return "PaddleOCR 已安装"
+        except Exception:
+            return "未安装 PaddleOCR：pip install paddleocr paddlepaddle"
+
+    @staticmethod
+    def _yolo_status_text() -> str:
+        try:
+            import importlib.util
+
+            if importlib.util.find_spec("ultralytics") is None:
+                return "未安装 ultralytics：pip install ultralytics（YOLO 检测将失败）"
+            return "ultralytics 已安装"
+        except Exception:
+            return "未安装 ultralytics：pip install ultralytics"
+
     def set_simple_mode(self, enabled: bool) -> None:
         """简易模式：只保留「颜色」「找图识字」，隐藏 YOLO / 坐标取点。"""
         self._simple_mode = enabled
@@ -237,6 +259,9 @@ class GrabSidePanel(QWidget):
         self.ocr_mode_combo.addItem("包含匹配", "contains")
         self.ocr_mode_combo.addItem("完全匹配", "exact")
         lay.addWidget(self.ocr_mode_combo)
+        ocr_hint = hint_label(self._ocr_status_text())
+        lay.addWidget(ocr_hint)
+        self._ocr_hint_label = ocr_hint
 
         lay.addWidget(section_title("测试"))
         self._stack_buttons(
@@ -300,6 +325,7 @@ class GrabSidePanel(QWidget):
         self.yolo_class_combo.setPlaceholderText("留空=全部类别")
         lay.addWidget(self.yolo_class_combo)
         lay.addWidget(hint_label("需 models/*.labels 或 .pt；可先点「YOLO 检测」从截图识别类别"))
+        lay.addWidget(hint_label(self._yolo_status_text()))
 
         lay.addWidget(section_title("检测参数"))
         yolo_form = QFormLayout()

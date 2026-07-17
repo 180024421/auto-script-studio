@@ -23,21 +23,23 @@
 ```powershell
 cd E:\xiangmu\auto-script-studio
 
-# 调试包（默认 debug 签名）
-python -m packager.packager_cli build examples/demo-game -o dist/demo-game.apk
+# 调试包（默认 debug 签名；--no-clean 跳过 Gradle clean，加快迭代）
+python -m packager.packager_cli build examples/demo-game -o dist/demo-game.apk --no-clean
 
-# Release（需 keystore）
+# Release（需 keystore；建议完整 clean）
 python -m packager.packager_cli build examples/demo-game -o dist/demo-game.apk ^
   --release --keystore my.jks --ks-pass xxx --key-alias mykey
 ```
 
+Studio 工程页默认勾选「快速重打包（跳过 clean）」；正式发版请取消。改脚本后也可点「推送到设备（热替换）」写入 `files/project_overlay`（需 debug 安装包）。
+
 ## 打包流程
 
-1. 校验 `project.json` 与入口 yaml
+1. 校验 `project.json` 与入口 lua/yaml
 2. 处理图标：生成各密度 `mipmap/ic_launcher.png` + 透明猫咪 `ui/ball.png`（悬浮球）
 3. 清空并复制工程到 `android-runtime/app/src/main/assets/project/`
 4. 根据 `project.json` 写入 `packager/project.properties`（applicationId、version、label）
-5. 执行 `gradlew :app:assembleDebug` 或 `assembleRelease`
+5. 可选执行 `gradlew :app:clean`，再 `assembleDebug` / `assembleRelease`
 6. 复制 APK 到 `-o` 指定路径
 
 ## 安装到模拟器

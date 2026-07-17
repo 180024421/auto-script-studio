@@ -15,6 +15,15 @@ lib/              # 可选 Lua 模块
 
 ## API（全局 `bot` 或 `require("autoscript")`）
 
+### 能力矩阵（PC 联调 vs APK）
+
+| 能力 | PC 联调 | APK | 备注 |
+|------|---------|-----|------|
+| 触控 / 找图找色 / OCR / YOLO | ✓ | ✓ | OCR/YOLO 在 PC 需另装 paddleocr / ultralytics |
+| `bot.findNode` | 有限 | ✓ | PC 依赖 ADB 无障碍 dump，建议 `optional=true` |
+| `bot.listApps` / `bot.reloadPanel` | ✗ | ✓ | PC 调用会明确报错 |
+| `bot.read_chain` / `mem.*` | ✗ | ✓ + root | 内存读写仅设备端 |
+
 | 函数 | 说明 |
 |------|------|
 | `bot.delay(seconds)` | 等待 |

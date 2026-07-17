@@ -73,6 +73,24 @@ def install_bot(lua, bot) -> None:
     def open_app(package_name):
         return bool(bot.open_app(str(package_name)))
 
+    def list_apps():
+        raise RuntimeError("bot.listApps 仅 APK 可用（PC 联调不支持）")
+
+    def reload_panel():
+        raise RuntimeError("bot.reloadPanel 仅 APK 可用（PC 联调不支持）")
+
+    def read_chain(*_a, **_k):
+        raise RuntimeError("bot.read_chain 需 APK + root（PC 联调不支持）")
+
+    def load_bases(*_a, **_k):
+        raise RuntimeError("bot.load_bases 需 APK + root（PC 联调不支持）")
+
+    def set_memory_pid(*_a, **_k):
+        raise RuntimeError("bot.set_memory_pid 需 APK + root（PC 联调不支持）")
+
+    def set_pointer_size(*_a, **_k):
+        raise RuntimeError("bot.set_pointer_size 需 APK + root（PC 联调不支持）")
+
     bot_table = lua.table_from(
         {
             "delay": delay,
@@ -95,10 +113,40 @@ def install_bot(lua, bot) -> None:
             "openApp": open_app,
             "log": log,
             "__logRaw": log_raw,
+            "listApps": list_apps,
+            "reloadPanel": reload_panel,
+            "read_chain": read_chain,
+            "load_bases": load_bases,
+            "set_memory_pid": set_memory_pid,
+            "set_pointer_size": set_pointer_size,
         }
     )
     g = lua.globals()
     g["bot"] = bot_table
+
+    def _mem_unsupported(name: str):
+        def _fn(*_a, **_k):
+            raise RuntimeError(f"{name} 需 APK + root（PC 联调不支持）")
+
+        return _fn
+
+    g["mem"] = lua.table_from(
+        {
+            "find_pid": _mem_unsupported("mem.find_pid"),
+            "search": _mem_unsupported("mem.search"),
+            "refine": _mem_unsupported("mem.refine"),
+            "read_cached": _mem_unsupported("mem.read_cached"),
+            "get_address": _mem_unsupported("mem.get_address"),
+            "candidates": _mem_unsupported("mem.candidates"),
+            "clear": _mem_unsupported("mem.clear"),
+            "lock": _mem_unsupported("mem.lock"),
+            "aob_scan": _mem_unsupported("mem.aob_scan"),
+            "read": _mem_unsupported("mem.read"),
+            "list_modules": _mem_unsupported("mem.list_modules"),
+            "read_chain": _mem_unsupported("mem.read_chain"),
+            "load_bases": _mem_unsupported("mem.load_bases"),
+        }
+    )
 
     def panel_get(widget_id):
         return PanelState.get(str(widget_id))
