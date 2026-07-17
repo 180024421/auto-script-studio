@@ -9,7 +9,7 @@ project.json      # entry: "main.lua", script_language: "lua"
 main.lua          # 设备端执行的脚本
 ui/layout.json    # 浮动面板布局（按键精灵式，可选）
 image/            # 模板图
-models/           # YOLO .onnx + .labels
+models/           # YOLO .onnx + .labels；数字模型 digits.onnx + digits.labels + manifest.json
 lib/              # 可选 Lua 模块
 ```
 
@@ -35,6 +35,7 @@ lib/              # 可选 Lua 模块
 | `bot.findText(text, opts)` | OCR 识字定位 |
 | `bot.findNode(opts)` | 无障碍控件查找（`text` / `id`） |
 | `bot.recognizeText(opts)` | 全屏识字列表 |
+| `bot.recognizeDigits(opts)` | 游戏 HUD 数字 ONNX（见下方） |
 | `bot.yoloDetect(opts)` | YOLO 检测列表 |
 | `bot.findYolo(opts)` | 找 YOLO 目标并返回坐标 |
 | `bot.yoloSwipe(opts)` | 对 YOLO 目标滑动 |
@@ -121,6 +122,22 @@ local x, y = bot.findYolo({
 - 放置 `*.onnx`（APK 推理）及同名 `*.labels`（每行一个类别名）
 - PC Studio 脚本页「模型」Tab 可导入、编辑 labels、设默认模型（写入 `project.json` → `runtime.default_yolo_model`）
 - 从 `.pt` 导出：`python tools/export_yolo_onnx.py --pt best.pt --out models/ui`
+- **游戏数字模型**（[game-digit-trainer](https://github.com/180024421/game-digit-trainer) 导出）：
+  - `models/digits.onnx` + `digits.labels` + `manifest.json`
+  - `project.json` → `runtime.default_digit_model`（默认 `models/digits`）
+
+### `bot.recognizeDigits(opts)` — 游戏 HUD 数字
+
+```lua
+local r = bot.recognizeDigits({
+  roi = {100, 200, 180, 40},
+  model = "models/digits",      -- 可省略，用 default_digit_model
+  min_confidence = 0.85,
+  max_gap = 3,                  -- 切字间距，粘连调小
+})
+bot.log("金币=" .. r.text)
+-- r.confidence, r.chars[i].label / .confidence / .x .y .w .h
+```
 
 ## lib 模块
 

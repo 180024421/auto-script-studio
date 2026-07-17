@@ -52,6 +52,14 @@ def install_bot(lua, bot) -> None:
     def recognize_text(opts=None):
         return bot.recognize_text(table_to_dict(opts))
 
+    def recognize_digits(opts=None):
+        if hasattr(bot, "recognize_digits"):
+            return bot.recognize_digits(table_to_dict(opts))
+        raise RuntimeError(
+            "bot.recognizeDigits 需 Bot 实现 recognize_digits；"
+            "请将 game-digit-trainer 导出包放到工程 models/ 并更新 Studio"
+        )
+
     def yolo_detect(opts=None):
         return bot.yolo_detect(table_to_dict(opts))
 
@@ -102,6 +110,7 @@ def install_bot(lua, bot) -> None:
             "findText": find_text,
             "findNode": find_node,
             "recognizeText": recognize_text,
+            "recognizeDigits": recognize_digits,
             "yoloDetect": yolo_detect,
             "findYolo": find_yolo,
             "yoloSwipe": yolo_swipe,

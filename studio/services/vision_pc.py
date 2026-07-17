@@ -310,3 +310,141 @@ def _roi_bounds(img: np.ndarray, roi: Optional[Tuple[int, int, int, int]]) -> Tu
     x2 = min(w, x + rw)
     y2 = min(h, y + rh)
     return x1, y1, x2, y2
+
+
+def recognize_digits(
+    bgr: np.ndarray,
+    model_path: str,
+    *,
+    roi: Optional[Tuple[int, int, int, int]] = None,
+    min_confidence: float = 0.5,
+    max_gap: int = 3,
+) -> dict:
+    """游戏 HUD 数字 ONNX（与 APK DigitRecognizer / game-digit-trainer 契约一致）。"""
+    try:
+        import onnxruntime as ort  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError("recognizeDigits 需要 onnxruntime：pip install onnxruntime") from exc
+
+    x1, y1, x2, y2 = _roi_bounds(bgr, roi)
+    crop = bgr[y1:y2, x1:x2]
+    if crop.size == 0:
+        return {"text": "", "confidence": 0.0, "chars": []}
+
+    onnx_p = Path(model_path)
+    if onnx_p.suffix.lower() != ".onnx":
+        cand = Path(str(model_path) + ".onnx")
+        onnx_p = cand if cand.is_file() else onnx_p
+    if not onnx_p.is_file():
+        raise FileNotFoundError(f"数字模型不存在: {model_path}")
+
+    labels_p = onnx_p.with_suffix(".labels")
+    if labels_p.is_file():
+        labels = [ln.strip() for ln in labels_p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    else:
+        labels = [str(i) for i in range(10)]
+
+    manifest = {"width": 32, "height": 32, "invert": False, "binarize": "otsu"}
+    for mp in (onnx_p.with_name("manifest.json"), onnx_p.with_suffix(".manifest.json")):
+        if mp.is_file():
+            import json
+
+            data = json.loads(mp.read_text(encoding="utf-8"))
+            inp = data.get("input") or {}
+            prep = data.get("preprocess") or {}
+            manifest["width"] = int(inp.get("width") or data.get("input_width") or 32)
+            manifest["height"] = int(inp.get("height") or data.get("input_height") or 32)
+            manifest["invert"] = bool(prep.get("invert", False))
+            manifest["binarize"] = str(prep.get("binarize") or "otsu")
+            if data.get("classes"):
+                labels = list(data["classes"])
+            break
+
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    if manifest["binarize"] == "otsu":
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    elif manifest["binarize"] == "adaptive":
+        binary = cv2.adaptiveThreshold(
+            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 5
+        )
+    else:
+        binary = gray
+    if manifest["invert"]:
+        binary = 255 - binary
+    if float(np.mean(binary)) > 127:
+        binary = 255 - binary
+
+    # 投影切字
+    col = (binary > 0).sum(axis=0)
+    gaps: list[tuple[int, int]] = []
+    in_gap = False
+    start = 0
+    for i, v in enumerate(col):
+        if v == 0:
+            if not in_gap:
+                in_gap = True
+                start = i
+        elif in_gap:
+            gaps.append((start, i))
+            in_gap = False
+    if in_gap:
+        gaps.append((start, len(col)))
+    cuts = [0]
+    for a, b in gaps:
+        if b - a >= max_gap:
+            mid = (a + b) // 2
+            if mid > cuts[-1]:
+                cuts.append(mid)
+    cuts.append(len(col))
+    boxes: list[tuple[int, int, int, int]] = []
+    for i in range(len(cuts) - 1):
+        xa, xb = cuts[i], cuts[i + 1]
+        if xb - xa < 2:
+            continue
+        strip = binary[:, xa:xb]
+        rows = np.where(strip.max(axis=1) > 0)[0]
+        if len(rows) == 0:
+            continue
+        ya, yb = int(rows[0]), int(rows[-1]) + 1
+        boxes.append((xa, ya, xb - xa, yb - ya))
+    if not boxes:
+        boxes = [(0, 0, binary.shape[1], binary.shape[0])]
+
+    cache = getattr(recognize_digits, "_sess", {})
+    sess = cache.get(str(onnx_p))
+    if sess is None:
+        sess = ort.InferenceSession(str(onnx_p), providers=["CPUExecutionProvider"])
+        cache[str(onnx_p)] = sess
+        recognize_digits._sess = cache  # type: ignore[attr-defined]
+    in_name = sess.get_inputs()[0].name
+    tw, th = int(manifest["width"]), int(manifest["height"])
+
+    def _disp(lab: str) -> str:
+        return {"wan": "万", "yi": "亿", "comma": ",", "slash": "/", "percent": "%", "colon": ":"}.get(lab, lab)
+
+    chars: list[dict] = []
+    parts: list[str] = []
+    confs: list[float] = []
+    for bx, by, bw, bh in boxes:
+        patch = binary[by : by + bh, bx : bx + bw]
+        resized = cv2.resize(patch, (tw, th), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
+        tensor = resized.reshape(1, 1, th, tw)
+        logits = sess.run(None, {in_name: tensor})[0][0]
+        idx = int(np.argmax(logits))
+        exp = np.exp(logits - logits.max())
+        conf = float(exp[idx] / exp.sum())
+        lab = labels[idx] if idx < len(labels) else str(idx)
+        confs.append(conf)
+        chars.append(
+            {
+                "label": lab,
+                "confidence": conf,
+                "x": int(bx + x1),
+                "y": int(by + y1),
+                "w": int(bw),
+                "h": int(bh),
+            }
+        )
+        parts.append(_disp(lab) if conf >= min_confidence else "?")
+    mean = float(sum(confs) / len(confs)) if confs else 0.0
+    return {"text": "".join(parts), "confidence": mean, "chars": chars}

@@ -32,6 +32,7 @@ object LuaBindings {
         bot.set("findText", FindTextFn(bridge))
         bot.set("findNode", FindNodeFn(bridge))
         bot.set("recognizeText", RecognizeTextFn(bridge))
+        bot.set("recognizeDigits", RecognizeDigitsFn(bridge))
         bot.set("yoloDetect", YoloDetectFn(bridge))
         bot.set("findYolo", FindYoloFn(bridge))
         bot.set("yoloSwipe", YoloSwipeFn(bridge))
@@ -343,6 +344,31 @@ object LuaBindings {
             val opts = LuaOpts.table(if (args.narg() >= 1) args.arg(1) else null)
             val hits = LuaBridgeRunner.await { bridge.recognizeText(opts) }
             return LuaValue.varargsOf(arrayOf<LuaValue>(toLuaList(hits)))
+        }
+    }
+
+    private class RecognizeDigitsFn(private val bridge: AutoScriptBridge) : VarArgFunction() {
+        override fun invoke(args: Varargs): Varargs {
+            val opts = LuaOpts.table(if (args.narg() >= 1) args.arg(1) else null)
+            val result = LuaBridgeRunner.await { bridge.recognizeDigits(opts) }
+            val t = LuaTable()
+            t.set("text", LuaString.valueOf(result["text"]?.toString().orEmpty()))
+            t.set("confidence", LuaValue.valueOf((result["confidence"] as? Number)?.toDouble() ?: 0.0))
+            @Suppress("UNCHECKED_CAST")
+            val chars = (result["chars"] as? List<Map<String, Any>>) ?: emptyList()
+            val arr = LuaTable()
+            chars.forEachIndexed { i, c ->
+                val row = LuaTable()
+                row.set("label", LuaString.valueOf(c["label"]?.toString().orEmpty()))
+                row.set("confidence", LuaValue.valueOf((c["confidence"] as? Number)?.toDouble() ?: 0.0))
+                row.set("x", LuaValue.valueOf((c["x"] as? Number)?.toInt() ?: 0))
+                row.set("y", LuaValue.valueOf((c["y"] as? Number)?.toInt() ?: 0))
+                row.set("w", LuaValue.valueOf((c["w"] as? Number)?.toInt() ?: 0))
+                row.set("h", LuaValue.valueOf((c["h"] as? Number)?.toInt() ?: 0))
+                arr.set(i + 1, row)
+            }
+            t.set("chars", arr)
+            return LuaValue.varargsOf(arrayOf<LuaValue>(t))
         }
     }
 

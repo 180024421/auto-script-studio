@@ -351,6 +351,31 @@ class AutoScriptBridge(
         return dets
     }
 
+    suspend fun recognizeDigits(opts: Map<String, Any?>): Map<String, Any> {
+        val model = resolveDigitModel(opts)
+        val minConf = LuaOpts.float(opts, "min_confidence", 0.5f)
+        val maxGap = LuaOpts.int(opts, "max_gap", 3)
+        val manifest = LuaOpts.str(opts, "manifest").ifBlank { null }
+        val roi = LuaOpts.roi(opts)
+        val frame = captureCache.getOrCapture { backend.capture() }
+        val result = vision.recognizeDigits(frame, model, roi, minConf, maxGap, manifest)
+        onLog("recognizeDigits: ${result.text} (mean=${"%.0f".format(result.meanConfidence * 100)}%)")
+        return mapOf(
+            "text" to result.text,
+            "confidence" to result.meanConfidence,
+            "chars" to result.chars.map {
+                mapOf(
+                    "label" to it.label,
+                    "confidence" to it.confidence,
+                    "x" to it.x,
+                    "y" to it.y,
+                    "w" to it.w,
+                    "h" to it.h,
+                )
+            },
+        )
+    }
+
     private fun resolveMaskDecodeMax(opts: Map<String, Any?>, pick: String): Int {
         if (LuaOpts.int(opts, "mask_decode_max", -1) >= 0) {
             return LuaOpts.int(opts, "mask_decode_max", config.perf.yoloMaxMaskDecode)
@@ -471,6 +496,15 @@ class AutoScriptBridge(
             .ifBlank { defaultYoloModel.orEmpty() }
             .ifBlank { config.defaultYoloModel.orEmpty() }
         if (m.isBlank()) throw IllegalStateException("未指定 yolo 模型（opts.model 或 project.json runtime.default_yolo_model）")
+        return m
+    }
+
+    private fun resolveDigitModel(opts: Map<String, Any?>): String {
+        val m = LuaOpts.str(opts, "model")
+            .ifBlank { LuaOpts.str(opts, "model_path") }
+            .ifBlank { config.defaultDigitModel.orEmpty() }
+            .ifBlank { "models/digits" }
+        if (m.isBlank()) throw IllegalStateException("未指定 digit 模型（opts.model 或 runtime.default_digit_model）")
         return m
     }
 }

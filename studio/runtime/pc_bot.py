@@ -210,6 +210,19 @@ class PcBot:
             for h in hits[:limit]
         ]
 
+    def recognize_digits(self, opts: Any = None) -> dict[str, Any]:
+        o = self._opt(opts)
+        min_conf = self._float(o, "min_confidence", 0.5)
+        max_gap = self._int(o, "max_gap", 3)
+        roi = roi_tuple(o)
+        model = self._resolve_digit_model(o)
+        frame = self._capture()
+        result = vision_pc.recognize_digits(
+            frame, model, roi=roi, min_confidence=min_conf, max_gap=max_gap
+        )
+        self.log(f"recognizeDigits: {result.get('text')} ({float(result.get('confidence') or 0):.0%})")
+        return result
+
     def find_node(self, opts: Any = None) -> Optional[tuple[int, int]]:
         """PC 端无无障碍树，仅 APK 支持；optional 时返回 nil。"""
         o = self._opt(opts)
@@ -311,6 +324,25 @@ class PcBot:
             p = self.project_dir / self.default_yolo_model
             return str(p)
         raise RuntimeError("未指定 yolo 模型（opts.model 或 project.json runtime.default_yolo_model）")
+
+    def _resolve_digit_model(self, opts: dict[str, Any]) -> str:
+        for key in ("model", "model_path"):
+            val = str(opts.get(key) or "").strip()
+            if val:
+                p = Path(val)
+                if not p.is_absolute():
+                    p = self.project_dir / val
+                return str(p)
+        cfg_path = self.project_dir / "project.json"
+        default = "models/digits"
+        if cfg_path.is_file():
+            try:
+                data = json.loads(cfg_path.read_text(encoding="utf-8"))
+                runtime = data.get("runtime") or {}
+                default = str(runtime.get("default_digit_model") or default)
+            except Exception:
+                pass
+        return str(self.project_dir / default)
 
     @staticmethod
     def _text_match(text: str, target: str, mode: str) -> bool:

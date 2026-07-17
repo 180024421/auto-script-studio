@@ -15,6 +15,8 @@ import com.autoscript.vision.ocr.OcrEngine
 import com.autoscript.vision.ocr.TextMatch
 import com.autoscript.vision.template.TemplateLoader
 import com.autoscript.vision.template.TemplateMatcher
+import com.autoscript.vision.digit.DigitRecognizer
+import com.autoscript.vision.digit.DigitResult
 import com.autoscript.vision.yolo.YoloDetector
 import com.autoscript.vision.yolo.YoloDetectorFactory
 import com.autoscript.vision.yolo.YoloPick
@@ -30,6 +32,7 @@ class VisionEngine(
     private val perfConfig = perf
     private val templateCache = mutableMapOf<String, ScreenFrame>()
     private val yolo: YoloDetector = YoloDetectorFactory.create(appContext, assets, yoloImgsz, perf)
+    private val digits = DigitRecognizer(appContext.applicationContext, assets)
     private var ocr: OcrEngine? = when (ocrMode) {
         "disabled" -> null
         "eager" -> MlKitOcrEngine(appContext)
@@ -95,6 +98,16 @@ class VisionEngine(
         return out
     }
 
+    fun recognizeDigits(
+        frame: ScreenFrame,
+        modelPath: String,
+        roi: Rect?,
+        minConf: Float = 0.5f,
+        maxGap: Int = 3,
+        manifestPath: String? = null,
+    ): DigitResult =
+        digits.recognize(frame, modelPath, roi, minConf, maxGap, manifestPath)
+
     fun pickYolo(detections: List<Detection>, policy: String, anchor: Pair<Int, Int>?): Detection? =
         YoloPick.pick(detections, policy, anchor)
 
@@ -103,6 +116,7 @@ class VisionEngine(
 
     fun release() {
         yolo.release()
+        digits.release()
         ocr?.release()
         ocr = null
         templateCache.clear()

@@ -17,6 +17,8 @@ data class ProjectConfig(
     val defaultYoloConf: Float,
     val ocrMode: String,
     val defaultYoloModel: String?,
+    /** 游戏 HUD 数字模型，默认 models/digits */
+    val defaultDigitModel: String? = "models/digits",
     /** seg 模型有掩码时，findYolo/yoloSwipe 默认点击掩码质心 */
     val yoloAutoMaskCenter: Boolean = false,
     val deviceProfile: DeviceProfile = DeviceProfile(),
@@ -63,6 +65,8 @@ class ProjectAssets(private val context: Context) {
             defaultYoloConf = runtime?.optDouble("default_yolo_conf", 0.35)?.toFloat() ?: 0.35f,
             ocrMode = runtime?.optString("ocr_mode", "lazy") ?: "lazy",
             defaultYoloModel = runtime?.optString("default_yolo_model")?.takeIf { it.isNotBlank() },
+            defaultDigitModel = runtime?.optString("default_digit_model")?.takeIf { it.isNotBlank() }
+                ?: "models/digits",
             yoloAutoMaskCenter = runtime?.optBoolean("yolo_auto_mask_center", false) ?: false,
             deviceProfile = parseDeviceProfile(runtime?.optJSONObject("device_profile")),
             autoRun = runtime?.optBoolean("auto_run", false) ?: false,
