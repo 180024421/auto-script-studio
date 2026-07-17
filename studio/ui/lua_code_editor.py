@@ -85,3 +85,16 @@ class LuaCodeEditor(QPlainTextEdit):
         font.setStyleHint(QFont.StyleHint.Monospace)
         font.setPointSize(point_size)
         self.setFont(font)
+
+    def goto_line(self, line: int) -> None:
+        """1-based line number."""
+        if line < 1:
+            return
+        block = self.document().findBlockByNumber(line - 1)
+        if not block.isValid():
+            return
+        cursor = self.textCursor()
+        cursor.setPosition(block.position())
+        self.setTextCursor(cursor)
+        self.centerCursor()
+        self.setFocus()

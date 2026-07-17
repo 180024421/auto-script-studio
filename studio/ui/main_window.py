@@ -80,6 +80,11 @@ from studio.ui.permissions_checklist_dialog import (
 )
 from studio.ui.pack_env_dialog import ensure_pack_environment
 from studio.services.push_overlay import push_project_overlay
+from studio.ui.new_project_wizard import NewProjectWizard, fork_demo_to
+from studio.ui.device_connect_dialog import DeviceConnectDialog
+import os
+import re
+
 
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / "studio" / "resources" / "project-template"
@@ -167,15 +172,132 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(central)
         self._refresh_recent_list()
+        self._setup_device_status_bar()
         self.statusBar().showMessage("就绪")
         if not should_show_onboarding():
             self._try_restore_last_project()
         self._setup_help_menu()
+        QTimer.singleShot(800, self._refresh_device_status)
+
+    def _setup_device_status_bar(self) -> None:
+        self.device_status_label = QLabel("设备: 检测中…")
+        self.device_combo = QComboBox()
+        self.device_combo.setMinimumWidth(180)
+        self.device_combo.setToolTip("全局设备目标（脚本 / 打包 / 热替换共用）")
+        self.device_combo.currentIndexChanged.connect(self._on_global_device_changed)
+        refresh_dev = QPushButton("刷新")
+        set_button_role(refresh_dev, "ghost")
+        refresh_dev.clicked.connect(self._refresh_device_status)
+        connect_dev = QPushButton("连接助理")
+        set_button_role(connect_dev, "ghost")
+        connect_dev.clicked.connect(self._open_device_assistant)
+        sb = self.statusBar()
+        sb.addPermanentWidget(self.device_status_label)
+        sb.addPermanentWidget(self.device_combo)
+        sb.addPermanentWidget(refresh_dev)
+        sb.addPermanentWidget(connect_dev)
 
     def _setup_help_menu(self) -> None:
         menu = self.menuBar().addMenu("帮助")
         act_guide = menu.addAction("首次引导 / 环境预检")
         act_guide.triggered.connect(self._show_onboarding)
+        act_dev = menu.addAction("设备连接助理")
+        act_dev.triggered.connect(self._open_device_assistant)
+        menu.addSeparator()
+        act_whats = menu.addAction("最近改进…")
+        act_whats.triggered.connect(self._show_whats_new)
+        act_docs = menu.addAction("打开文档目录")
+        act_docs.triggered.connect(self._open_docs_folder)
+        act_lua = menu.addAction("Lua API（能力矩阵）")
+        act_lua.triggered.connect(lambda: self._open_doc_file("LUA.md"))
+        act_gs = menu.addAction("快速上手")
+        act_gs.triggered.connect(lambda: self._open_doc_file("getting-started.md"))
+
+    def _show_whats_new(self) -> None:
+        QMessageBox.information(
+            self,
+            "最近改进",
+            "• start.cmd 依赖未变更时跳过 pip\n"
+            "• 快速重打包（跳过 Gradle clean）\n"
+            "• 推送到设备热替换（无需完整打包）\n"
+            "• 脚本页运行目标：PC 联调 / 热替换 / 打包安装\n"
+            "• 另存为我的工程（从 demo fork）\n"
+            "• 全局设备条 + 连接助理\n"
+            "• 打包环境检查、权限设置深链\n"
+            "• PC/APK 能力差异：见 docs/LUA.md\n\n"
+            "双击运行日志中含「文件:行号」的行可跳转到脚本。",
+        )
+
+    def _open_docs_folder(self) -> None:
+        docs = ROOT / "docs"
+        if docs.is_dir():
+            os.startfile(docs)  # type: ignore[attr-defined]
+        else:
+            QMessageBox.information(self, "文档", str(docs))
+
+    def _open_doc_file(self, name: str) -> None:
+        path = ROOT / "docs" / name
+        if path.is_file():
+            os.startfile(path)  # type: ignore[attr-defined]
+        else:
+            QMessageBox.information(self, "文档", f"未找到: {path}")
+
+    def _open_device_assistant(self) -> None:
+        dlg = DeviceConnectDialog(self, adb=self.adb)
+        dlg.exec()
+        self._refresh_device_status()
+
+    def _refresh_device_status(self) -> None:
+        if not hasattr(self, "device_combo"):
+            return
+        self.device_combo.blockSignals(True)
+        cur = self.device_combo.currentData()
+        self.device_combo.clear()
+        try:
+            devices = self.adb.list_devices()
+        except Exception:
+            devices = []
+        if not devices:
+            self.device_combo.addItem("（无设备）", "")
+            self.device_status_label.setText("设备: 无")
+        else:
+            for d in devices:
+                label = d.serial
+                if getattr(d, "detail", ""):
+                    label = f"{d.serial} {d.detail}".strip()
+                self.device_combo.addItem(label, d.serial)
+            # 尝试恢复选择或 grab 当前
+            prefer = cur or (self.grab._serial() if hasattr(self.grab, "_serial") else None) or self.adb.default_serial()
+            if prefer:
+                idx = self.device_combo.findData(prefer)
+                if idx >= 0:
+                    self.device_combo.setCurrentIndex(idx)
+            self.device_status_label.setText(f"设备: {self.device_combo.count()} 台")
+        self.device_combo.blockSignals(False)
+        self._on_global_device_changed()
+
+    def _on_global_device_changed(self) -> None:
+        serial = self.current_device_serial()
+        if not serial or not hasattr(self, "grab"):
+            return
+        # 同步到抓抓页设备下拉（若存在）
+        combo = getattr(self.grab, "device_combo", None) or getattr(self.grab, "serial_combo", None)
+        if combo is None:
+            return
+        idx = combo.findData(serial) if hasattr(combo, "findData") else -1
+        if idx < 0:
+            idx = combo.findText(serial)
+        if idx >= 0:
+            combo.blockSignals(True)
+            combo.setCurrentIndex(idx)
+            combo.blockSignals(False)
+
+    def current_device_serial(self) -> str | None:
+        if hasattr(self, "device_combo"):
+            data = self.device_combo.currentData()
+            if data:
+                return str(data)
+        return self.grab._serial() or self.adb.default_serial()
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
@@ -204,6 +326,7 @@ class MainWindow(QMainWindow):
                 ("新建工程", self.new_project, "primary"),
                 ("打开工程", self.open_project, "accent"),
                 ("试玩示例", lambda: self.open_demo_game(trial_run=True), "ghost"),
+                ("另存为我的工程", self.fork_demo_project, "accent"),
             ],
             columns=1,
         )
@@ -394,22 +517,33 @@ class MainWindow(QMainWindow):
         save_btn = QPushButton("保存")
         set_button_role(save_btn, "accent")
         save_btn.clicked.connect(self.save_script)
+        self.run_mode_combo = QComboBox()
+        self.run_mode_combo.addItem("PC 联调", "pc")
+        self.run_mode_combo.addItem("热替换推送", "push")
+        self.run_mode_combo.addItem("打包安装", "pack")
+        self.run_mode_combo.setToolTip("改完 Lua 后选运行目标再点运行")
         self.run_lua_btn = QPushButton("运行")
         set_button_role(self.run_lua_btn, "primary")
-        self.run_lua_btn.clicked.connect(self.run_lua_pc)
+        self.run_lua_btn.clicked.connect(self._run_from_script_tab)
+        self.stop_lua_btn = QPushButton("停止")
+        set_button_role(self.stop_lua_btn, "ghost")
+        self.stop_lua_btn.setEnabled(False)
+        self.stop_lua_btn.clicked.connect(self.stop_lua_pc)
         panel_lua_btn = QPushButton("插入面板读取")
         set_button_role(panel_lua_btn, "accent")
         panel_lua_btn.setToolTip("根据 ui/layout.json 生成 panel.get 代码")
         panel_lua_btn.clicked.connect(self._insert_panel_reads_to_script)
         toolbar_row.addWidget(save_btn)
+        toolbar_row.addWidget(self.run_mode_combo)
         toolbar_row.addWidget(self.run_lua_btn)
+        toolbar_row.addWidget(self.stop_lua_btn)
         toolbar_row.addWidget(panel_lua_btn)
 
         self._script_panel_expanded = True
         self._stop_lua_action = None
         more_btn = QPushButton("更多")
         set_button_role(more_btn, "ghost")
-        more_btn.setToolTip("重新加载、停止运行、浮动面板")
+        more_btn.setToolTip("重新加载、浮动面板")
         more_menu = QMenu(more_btn)
         more_menu.addAction("重新加载", self.reload_script)
         self._stop_lua_action = more_menu.addAction("停止运行")
@@ -460,6 +594,8 @@ class MainWindow(QMainWindow):
         log_font.setPointSize(10)
         self.script_run_log.setFont(log_font)
         clear_log_btn.clicked.connect(self.script_run_log.clear)
+        self.script_run_log.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.script_run_log.mouseDoubleClickEvent = self._on_lua_log_double_click  # type: ignore[method-assign]
         log_wrap_lay.addWidget(self.script_run_log, 1)
         editor_split.addWidget(log_wrap)
         editor_split.setStretchFactor(0, 3)
@@ -678,20 +814,33 @@ class MainWindow(QMainWindow):
         self.script_edit.paste()
 
     def new_project(self) -> None:
-        dest = QFileDialog.getExistingDirectory(self, "选择新建工程目录")
-        if not dest:
+        dlg = NewProjectWizard(
+            self,
+            template_dir=TEMPLATE,
+            demo_dir=ROOT / "examples" / "demo-game",
+            default_parent=Path.home() / "Documents" / "ass-projects",
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.result_path:
             return
-        dest_path = Path(dest)
-        if any(dest_path.iterdir()):
-            QMessageBox.warning(self, "提示", "目录非空，请选空目录")
-            return
-        import shutil
+        self._set_project(dlg.result_path)
+        self.append(f"已新建工程: {dlg.result_path}")
+        QMessageBox.information(self, "新建成功", f"工程已创建:\n{dlg.result_path}")
 
-        shutil.copytree(TEMPLATE, dest_path, dirs_exist_ok=False)
-        cfg = dest_path / "project.json"
-        text = cfg.read_text(encoding="utf-8").replace("com.autoscript.template", f"com.autoscript.{dest_path.name}")
-        cfg.write_text(text.replace("Template Script", dest_path.name), encoding="utf-8")
-        self._set_project(dest_path)
+    def fork_demo_project(self) -> None:
+        path = fork_demo_to(
+            self,
+            demo_dir=ROOT / "examples" / "demo-game",
+            default_parent=Path.home() / "Documents" / "ass-projects",
+        )
+        if not path:
+            return
+        self._set_project(path)
+        self.append(f"已从 demo 另存为: {path}")
+        QMessageBox.information(
+            self,
+            "另存成功",
+            f"已复制 demo 到独立目录，可放心修改:\n{path}",
+        )
 
     def convert_yaml_to_lua(self) -> None:
         if not self._require_project():
@@ -952,9 +1101,9 @@ class MainWindow(QMainWindow):
     def push_overlay_to_device(self) -> None:
         if not self._require_project():
             return
-        serial = self.grab._serial() or self.adb.default_serial()
+        serial = self.current_device_serial()
         if not serial:
-            QMessageBox.warning(self, "提示", "未检测到 ADB 设备，请先连接模拟器或真机")
+            QMessageBox.warning(self, "提示", "未检测到 ADB 设备，请先连接模拟器或真机（状态栏「连接助理」）")
             return
         self._save_all_before_build()
         try:
@@ -1194,6 +1343,16 @@ class MainWindow(QMainWindow):
             self._save_current_project_quiet()
         super().closeEvent(event)
 
+    def _run_from_script_tab(self) -> None:
+        mode = self.run_mode_combo.currentData() if hasattr(self, "run_mode_combo") else "pc"
+        if mode == "push":
+            self.push_overlay_to_device()
+            return
+        if mode == "pack":
+            self.build_and_install()
+            return
+        self.run_lua_pc()
+
     def run_lua_pc(self) -> None:
         if not self._require_project():
             return
@@ -1217,9 +1376,21 @@ class MainWindow(QMainWindow):
             self.append_lua_log(f"脚本: {script_path.name}")
         if PanelState.all():
             self.append_lua_log(f"panel 表单状态 → {summary}")
-        serial = self.grab._serial() or self.adb.default_serial()
+        serial = self.current_device_serial()
         if not serial:
-            self.append_lua_log("警告: 未检测到 ADB 设备，bot.tap/截图 等可能失败")
+            self.append_lua_log("警告: 未检测到 ADB 设备，bot.tap/截图 等可能失败 → 点状态栏「连接助理」")
+            tip = (
+                "未检测到设备。PC 联调需要 adb 设备。\n"
+                "可点状态栏「连接助理」，或改用运行目标「热替换推送 / 打包安装」。"
+            )
+            if QMessageBox.question(
+                self,
+                "无设备",
+                tip + "\n\n仍要继续 PC 运行吗？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            ) != QMessageBox.StandardButton.Yes:
+                return
         args = ["-u", "-m", "studio.runtime.lua_runner", str(self.project_dir)]
         if serial:
             args.extend(["--serial", serial])
@@ -1243,7 +1414,39 @@ class MainWindow(QMainWindow):
         self.run_lua_btn.setEnabled(False)
         if self._stop_lua_action is not None:
             self._stop_lua_action.setEnabled(True)
+        if hasattr(self, "stop_lua_btn"):
+            self.stop_lua_btn.setEnabled(True)
         self.script_panel.set_script_running(True)
+
+    def _on_lua_log_double_click(self, event) -> None:
+        QTextEdit.mouseDoubleClickEvent(self.script_run_log, event)
+        self._jump_from_lua_log_cursor()
+
+    def _jump_from_lua_log_cursor(self) -> None:
+        cursor = self.script_run_log.textCursor()
+        cursor.select(cursor.SelectionType.LineUnderCursor)
+        line = cursor.selectedText().strip()
+        # 匹配 main.lua:12 或 @xxx.lua:12 或 File "xxx", line 12
+        m = re.search(r"([\w./\\-]+\.lua):(\d+)", line)
+        if not m:
+            m = re.search(r'File "([^"]+\.lua)", line (\d+)', line)
+        if not m:
+            m = re.search(r":(\d+):\s", line)
+            if m and self._script_path():
+                self.script_edit.goto_line(int(m.group(1)))
+                self.append(f"已跳转到第 {m.group(1)} 行")
+                return
+            return
+        path_s, line_s = m.group(1), m.group(2)
+        line_no = int(line_s)
+        self.script_edit.goto_line(line_no)
+        self.append(f"已跳转到 {Path(path_s).name}:{line_no}")
+        # 常见失败提示
+        low = line.lower()
+        if "not supported" in low or "仅 apk" in low or "需 apk" in low:
+            self.append_lua_log("提示: 该 API 仅设备 APK 可用，请改用「热替换推送」或「打包安装」验证")
+        if "paddleocr" in low or "ultralytics" in low:
+            self.append_lua_log("提示: PC 识字/YOLO 需 pip install paddleocr paddlepaddle ultralytics")
 
     def _on_lua_process_error(self, err: QProcess.ProcessError) -> None:
         if self._lua_proc is None:
@@ -1255,6 +1458,12 @@ class MainWindow(QMainWindow):
             self._lua_proc.kill()
             self.append_lua_log("已请求停止 Lua 运行")
         self.script_panel.set_script_running(False)
+        if hasattr(self, "stop_lua_btn"):
+            self.stop_lua_btn.setEnabled(False)
+        if self._stop_lua_action is not None:
+            self._stop_lua_action.setEnabled(False)
+        if hasattr(self, "run_lua_btn"):
+            self.run_lua_btn.setEnabled(True)
 
     def _on_lua_output(self) -> None:
         if self._lua_proc is None:
@@ -1284,8 +1493,12 @@ class MainWindow(QMainWindow):
         self.run_lua_btn.setEnabled(True)
         if self._stop_lua_action is not None:
             self._stop_lua_action.setEnabled(False)
+        if hasattr(self, "stop_lua_btn"):
+            self.stop_lua_btn.setEnabled(False)
         self.script_panel.set_script_running(False)
         self.append_lua_log("Lua 运行完成" if code == 0 else f"Lua 运行失败，退出码 {code}")
+        if code != 0:
+            self.append_lua_log("提示: 双击含「.lua:行号」的日志行可跳转到脚本；PC 不支持的 API 见帮助 → Lua API")
 
     def _save_all_before_build(self) -> None:
         if self.project_dir:
@@ -1333,9 +1546,9 @@ class MainWindow(QMainWindow):
         if self._async_cmd.is_running():
             QMessageBox.information(self, "提示", "已有后台任务在执行，请稍候完成")
             return
-        serial = self.grab._serial() or self.adb.default_serial()
+        serial = self.current_device_serial()
         if not serial:
-            QMessageBox.warning(self, "提示", "未检测到 ADB 设备，请先连接模拟器或真机")
+            QMessageBox.warning(self, "提示", "未检测到 ADB 设备，请先连接模拟器或真机（状态栏「连接助理」）")
             return
         self._save_all_before_build()
         if not self._confirm_pack_metadata():

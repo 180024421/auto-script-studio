@@ -48,6 +48,10 @@ cd auto-script-studio
 3. 按权限弹窗开启无障碍 / 悬浮窗（可点「打开设置」深链）
 4. 改 Lua/layout 后可用 **推送到设备（热替换）** 跳过 Gradle（需已装 debug APK）
 
+或在脚本页选择运行目标：`PC 联调` / `热替换推送` / `打包安装`。
+
+建议：试玩 demo 后点 **另存为我的工程**，再改自己的副本。
+
 详见 [pack-guide.md](pack-guide.md)。
 
 ## 6. 下一步
