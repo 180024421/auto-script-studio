@@ -1,0 +1,46 @@
+{
+  "name": "腾芝洋领主钓鱼辅助",
+  "package_id": "com.autoscript.lingzhu.fishing",
+  "version_code": 1,
+  "version_name": "1.0.0",
+  "entry": "main.lua",
+  "script_language": "lua",
+  "permissions": {
+    "accessibility": true,
+    "screen_capture": true,
+    "overlay": true,
+    "foreground_service": true
+  },
+  "runtime": {
+    "default_interval_ms": 80,
+    "default_yolo_conf": 0.35,
+    "default_yolo_imgsz": 320,
+    "default_yolo_model": "models/lingzhu.onnx",
+    "ocr_mode": "lazy",
+    "auto_run": false,
+    "screenshot_mode": "media_projection",
+    "input_mode": "auto",
+    "perf": {
+      "opencv_mobile": false,
+      "yolo_nnapi": false
+    }
+  },
+  "license": {
+    "enabled": false,
+    "api_base": "",
+    "app_name": "com.autoscript.lingzhu.fishing",
+    "skip_on_offline": true
+  },
+  "update": {
+    "enabled": false,
+    "manifest_url": "",
+    "check_on_start": false
+  },
+  "schedule": {
+    "enabled": false,
+    "daily_time": "08:00"
+  },
+  "boot": {
+    "auto_start": false
+  }
+}

@@ -17,6 +17,7 @@ import com.autoscript.core.project.ProjectConfig
 import com.autoscript.core.script.ScriptCancelToken
 import com.autoscript.core.script.ScriptTrace
 import com.autoscript.script.parseBgr
+import com.autoscript.script.saocheng.SaochengRunner
 import com.autoscript.vision.VisionEngine
 import kotlinx.coroutines.delay
 import kotlin.math.abs
@@ -506,5 +507,16 @@ class AutoScriptBridge(
             .ifBlank { "models/digits" }
         if (m.isBlank()) throw IllegalStateException("未指定 digit 模型（opts.model 或 runtime.default_digit_model）")
         return m
+    }
+
+    suspend fun runSaocheng(opts: Map<String, Any?>) {
+        val ctx = appContext
+        if (ctx == null) {
+            onLog("runSaocheng: 无 Context，仅真机 APK 可用")
+            return
+        }
+        val conf = LuaOpts.float(opts, "conf", config.defaultYoloConf)
+        val auto = LuaOpts.bool(opts, "auto", true)
+        SaochengRunner(ctx, backend, onLog).run(conf, auto)
     }
 }

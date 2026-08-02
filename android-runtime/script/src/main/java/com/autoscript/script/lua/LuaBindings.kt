@@ -11,8 +11,6 @@ import org.luaj.vm2.Varargs
 import org.luaj.vm2.lib.OneArgFunction
 import org.luaj.vm2.lib.TwoArgFunction
 import org.luaj.vm2.lib.VarArgFunction
-import kotlinx.coroutines.runBlocking
-
 object LuaBindings {
     private var watchListener: ((String, String) -> Unit)? = null
 
@@ -39,6 +37,7 @@ object LuaBindings {
         bot.set("waitGoneImage", WaitGoneImageFn(bridge))
         bot.set("waitStable", WaitStableFn(bridge))
         bot.set("findMultiColor", FindMultiColorFn(bridge))
+        bot.set("runSaocheng", RunSaochengFn(bridge))
         bot.set("trace", TraceFn(bridge))
         bot.set("read_chain", ReadChainFn())
         bot.set("load_bases", LoadBasesFn())
@@ -255,7 +254,7 @@ object LuaBindings {
         co.checktable().set("yield", object : VarArgFunction() {
             override fun invoke(args: Varargs): Varargs {
                 val sec = if (args.narg() >= 1) args.arg(1).todouble() else 0.0
-                runBlocking { bridge.delaySeconds(sec) }
+                LuaBridgeRunner.await { bridge.delaySeconds(sec) }
                 return NONE
             }
         })
@@ -419,6 +418,14 @@ object LuaBindings {
             val points = LuaOpts.colorPoints(opts)
             val pt = LuaBridgeRunner.await { bridge.findMultiColor(points, opts) }
             return ptToVarargs(pt)
+        }
+    }
+
+    private class RunSaochengFn(private val bridge: AutoScriptBridge) : VarArgFunction() {
+        override fun invoke(args: Varargs): Varargs {
+            val opts = LuaOpts.table(if (args.narg() >= 1 && args.arg(1).istable()) args.arg(1) else null)
+            LuaBridgeRunner.await { bridge.runSaocheng(opts) }
+            return NONE
         }
     }
 

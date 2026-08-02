@@ -1,0 +1,152 @@
+{
+  "version": 4,
+  "enabled": true,
+  "panel": {
+    "title": "扫城助手",
+    "theme": "light",
+    "layout_mode": "free",
+    "design_width": 720,
+    "design_height": 1280,
+    "active_screen": 0,
+    "width_mode": "auto",
+    "width_dp": 280,
+    "height_mode": "wrap",
+    "display_mode": "host",
+    "auto_collapse_idle_ms": 0,
+    "show_on_launch": false,
+    "opacity": 0.96,
+    "position": "left_center",
+    "start_x": 0,
+    "start_y": 0,
+    "columns": 1,
+    "ball_size_dp": 48,
+    "show_log": true,
+    "log_height_dp": 120,
+    "draggable": true,
+    "collapsible": true,
+    "allow_design": false,
+    "start_confirm_collapse": false,
+    "height_dp": 1280
+  },
+  "screens": [
+    {
+      "title": "扫城配置",
+      "widgets": [
+        {
+          "id": "hint",
+          "type": "text",
+          "text": "填写配置后，点悬浮球「开始」运行扫城",
+          "text_style": "hint",
+          "layout_x": 16,
+          "layout_y": 8,
+          "layout_w": 648,
+          "layout_h": 40
+        },
+        {
+          "id": "city_id",
+          "type": "input",
+          "label": "城池 ID",
+          "placeholder": "如 70（邺城），见 cities.json",
+          "default": "133",
+          "layout_x": 16,
+          "layout_y": 56,
+          "layout_w": 648,
+          "layout_h": 64
+        },
+        {
+          "id": "player_name",
+          "type": "input",
+          "label": "角色名",
+          "placeholder": "游戏内左侧武将名 OCR 匹配",
+          "default": "彼岸慕卿",
+          "layout_x": 16,
+          "layout_y": 128,
+          "layout_w": 648,
+          "layout_h": 64
+        },
+        {
+          "id": "hourly_limit",
+          "type": "input",
+          "label": "每小时推城次数",
+          "placeholder": "默认 3",
+          "default": "3",
+          "layout_x": 16,
+          "layout_y": 200,
+          "layout_w": 648,
+          "layout_h": 64
+        },
+        {
+          "id": "heroes",
+          "type": "multiselect",
+          "label": "启用武将",
+          "options": [
+            "武圣",
+            "长坂之龙",
+            "乱世枭雄",
+            "东吴大帝",
+            "汉末诸侯"
+          ],
+          "default": "乱世枭雄,东吴大帝",
+          "layout_x": 16,
+          "layout_y": 272,
+          "layout_w": 648,
+          "layout_h": 160
+        },
+        {
+          "id": "note",
+          "type": "text",
+          "text": "需 root 或无障碍+录屏；游戏保持在前台",
+          "text_style": "hint",
+          "layout_x": 16,
+          "layout_y": 440,
+          "layout_w": 648,
+          "layout_h": 36
+        }
+      ]
+    }
+  ],
+  "widgets": [
+    {
+      "id": "start",
+      "type": "start_script",
+      "label": "开始",
+      "color": "#2563EB",
+      "layout_x": 0,
+      "layout_y": 8,
+      "layout_w": 32,
+      "layout_h": 32
+    },
+    {
+      "id": "stop",
+      "type": "stop_script",
+      "label": "停止",
+      "color": "#DC2626",
+      "layout_x": 34,
+      "layout_y": 8,
+      "layout_w": 32,
+      "layout_h": 32
+    }
+  ],
+  "buttons": [
+    {
+      "id": "start",
+      "type": "start_script",
+      "label": "开始",
+      "color": "#2563EB",
+      "layout_x": 0,
+      "layout_y": 8,
+      "layout_w": 32,
+      "layout_h": 32
+    },
+    {
+      "id": "stop",
+      "type": "stop_script",
+      "label": "停止",
+      "color": "#DC2626",
+      "layout_x": 34,
+      "layout_y": 8,
+      "layout_w": 32,
+      "layout_h": 32
+    }
+  ]
+}

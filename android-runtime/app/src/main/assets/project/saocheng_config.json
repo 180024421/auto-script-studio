@@ -1,0 +1,36 @@
+{
+  "cities": [
+    133
+  ],
+  "heroes": [
+    {
+      "name": "武圣",
+      "hourly_limit": 3,
+      "enabled": false
+    },
+    {
+      "name": "长坂之龙",
+      "hourly_limit": 3,
+      "enabled": false
+    },
+    {
+      "name": "乱世枭雄",
+      "hourly_limit": 3,
+      "enabled": true
+    },
+    {
+      "name": "东吴大帝",
+      "hourly_limit": 3,
+      "enabled": true
+    },
+    {
+      "name": "汉末诸侯",
+      "hourly_limit": 3,
+      "enabled": false
+    }
+  ],
+  "player_name": "彼岸慕卿",
+  "yolo_model": "D:\\yolo\\runs\\merge_ft_20260616_214108\\weights\\best.pt",
+  "data_yaml": "",
+  "yolo_conf": 0.3
+}

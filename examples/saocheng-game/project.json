@@ -1,0 +1,41 @@
+{
+  "name": "扫城脚本",
+  "package_id": "com.autoscript.saocheng",
+  "version_code": 1,
+  "version_name": "1.0.0",
+  "entry": "main.lua",
+  "script_language": "lua",
+  "features": ["saocheng"],
+  "permissions": {
+    "accessibility": true,
+    "screen_capture": true,
+    "overlay": true,
+    "foreground_service": true
+  },
+  "runtime": {
+    "default_interval_ms": 300,
+    "default_yolo_conf": 0.30,
+    "default_yolo_model": "models/ui.onnx",
+    "default_yolo_imgsz": 640,
+    "ocr_mode": "lazy",
+    "auto_run": false,
+    "screenshot_mode": "media_projection",
+    "input_mode": "auto",
+    "perf": {
+      "opencv_mobile": false,
+      "yolo_nnapi": false
+    }
+  },
+  "license": {
+    "enabled": false
+  },
+  "update": {
+    "enabled": false
+  },
+  "schedule": {
+    "enabled": false
+  },
+  "boot": {
+    "auto_start": false
+  }
+}

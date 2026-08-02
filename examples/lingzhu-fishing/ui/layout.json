@@ -1,0 +1,92 @@
+{
+  "version": 3,
+  "enabled": true,
+  "panel": {
+    "title": "领主钓鱼",
+    "theme": "light",
+    "layout_mode": "free",
+    "design_width": 720,
+    "design_height": 1280,
+    "active_screen": 0,
+    "width_mode": "fixed",
+    "width_dp": 48,
+    "height_mode": "wrap",
+    "display_mode": "minimal",
+    "auto_collapse_idle_ms": 15000,
+    "show_on_launch": true,
+    "opacity": 0.96,
+    "position": "left_center",
+    "start_x": 0,
+    "start_y": 0,
+    "columns": 2,
+    "ball_size_dp": 48,
+    "show_log": true,
+    "log_height_dp": 88,
+    "draggable": true,
+    "collapsible": true,
+    "allow_design": false,
+    "start_confirm_collapse": false,
+    "height_dp": 1280
+  },
+  "screens": [
+    {
+      "title": "钓鱼",
+      "widgets": [
+        {
+          "id": "hint",
+          "type": "text",
+          "text": "开始后请保持游戏在前台",
+          "text_style": "hint",
+          "layout_x": 24,
+          "layout_y": 24,
+          "layout_w": 648,
+          "layout_h": 36
+        }
+      ]
+    }
+  ],
+  "widgets": [
+    {
+      "id": "start",
+      "type": "start_script",
+      "label": "开始",
+      "color": "#2563EB",
+      "layout_x": 0,
+      "layout_y": 8,
+      "layout_w": 32,
+      "layout_h": 32
+    },
+    {
+      "id": "stop",
+      "type": "stop_script",
+      "label": "停止",
+      "color": "#DC2626",
+      "layout_x": 34,
+      "layout_y": 8,
+      "layout_w": 32,
+      "layout_h": 32
+    }
+  ],
+  "buttons": [
+    {
+      "id": "start",
+      "type": "start_script",
+      "label": "开始",
+      "color": "#2563EB",
+      "layout_x": 0,
+      "layout_y": 8,
+      "layout_w": 32,
+      "layout_h": 32
+    },
+    {
+      "id": "stop",
+      "type": "stop_script",
+      "label": "停止",
+      "color": "#DC2626",
+      "layout_x": 34,
+      "layout_y": 8,
+      "layout_w": 32,
+      "layout_h": 32
+    }
+  ]
+}
