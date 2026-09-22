@@ -227,8 +227,8 @@ def run_project(project_dir: Path, *, serial: str | None = None) -> int:
         format_lua_error,
         install_lua_logging,
     )
-    from studio.runtime.pc_bot import PcBot
     from studio.runtime.panel_state import PanelState
+    from studio.runtime.pc_bot import PcBot
     from studio.services.layout_defaults import load_layout
 
     project_dir = Path(project_dir)

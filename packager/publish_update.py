@@ -91,8 +91,8 @@ def publish_to_jiaoben(
     project_id: int | None = None,
 ) -> dict:
     """上传 zip 到 run-jane-script jiaoben 并发版。"""
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     out_dir = project_dir / ".publish-staging"
     zip_path, _manifest_path, manifest = build_update_zip(project_dir, out_dir, bump_version=bump_version)

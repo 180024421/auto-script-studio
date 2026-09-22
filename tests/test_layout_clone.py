@@ -1,4 +1,4 @@
-from studio.services.layout_clone import clone_layout, clone_widget
+from studio.services.layout_clone import clone_layout
 from studio.services.screen_layout import active_screen_widgets, editor_widget_list, migrate_layout
 
 

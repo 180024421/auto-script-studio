@@ -6,7 +6,6 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QPushButton,
     QSplitter,
@@ -17,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from studio.services.bot_command_catalog import BotCommand, all_commands, commands_by_category
+from studio.services.bot_command_catalog import BotCommand, commands_by_category
 from studio.ui.app_theme import set_button_role
 from studio.ui.page_shell import hint_label, section_title
 

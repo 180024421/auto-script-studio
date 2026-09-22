@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer
-
 from studio.ui.layout_editor_property import LayoutEditorPropertyMixin
 
 
@@ -77,8 +76,8 @@ def test_flush_property_sync_writes_pending():
 
 def test_add_widget_must_flush_before_moving_selection():
     """回归：先改 selected_path 再 flush，会把旧表单类型覆盖到新控件。"""
-    from studio.services.layout_defaults import default_widget
     from studio.services.layout_cleanup import next_widget_id
+    from studio.services.layout_defaults import default_widget
     from studio.services.screen_layout import migrate_layout, screens
 
     layout = migrate_layout(

@@ -4,21 +4,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+from packager.compile_project import cleanup_staging, prepare_staging_dir
+from packager.pack_metadata import read_project_cfg, write_gradle_props
+from packager.validate_project import validate_project_full
+
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / "android-runtime"
 ASSETS = RUNTIME / "app" / "src" / "main" / "assets" / "project"
 PROPS = RUNTIME / "packager" / "project.properties"
-GRADLEW = RUNTIME / "gradlew.bat"
-
-
-from packager.compile_project import cleanup_staging, prepare_staging_dir
-from packager.pack_metadata import read_project_cfg, write_gradle_props
-from packager.validate_project import validate_project_full
+# Gradle 包装脚本按平台区分：Windows 走 .bat，Linux/macOS 走 POSIX sh 版本。
+GRADLEW = RUNTIME / ("gradlew.bat" if os.name == "nt" else "gradlew")
 
 
 def validate_project(project_dir: Path) -> dict:
@@ -71,7 +72,7 @@ def sync_assets(project_dir: Path) -> None:
 def run_gradle(release: bool, *, clean: bool = True) -> Path:
     if not GRADLEW.is_file():
         raise FileNotFoundError(
-            f"未找到 gradlew.bat，请在 {RUNTIME} 执行 gradle wrapper 或安装 Android Studio"
+            f"未找到 {GRADLEW.name}，请在 {RUNTIME} 执行 gradle wrapper 或安装 Android Studio"
         )
     task = "assembleRelease" if release else "assembleDebug"
     if clean:

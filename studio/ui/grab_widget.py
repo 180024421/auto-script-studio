@@ -10,8 +10,7 @@ import numpy as np
 from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QGuiApplication, QImage, QMouseEvent, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QInputDialog,
@@ -23,21 +22,11 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
-    QFileDialog,
-    QLineEdit,
 )
 
-from studio.ui.app_theme import set_button_role
-from studio.ui.page_shell import (
-    main_column,
-    page_root,
-    section_title,
-)
-from studio.ui.grab_side_panel import GrabSidePanel
+from studio.services import lua_snippets, vision_pc
+from studio.services.action_recorder import ActionRecorder
 from studio.services.adb_service import AdbService
-from studio.services import lua_snippets
-from studio.services import vision_pc
-from studio.services.layout_defaults import load_layout
 from studio.services.canvas_overlay import (
     paint_crosshair,
     paint_mask_centers,
@@ -45,9 +34,8 @@ from studio.services.canvas_overlay import (
     paint_ocr_hits,
     paint_point_markers,
 )
-from studio.services.action_recorder import ActionRecorder
 from studio.services.device_profile import save_profile
-from studio.services.training_export import export_yolo_sample
+from studio.services.layout_defaults import load_layout
 from studio.services.project_images import (
     image_rel_path,
     list_images,
@@ -57,12 +45,22 @@ from studio.services.project_images import (
     save_bgr_image,
     save_image_settings,
 )
+from studio.services.training_export import export_yolo_sample
 from studio.services.yolo_models import (
     default_model_path,
     list_yolo_models,
     load_class_names,
     merge_class_names_from_detections,
+)
+from studio.services.yolo_models import (
     model_rel_path as yolo_model_rel_path,
+)
+from studio.ui.app_theme import set_button_role
+from studio.ui.grab_side_panel import GrabSidePanel
+from studio.ui.page_shell import (
+    main_column,
+    page_root,
+    section_title,
 )
 
 
@@ -655,7 +653,6 @@ class GrabWidget(QWidget):
         if not project:
             return
         for path in list_images(Path(project)):
-            rel = image_rel_path(Path(project), path)
             self.template_combo.addItem(path.name, str(path))
         if self._imported_template_path and self._imported_template_path.is_file():
             self.template_combo.insertItem(
@@ -1075,7 +1072,6 @@ class GrabWidget(QWidget):
         if self._screen is None or not sel or sel[2] < 2 or sel[3] < 2:
             QMessageBox.warning(self, "提示", "请先截图并框选模板区域")
             return
-        img_dir = self._image_dir()
         default = f"tpl_{len(list_images(Path(project)))}"
         name, ok = QInputDialog.getText(self, "模板名称", "文件名（不含扩展名）:", text=default)
         if not ok or not name.strip():

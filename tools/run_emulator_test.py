@@ -16,8 +16,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from packager.packager_cli import build, validate_project  # noqa: E402
-from studio.services.adb_service import AdbService  # noqa: E402
 from studio.services import vision_pc  # noqa: E402
+from studio.services.adb_service import AdbService  # noqa: E402
 
 PROJECT = ROOT / "examples" / "ldplayer-test"
 DIST = ROOT / "dist"
@@ -157,8 +157,8 @@ def main() -> int:
     print(f"package:    {package_id}")
     print(f"color_hit:  {color_hit}")
     print(f"tpl_match:  {match.score:.3f} @ ({match.center_x},{match.center_y})" if match else "tpl_match:  None")
-    print(f"install:    OK")
-    print(f"start:      OK")
+    print("install:    OK")
+    print("start:      OK")
     print(f"script_run: {'OK' if script_ok else 'TIMEOUT（请手动开启无障碍 + 录屏）'}")
     if status_text:
         print(f"status_file: {status_text}")

@@ -7,7 +7,6 @@ import subprocess
 import sys
 import urllib.parse
 import urllib.request
-from pathlib import Path
 
 
 def git_credential(host: str) -> dict[str, str]:
@@ -71,7 +70,6 @@ def main() -> int:
     # Try Gitee first
     cred = git_credential("gitee.com")
     token = cred.get("password", "")
-    username = cred.get("username", "")
     if token:
         try:
             repo = gitee_create_repo(name, desc, token)

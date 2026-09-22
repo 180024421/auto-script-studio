@@ -28,6 +28,8 @@ from studio.services.yolo_models import (
     default_model_path,
     list_yolo_models,
     load_class_names,
+)
+from studio.services.yolo_models import (
     model_rel_path as yolo_model_rel_path,
 )
 from studio.ui.app_theme import set_button_role

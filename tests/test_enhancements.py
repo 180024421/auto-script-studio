@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-
 from studio.services.action_recorder import ActionRecorder
 from studio.services.onnx_inspect import inspect_onnx, validate_onnx_for_pack
 from studio.services.training_export import export_yolo_sample

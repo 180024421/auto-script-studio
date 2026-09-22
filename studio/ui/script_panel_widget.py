@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QFrame,
@@ -25,17 +25,15 @@ from studio.services.free_layout import is_free_mode
 from studio.services.layout_defaults import load_layout
 from studio.services.panel_lua_snippets import (
     lua_all_values,
-    lua_all_values_for_layout,
     lua_panel_example,
     lua_read_snippet,
     lua_reads_block_for_layout,
     resolve_layout_widget,
     widget_lua_spec,
 )
-from studio.services.screen_layout import active_screen_index
-from studio.ui.minimal_bar_preview import MinimalBarPreviewWidget
 from studio.ui.app_theme import set_button_role
 from studio.ui.layout_preview_widget import LayoutPreviewWidget
+from studio.ui.minimal_bar_preview import MinimalBarPreviewWidget
 from studio.ui.page_shell import hint_label, section_title
 from studio.ui.phone_canvas_widget import PhoneCanvasWidget
 

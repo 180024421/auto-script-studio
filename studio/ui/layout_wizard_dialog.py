@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QButtonGroup,
     QDialog,
@@ -13,7 +12,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QRadioButton,
     QVBoxLayout,
-    QWidget,
 )
 
 from studio.services.layout_wizard_templates import WIZARD_CHOICES

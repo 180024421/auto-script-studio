@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from packager.pack_metadata import read_project_cfg
+
 from studio.services.layout_defaults import load_layout
 from studio.services.layout_validate import validate_layout
 

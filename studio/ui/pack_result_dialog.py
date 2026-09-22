@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -11,8 +10,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QVBoxLayout,
 )
-
-from studio.ui.app_theme import set_button_role
 
 
 class PackResultDialog(QDialog):

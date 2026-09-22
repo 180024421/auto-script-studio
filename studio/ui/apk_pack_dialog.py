@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from packager.icon_processor import resolve_icon_source
+from packager.pack_metadata import read_project_cfg, save_pack_metadata, validate_pack_fields
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -18,9 +20,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
-
-from packager.icon_processor import default_icon_path, resolve_icon_source
-from packager.pack_metadata import read_project_cfg, save_pack_metadata, validate_pack_fields
 
 
 class ApkPackDialog(QDialog):

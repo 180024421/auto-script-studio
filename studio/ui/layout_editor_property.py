@@ -7,8 +7,8 @@ from typing import Any
 from PySide6.QtCore import Qt, QTime, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QColorDialog,
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QFormLayout,
     QGridLayout,
@@ -25,20 +25,25 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from studio.ui.app_theme import set_button_role
+from studio.services.free_layout import (
+    estimate_text_layout_width,
+    is_free_mode,
+    min_rect_for_type,
+    panel_design_size,
+)
 from studio.services.layout_cleanup import next_widget_id
-from studio.services.free_layout import estimate_text_layout_width, is_free_mode, min_rect_for_type, panel_design_size
+from studio.services.layout_defaults import (
+    FORM_WIDGET_TYPES,
+    action_types_for_layout,
+    is_action_type,
+    widget_display_name,
+)
 from studio.services.screen_layout import (
     CHROME_PATH_TAG,
     active_screen_index,
     resolve_widget,
 )
-from studio.services.layout_defaults import (
-    action_types_for_layout,
-    FORM_WIDGET_TYPES,
-    is_action_type,
-    widget_display_name,
-)
+from studio.ui.app_theme import set_button_role
 
 
 class LayoutEditorPropertyMixin:

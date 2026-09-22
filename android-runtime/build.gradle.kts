@@ -4,7 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.android") version "1.9.22" apply false
 }
 
-// 固定 build-tools 34，避免 JDK21 默认走 36.x 产出 DEX 038（Android 7/8 模拟器无法加载）
+// 钉住 build-tools 33.0.1（app 与 library 两条分支必须同值）：不指定时 AGP 会按
+// 当前 JDK 选最新的已安装版本，JDK21 环境下会挑到 36.x，产出的 DEX 版本 038
+// 在 Android 7/8 设备上无法加载。compileSdk 仍是 34。
 subprojects {
     plugins.withId("com.android.application") {
         extensions.configure<com.android.build.gradle.AppExtension> {

@@ -7,7 +7,6 @@ from typing import Any
 from studio.services.free_layout import (
     DESIGN_W,
     clamp_widget_rect,
-    default_rect_for_type,
     ensure_widget_rect,
     is_free_mode,
     min_rect_for_type,

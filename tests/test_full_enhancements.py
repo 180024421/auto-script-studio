@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-
 from studio.services.action_recorder import ActionRecorder
 from studio.services.bot_command_catalog import all_commands, search_commands
 from studio.services.dataset_yaml import write_data_yaml

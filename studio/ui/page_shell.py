@@ -200,8 +200,9 @@ def tool_button_row(
     min_height: int = 34,
 ) -> None:
     """buttons: [(text, slot, role), ...]"""
-    from studio.ui.app_theme import set_button_role
     from PySide6.QtWidgets import QGridLayout, QPushButton, QWidget
+
+    from studio.ui.app_theme import set_button_role
 
     wrap = QWidget()
     grid = QGridLayout(wrap)

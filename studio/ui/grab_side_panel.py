@@ -13,16 +13,16 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
-    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from studio.ui.app_theme import set_button_role
-from studio.ui.page_shell import hint_label, section_title, configure_elide_combo
+from studio.ui.page_shell import configure_elide_combo, hint_label, section_title
 
 
 def _scroll_tab(content: QWidget) -> QScrollArea:

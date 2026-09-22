@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
 import zipfile
 from pathlib import Path
 
 import pytest
-
 from studio.services.project_persistence import (
     export_project_zip,
     get_last_project,

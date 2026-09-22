@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
@@ -28,13 +27,12 @@ from PySide6.QtWidgets import (
 from studio.runtime.panel_state import PanelState
 from studio.services.layout_clone import clone_layout
 from studio.services.layout_defaults import is_action_type, validate_widget_value
-from studio.ui.panel_widget_factory import INTERACTIVE_TYPES
 from studio.services.widget_path import (
-    container_prefix,
     remap_path_after_reorder,
     reorder_in_container,
     set_widget_width,
 )
+from studio.ui.panel_widget_factory import INTERACTIVE_TYPES
 from studio.ui.preview_design import DesignFrame, PanelWidthHandle, SelectFrame
 
 
@@ -276,7 +274,6 @@ class LayoutPreviewWidget(QScrollArea):
         font_px = max(12, int(13 * zoom))
         field_px = max(11, int(12 * zoom))
         btn_pad = max(6, int(8 * zoom))
-        btn_h = max(32, int(36 * zoom))
 
         center_row = QWidget()
         center_lay = QHBoxLayout(center_row)
@@ -313,7 +310,7 @@ class LayoutPreviewWidget(QScrollArea):
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(8)
 
-        from studio.services.screen_layout import active_screen_index, active_screen_widgets
+        from studio.services.screen_layout import active_screen_widgets
 
         widgets = active_screen_widgets(self._layout)
         self._fill_grid(widgets, grid, cols, (), grid_host, zoom)

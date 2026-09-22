@@ -6,16 +6,13 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
-    QColorDialog,
     QComboBox,
-    QFormLayout,
+    QDialog,
     QFrame,
-    QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -24,42 +21,36 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMenu,
     QMessageBox,
-    QDialog,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
-    QStackedWidget,
     QSpinBox,
-    QTextEdit,
-    QTimeEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from studio.runtime.panel_state import PanelState
-from studio.ui.app_theme import set_button_role
-from studio.ui.layout_editor_preview import LayoutEditorPreviewMixin
-from studio.ui.layout_editor_property import LayoutEditorPropertyMixin
-from studio.ui.page_shell import (
-    card_frame,
-    section_title,
-    side_column,
-    three_column_splitter,
-    tool_button_row,
+from studio.services.free_layout import is_free_mode
+from studio.services.layout_cleanup import next_widget_id, sanitize_free_layout
+from studio.services.layout_clone import clone_layout, clone_list, clone_widget
+from studio.services.layout_defaults import (
+    DEFAULT_LAYOUT,
+    FORM_WIDGET_TYPES,
+    PANEL_THEMES,
+    action_types_for_layout,
+    default_widget,
+    is_action_type,
+    load_layout,
+    save_layout,
+    widget_display_name,
 )
-from studio.ui.screen_tabs_editor import ScreenTabsEditor
 from studio.services.layout_history import LayoutHistory
-from studio.services.layout_validate import is_auto_repairable, validate_layout
 from studio.services.layout_templates import get_template, template_choices
+from studio.services.layout_validate import is_auto_repairable, validate_layout
 from studio.services.layout_wizard_templates import build_wizard_layout, wizard_screen_for_append
-from studio.ui.layout_wizard_dialog import LayoutWizardDialog
 from studio.services.panel_lua_snippets import (
     lua_reads_block_for_layout,
     lua_reads_for_widget_spec,
     widget_lua_spec,
 )
-from studio.services.layout_clone import clone_layout, clone_list, clone_widget
-from studio.services.free_layout import is_free_mode
 from studio.services.screen_layout import (
     CHROME_PATH_TAG,
     active_screen_index,
@@ -71,25 +62,23 @@ from studio.services.screen_layout import (
     import_screen_dict,
     migrate_layout,
     path_for_screen,
-    repair_screen_widgets,
     repair_all_screens,
+    repair_screen_widgets,
     resolve_widget,
     screens,
 )
-from studio.services.layout_cleanup import next_widget_id, sanitize_free_layout
-from studio.services.layout_defaults import (
-    ACTION_TYPES,
-    action_types_for_layout,
-    DEFAULT_LAYOUT,
-    FORM_WIDGET_TYPES,
-    PANEL_THEMES,
-    default_widget,
-    is_action_type,
-    is_form_type,
-    load_layout,
-    save_layout,
-    widget_display_name,
+from studio.ui.app_theme import set_button_role
+from studio.ui.layout_editor_preview import LayoutEditorPreviewMixin
+from studio.ui.layout_editor_property import LayoutEditorPropertyMixin
+from studio.ui.layout_wizard_dialog import LayoutWizardDialog
+from studio.ui.page_shell import (
+    card_frame,
+    section_title,
+    side_column,
+    three_column_splitter,
+    tool_button_row,
 )
+from studio.ui.screen_tabs_editor import ScreenTabsEditor
 
 
 class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorPropertyMixin):
@@ -1447,7 +1436,11 @@ class LayoutEditorWidget(QWidget, LayoutEditorPreviewMixin, LayoutEditorProperty
         if not is_free_mode(self._layout):
             QMessageBox.information(self, "提示", "仅「手机自由」布局支持界面片段")
             return
-        from studio.services.layout_snippets import delete_snippet, list_snippets, load_screen_snippet
+        from studio.services.layout_snippets import (
+            delete_snippet,
+            list_snippets,
+            load_screen_snippet,
+        )
 
         items = list_snippets()
         if not items:

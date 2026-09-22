@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from PySide6.QtCore import QPoint, QRect, QTimer, Qt, Signal
+from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QMouseEvent, QPainter, QPen, QPixmap, QWheelEvent
 from PySide6.QtWidgets import (
   QApplication,
@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
   QGraphicsDropShadowEffect,
   QHBoxLayout,
   QLabel,
-  QMenu,
   QPushButton,
   QScrollArea,
   QSizePolicy,
@@ -21,14 +20,14 @@ from PySide6.QtWidgets import (
   QWidget,
 )
 
-from studio.ui.panel_widget_factory import (
-  FORM_PREVIEW_TYPES,
-  INTERACTIVE_TYPES,
-  build_design_preview,
-  build_interactive_widget,
-)
-
 from studio.runtime.panel_state import PanelState
+from studio.services.free_layout import DESIGN_W, panel_design_size
+from studio.services.layout_clone import clone_layout, clone_widget
+from studio.services.panel_geometry import (
+  compute_device_screen_px,
+  compute_host_panel_overlay_rect,
+)
+from studio.services.panel_theme import panel_theme_colors
 from studio.services.screen_layout import (
   CHROME_PATH_TAG,
   active_screen_index,
@@ -41,16 +40,16 @@ from studio.services.screen_layout import (
   screens,
   set_widget_rect,
 )
-from studio.services.free_layout import DESIGN_W, panel_design_size
-from studio.services.layout_clone import clone_layout, clone_widget
-from studio.services.panel_geometry import (
-  compute_device_screen_px,
-  compute_host_panel_overlay_rect,
-)
-from studio.services.panel_theme import panel_theme_colors
 from studio.services.smart_snap import other_rects_excluding, smart_snap_rect
-from studio.services.snap_design import SNAP_GRID, snap_design as _snap_design
+from studio.services.snap_design import SNAP_GRID
+from studio.services.snap_design import snap_design as _snap_design
 from studio.services.widget_interior_scale import effective_content_scale
+from studio.ui.panel_widget_factory import (
+  FORM_PREVIEW_TYPES,
+  INTERACTIVE_TYPES,
+  build_design_preview,
+  build_interactive_widget,
+)
 
 TITLE_DP = 48
 TAB_BAR_DP = 44
@@ -398,13 +397,10 @@ class FreeDesignItem(QFrame):
     icon = CHROME_ICONS.get(wtype, "")
     if icon_only and icon:
       display = icon
-      title_line = f"{title} ({wtype})"
     elif self._form_like:
       display = ""
-      title_line = str(title)
     else:
       display = f"{icon} {title}" if icon else f"{title}\n({wtype})"
-      title_line = display
     self._drag_strip = QLabel(display, self)
     self._drag_strip.setObjectName("FreeDesignDragStrip")
     self._drag_strip.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1305,7 +1301,6 @@ class PhoneCanvasWidget(QScrollArea):
     else:
       device_sw = int(dw * self._scale)
       device_sh = 0
-    sw = device_sw
 
     overlay_rect = None
     panel_scale = self._scale

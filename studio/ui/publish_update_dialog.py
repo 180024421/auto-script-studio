@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from packager.pack_metadata import read_project_cfg
+from packager.publish_update import publish_to_jiaoben
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -13,9 +15,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from packager.pack_metadata import read_project_cfg
-from packager.publish_update import publish_to_jiaoben
-
 
 class PublishUpdateDialog(QDialog):
     def __init__(self, parent, project_dir) -> None:
@@ -24,7 +23,6 @@ class PublishUpdateDialog(QDialog):
         self.setWindowTitle("发布脚本热更新到 jiaoben")
         self.setMinimumWidth(460)
         cfg = read_project_cfg(project_dir)
-        runtime = cfg.get("runtime") or {}
         jiaoben = cfg.get("jiaoben") or {}
         license_cfg = cfg.get("license") or {}
         api_base = str(jiaoben.get("api_base") or license_cfg.get("api_base") or "")

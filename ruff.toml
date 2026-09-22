@@ -7,4 +7,7 @@ select = ["E", "F", "I", "W"]
 ignore = ["E501"]
 
 [lint.per-file-ignores]
+# phone_canvas_widget.py 全文是 2 空格步进缩进（约 896 行，非 tab），
+# 与仓库 4 空格规范不一致。豁免是为避免一次性巨量格式 diff；
+# 该文件重排为 4 空格后可删除本行（.editorconfig 已同步声明该例外）。
 "studio/ui/phone_canvas_widget.py" = ["E111", "E114", "W191"]

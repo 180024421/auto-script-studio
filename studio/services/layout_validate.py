@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from studio.services.free_layout import min_rect_for_type
-from studio.services.screen_layout import CHROME_PATH_TAG, ensure_migrated, flatten_all_widgets
+from studio.services.screen_layout import ensure_migrated, flatten_all_widgets
 
 # 可由 repair_all_screens / sanitize_free_layout 自动修正的校验项关键词
 _AUTO_REPAIR_MARKERS = ("尺寸过小", "坐标不能为负", "超出设计宽度", "id 重复")

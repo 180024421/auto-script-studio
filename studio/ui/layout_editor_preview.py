@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -19,16 +19,8 @@ from PySide6.QtWidgets import (
 )
 
 from studio.runtime.panel_state import PanelState
-from studio.ui.app_theme import set_button_role
-from studio.ui.layout_preview_widget import LayoutPreviewWidget
-from studio.ui.minimal_bar_preview import MinimalBarPreviewWidget
-from studio.ui.phone_canvas_widget import (
-    AUTO_FIT_DEVICE,
-    DEFAULT_PHONE_SCREEN_PX,
-    PhoneCanvasWidget,
-)
-from studio.services.layout_clone import clone_layout, clone_widget
 from studio.services.free_layout import is_free_mode
+from studio.services.layout_clone import clone_layout, clone_widget
 from studio.services.screen_layout import (
     CHROME_PATH_TAG,
     active_screen_index,
@@ -37,6 +29,14 @@ from studio.services.screen_layout import (
     migrate_layout,
     resolve_widget,
     screens,
+)
+from studio.ui.app_theme import set_button_role
+from studio.ui.layout_preview_widget import LayoutPreviewWidget
+from studio.ui.minimal_bar_preview import MinimalBarPreviewWidget
+from studio.ui.phone_canvas_widget import (
+    AUTO_FIT_DEVICE,
+    DEFAULT_PHONE_SCREEN_PX,
+    PhoneCanvasWidget,
 )
 
 

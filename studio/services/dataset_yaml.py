@@ -52,8 +52,6 @@ def write_data_yaml(
     names = list(class_names) if class_names else collect_class_names(project_dir, subdir)
     if not names:
         names = ["object"]
-    images_train = (ds / "images").as_posix()
-    labels_train = (ds / "labels").as_posix()
     lines = [
         f"path: {ds.resolve().as_posix()}",
         "train: images",

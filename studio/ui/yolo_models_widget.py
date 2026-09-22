@@ -233,7 +233,6 @@ class YoloModelsWidget(QWidget):
         paths = [Path(f) for f in files]
         export_imgsz: int | None = None
         if any(p.suffix.lower() == ".pt" for p in paths):
-            from PySide6.QtWidgets import QInputDialog
 
             choice = QMessageBox.question(
                 self,

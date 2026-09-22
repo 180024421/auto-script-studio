@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from studio.services.adb_ide_import import read_names_from_data_yaml, resolve_best_pt
 
 

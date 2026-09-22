@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from studio.services.layout_clone import clone_layout
 from studio.services.layout_defaults import DEFAULT_LAYOUT
+from studio.services.panel_geometry import compute_free_panel_design_height
+from studio.services.panel_lua_snippets import list_value_widgets, lua_all_values_for_layout
+from studio.services.snap_design import snap_design
 from studio.services.widget_interior_scale import (
     effective_content_scale,
     scale_layout_widgets_for_design,
 )
-from studio.services.panel_geometry import compute_free_panel_design_height
-from studio.services.panel_lua_snippets import lua_all_values_for_layout, list_value_widgets
-from studio.services.snap_design import SNAP_GRID, snap_design
 
 
 def test_snap_design_rounds_to_grid():

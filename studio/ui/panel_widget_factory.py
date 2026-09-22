@@ -14,8 +14,8 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QRadioButton,
-    QSlider,
     QSizePolicy,
+    QSlider,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -581,7 +581,6 @@ def _image_widget(spec: dict[str, Any], *, scale: float = 1.0, theme: str = "lig
     from pathlib import Path
 
     from PySide6.QtGui import QPixmap
-    from studio.services.panel_theme import panel_theme_colors
 
     colors = panel_theme_colors(theme)
     host = QFrame()
@@ -628,7 +627,6 @@ def _image_widget(spec: dict[str, Any], *, scale: float = 1.0, theme: str = "lig
 
 
 def _section_card_widget(spec: dict[str, Any], *, scale: float = 1.0, theme: str = "light") -> QWidget:
-    from studio.services.panel_theme import panel_theme_colors
 
     colors = panel_theme_colors(theme)
     title = str(spec.get("text") or spec.get("label") or "分组")

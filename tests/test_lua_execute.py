@@ -39,7 +39,6 @@ def test_install_lua_logging_no_syntax_error():
     pytest = __import__("pytest")
     pytest.importorskip("lupa")
     from lupa import LuaRuntime
-
     from studio.runtime.lua_execute import install_lua_logging
 
     logs: list[str] = []

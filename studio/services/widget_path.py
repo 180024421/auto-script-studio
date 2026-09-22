@@ -64,7 +64,6 @@ def get_widget_spec(layout: dict[str, Any], path: tuple[int, ...]) -> dict[str, 
 def reorder_in_container(
     layout: dict[str, Any], container: tuple[int, ...], from_idx: int, to_idx: int
 ) -> dict[str, Any]:
-    import json
 
     out = clone_layout(layout)
     lst = get_widget_list(out, container)
@@ -79,7 +78,6 @@ def reorder_in_container(
 
 
 def set_widget_width(layout: dict[str, Any], path: tuple[int, ...], width: int) -> dict[str, Any]:
-    import json
 
     out = clone_layout(layout)
     spec = get_widget_spec(out, path)

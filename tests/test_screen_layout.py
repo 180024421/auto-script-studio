@@ -14,9 +14,11 @@ from studio.services.screen_layout import (
     ensure_migrated,
     export_screen_dict,
     import_screen_dict,
-    migrate_layout as migrate_screens,
     repair_screen_widgets,
     screens,
+)
+from studio.services.screen_layout import (
+    migrate_layout as migrate_screens,
 )
 
 

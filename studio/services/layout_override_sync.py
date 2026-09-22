@@ -7,10 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from studio.services.adb_service import AdbService
-from studio.services.layout_defaults import load_layout, save_layout
+from studio.services.layout_defaults import save_layout
 from studio.services.layout_validate import validate_layout
 from studio.services.screen_layout import migrate_layout
-
 
 OVERRIDE_REL = "files/layout-overrides/ui/layout.json"
 

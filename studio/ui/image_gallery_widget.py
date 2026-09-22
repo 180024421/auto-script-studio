@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt, QSize, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QGuiApplication, QPixmap, QWheelEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,

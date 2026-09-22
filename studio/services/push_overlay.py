@@ -8,7 +8,6 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-
 _SKIP_NAMES = {".git", ".publish-staging", "__pycache__", ".idea", "node_modules"}
 
 

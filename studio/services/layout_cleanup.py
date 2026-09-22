@@ -5,7 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from studio.services.free_layout import is_free_mode
-from studio.services.screen_layout import chrome_widgets, ensure_migrated, flatten_all_widgets, repair_all_screens, screens
+from studio.services.screen_layout import (
+    chrome_widgets,
+    ensure_migrated,
+    flatten_all_widgets,
+    repair_all_screens,
+    screens,
+)
 
 LEGACY_WIDGET_IDS = frozenset({"section_div", "func_hint"})
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-
 from typing import Any
 
 from studio.services.free_layout import is_free_mode

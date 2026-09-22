@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from studio.services.free_layout import default_rect_for_type, is_free_mode
 from studio.services.screen_layout import ensure_all_rects, migrate_layout
+
 ACTION_TYPES = [
     ("start_script", "启动主脚本"),
     ("stop_script", "停止主脚本"),
@@ -200,9 +202,7 @@ DEFAULT_LAYOUT: dict[str, Any] = {
     "widgets": [],
 }
 
-def layout_path(project_dir) -> "Path":
-    from pathlib import Path
-
+def layout_path(project_dir) -> Path:
     return Path(project_dir) / "ui" / "layout.json"
 
 
