@@ -1,0 +1,425 @@
+{
+  "version": 1,
+  "note": "bot.* / panel.* 的单一来源。PC 端 lua_runner 由此驱动注册与返回 marshal；设备端与文档、工具箱由 tools/lua_contract_check.py 解析源码对账。",
+  "conventions": {
+    "args_last_table_is_opts": "args 末位若为 type=table 即 opts 表，opts 段只对这张表生效。",
+    "sides": "opts.<key>.sides 省略 = 两端都支持；显式列出 = 仅这些端支持（已知且允许的单侧键）。",
+    "default_compare": "默认值只在契约与设备端都是字面量时比对；来自配置的默认（如 mask_decode_max）跳过。",
+    "pc_missing": "仅对 availability 不含 pc 的名字有效：nil = 不注册该键（保留 if bot.X then 降级惯例）；raise = 注册并抛中文错误。"
+  },
+  "api": {
+    "bot.delay": {
+      "pc": "delay_seconds",
+      "availability": ["pc", "apk"],
+      "args": [{ "name": "seconds", "type": "number" }],
+      "returns": { "kind": "none" }
+    },
+    "bot.tap": {
+      "pc": "tap",
+      "availability": ["pc", "apk"],
+      "args": [
+        { "name": "x", "type": "int" },
+        { "name": "y", "type": "int" }
+      ],
+      "returns": { "kind": "none" }
+    },
+    "bot.swipe": {
+      "pc": "swipe",
+      "availability": ["pc", "apk"],
+      "args": [
+        { "name": "x1", "type": "int" },
+        { "name": "y1", "type": "int" },
+        { "name": "x2", "type": "int" },
+        { "name": "y2", "type": "int" },
+        { "name": "duration_ms", "type": "int", "optional": true }
+      ],
+      "returns": { "kind": "none" }
+    },
+    "bot.longPress": {
+      "pc": "long_press",
+      "availability": ["pc", "apk"],
+      "args": [
+        { "name": "x", "type": "int" },
+        { "name": "y", "type": "int" },
+        { "name": "duration_ms", "type": "int", "optional": true }
+      ],
+      "returns": { "kind": "none" }
+    },
+    "bot.findImage": {
+      "pc": "find_image",
+      "availability": ["pc", "apk"],
+      "args": [
+        { "name": "path", "type": "string" },
+        { "name": "opts", "type": "table" }
+      ],
+      "opts": {
+        "threshold": { "type": "number", "default": 0.9 },
+        "timeout": { "type": "number", "default": 20 },
+        "click": { "type": "bool", "default": false },
+        "optional": { "type": "bool", "default": false },
+        "roi": { "type": "roi" },
+        "tap_dx": { "type": "int", "default": 0 },
+        "tap_dy": { "type": "int", "default": 0 },
+        "scale_min": { "type": "number", "default": 1.0 },
+        "scale_max": { "type": "number", "default": 1.0 },
+        "scale_step": { "type": "number", "default": 0.1 },
+        "step": { "type": "int", "default": 2, "sides": ["apk"], "note": "设备端模板扫描步长；PC 全像素匹配" }
+      },
+      "returns": { "kind": "tuple", "items": ["int", "int"], "nil": true }
+    },
+    "bot.findColor": {
+      "pc": "find_color",
+      "availability": ["pc", "apk"],
+      "args": [
+        { "name": "b", "type": "int" },
+        { "name": "g", "type": "int" },
+        { "name": "r", "type": "int" },
+        { "name": "opts", "type": "table" }
+      ],
+      "opts": {
+        "tol": { "type": "int", "default": 12 },
+        "timeout": { "type": "number", "default": 15 },
+        "click": { "type": "bool", "default": false },
+        "optional": { "type": "bool", "default": false },
+        "roi": { "type": "roi" },
+        "tap_dx": { "type": "int", "default": 0 },
+        "tap_dy": { "type": "int", "default": 0 }
+      },
+      "returns": { "kind": "tuple", "items": ["int", "int"], "nil": true }
+    },
+    "bot.findText": {
+      "pc": "find_text",
+      "availability": ["pc", "apk"],
+      "args": [
+        { "name": "target", "type": "string" },
+        { "name": "opts", "type": "table" }
+      ],
+      "opts": {
+        "match_mode": { "type": "string", "default": "contains" },
+        "timeout": { "type": "number", "default": 20 },
+        "min_confidence": { "type": "number", "default": 0.5 },
+        "click": { "type": "bool", "default": false },
+        "optional": { "type": "bool", "default": false },
+        "roi": { "type": "roi" },
+        "index": { "type": "int", "default": 0 },
+        "tap_dx": { "type": "int", "default": 0 },
+        "tap_dy": { "type": "int", "default": 0 }
+      },
+      "returns": { "kind": "tuple", "items": ["int", "int"], "nil": true }
+    },
+    "bot.findNode": {
+      "pc": "find_node",
+      "availability": ["pc", "apk"],
+      "args": [{ "name": "opts", "type": "table" }],
+      "opts": {
+        "text": { "type": "string", "default": "" },
+        "id": { "type": "string", "default": "" },
+        "optional": { "type": "bool", "default": false },
+        "match_mode": { "type": "string", "default": "contains", "sides": ["apk"], "note": "PC 无无障碍树，非 optional 直接报错" },
+        "index": { "type": "int", "default": 0, "sides": ["apk"] },
+        "click": { "type": "bool", "default": false, "sides": ["apk"] },
+        "timeout": { "type": "number", "default": 10, "sides": ["apk"] }
+      },
+      "returns": { "kind": "tuple", "items": ["int", "int"], "nil": true }
+    },
+    "bot.recognizeText": {
+      "pc": "recognize_text",
+      "availability": ["pc", "apk"],
+      "args": [{ "name": "opts", "type": "table" }],
+      "opts": {
+        "min_confidence": { "type": "number", "default": 0.5 },
+        "roi": { "type": "roi" },
+        "limit": { "type": "int", "default": 30 }
+      },
+      "returns": { "kind": "array_of", "item_fields": ["text", "x", "y", "confidence"] }
+    },
+    "bot.recognizeDigits": {
+      "pc": "recognize_digits",
+      "availability": ["pc", "apk"],
+      "args": [{ "name": "opts", "type": "table" }],
+      "opts": {
+        "min_confidence": { "type": "number", "default": 0.5 },
+        "max_gap": { "type": "int", "default": 3 },
+        "roi": { "type": "roi" },
+        "model": { "type": "string", "default": "" },
+        "model_path": { "type": "string", "default": "" },
+        "manifest": { "type": "string", "default": "", "sides": ["apk"], "note": "设备端可指定 manifest.json；PC 按模型同目录自动查找" }
+      },
+      "returns": { "kind": "table", "fields": ["text", "confidence", "chars"] }
+    },
+    "bot.yoloDetect": {
+      "pc": "yolo_detect",
+      "availability": ["pc", "apk"],
+      "args": [{ "name": "opts", "type": "table" }],
+      "opts": {
+        "model": { "type": "string", "default": "" },
+        "model_path": { "type": "string", "default": "" },
+        "class_name": { "type": "string", "default": "" },
+        "conf": { "type": "number", "default_from": "project.json runtime.default_yolo_conf" },
+        "roi": { "type": "roi" },
+        "mask_decode_max": { "type": "int", "default_from": "config.perf.yoloMaxMaskDecode", "sides": ["apk"], "note": "设备端限制 mask 解码条数；PC 全解码" }
+      },
+      "returns": {
+        "kind": "array_of",
+        "item_fields": ["class_name", "confidence", "x", "y", "w", "h", "center_x", "center_y", "left", "top", "width", "height", "has_mask"],
+        "optional_item_fields": ["mask_center_x", "mask_center_y", "mask_area"]
+      }
+    },
+    "bot.findYolo": {
+      "pc": "find_yolo",
+      "availability": ["pc", "apk"],
+      "args": [{ "name": "opts", "type": "table" }],
+      "opts": {
+        "model": { "type": "string", "default": "" },
+        "model_path": { "type": "string", "default": "" },
+        "class_name": { "type": "string", "default": "" },
+        "conf": { "type": "number", "default_from": "project.json runtime.default_yolo_conf" },
+        "pick": { "type": "string", "default": "best_conf" },
+        "timeout": { "type": "number", "default": 20 },
+        "click": { "type": "bool", "default": false },
+        "optional": { "type": "bool", "default": false },
+        "roi": { "type": "roi" },
+        "frac": { "type": "frac" },
+        "tap_dx": { "type": "int", "default": 0 },
+        "tap_dy": { "type": "int", "default": 0 },
+        "delay_before_click": { "type": "number", "default": 0 },
+        "use_box_center": { "type": "bool", "default": false },
+        "use_mask_center": { "type": "bool", "default": false },
+        "mask_decode_max": { "type": "int", "default_from": "config.perf.yoloMaxMaskDecode", "sides": ["apk"] }
+      },
+      "returns": { "kind": "tuple", "items": ["int", "int"], "nil": true }
+    },
+    "bot.yoloSwipe": {
+      "pc": "yolo_swipe",
+      "availability": ["pc", "apk"],
+      "args": [{ "name": "opts", "type": "table" }],
+      "opts": {
+        "model": { "type": "string", "default": "" },
+        "model_path": { "type": "string", "default": "" },
+        "class_name": { "type": "string", "default": "" },
+        "conf": { "type": "number", "default_from": "project.json runtime.default_yolo_conf" },
+        "pick": { "type": "string", "default": "best_conf" },
+        "timeout": { "type": "number", "default": 20 },
+        "roi": { "type": "roi" },
+        "distance": { "type": "int", "default": 400 },
+        "direction": { "type": "string", "default": "up" },
+        "duration_ms": { "type": "int", "default": 350 },
+        "frac": { "type": "frac" },
+        "use_box_center": { "type": "bool", "default": false },
+        "use_mask_center": { "type": "bool", "default": false },
+        "mask_decode_max": { "type": "int", "default_from": "config.perf.yoloMaxMaskDecode", "sides": ["apk"] }
+      },
+      "returns": { "kind": "none" }
+    },
+    "bot.waitGoneImage": {
+      "pc": "wait_gone_image",
+      "availability": ["pc", "apk"],
+      "args": [
+        { "name": "path", "type": "string" },
+        { "name": "opts", "type": "table" }
+      ],
+      "opts": {
+        "threshold": { "type": "number", "default": 0.92 },
+        "timeout": { "type": "number", "default": 45 },
+        "roi": { "type": "roi" },
+        "optional": { "type": "bool", "default": false },
+        "step": { "type": "int", "default": 2, "sides": ["apk"] }
+      },
+      "returns": { "kind": "bool" }
+    },
+    "bot.waitStable": {
+      "pc": "wait_stable",
+      "availability": ["pc", "apk"],
+      "args": [{ "name": "opts", "type": "table" }],
+      "opts": {
+        "timeout": { "type": "number", "default": 12 },
+        "max_mean_diff": { "type": "number", "default": 4 },
+        "stable_samples": { "type": "int", "default": 2 },
+        "optional": { "type": "bool", "default": false }
+      },
+      "returns": { "kind": "bool" }
+    },
+    "bot.findMultiColor": {
+      "pc": "find_multi_color",
+      "availability": ["pc", "apk"],
+      "args": [{ "name": "opts", "type": "table" }],
+      "opts": {
+        "points": { "type": "color_points", "note": "每项 {dx, dy, b, g, r}（≥5 元素）或 {dx=,dy=,bgr={b,g,r}}" },
+        "tol": { "type": "int", "default": 12 },
+        "timeout": { "type": "number", "default": 15 },
+        "click": { "type": "bool", "default": false },
+        "optional": { "type": "bool", "default": false },
+        "roi": { "type": "roi" },
+        "tap_dx": { "type": "int", "default": 0, "sides": ["apk"], "note": "PC 未实现该偏移，待行为缺陷清单处理" },
+        "tap_dy": { "type": "int", "default": 0, "sides": ["apk"] }
+      },
+      "returns": { "kind": "tuple", "items": ["int", "int"], "nil": true }
+    },
+    "bot.runSaocheng": {
+      "availability": ["apk"],
+      "pc_missing": "nil",
+      "args": [{ "name": "opts", "type": "table" }],
+      "opts": {
+        "conf": { "type": "number", "default_from": "config.defaultYoloConf" },
+        "auto": { "type": "bool", "default": true }
+      },
+      "returns": { "kind": "none" }
+    },
+    "bot.trace": {
+      "pc": "trace",
+      "availability": ["pc", "apk"],
+      "args": [
+        { "name": "tag", "type": "string" },
+        { "name": "msg", "type": "string" }
+      ],
+      "returns": { "kind": "none" }
+    },
+    "bot.log": {
+      "pc": "log",
+      "availability": ["pc", "apk"],
+      "args": [{ "name": "msg", "type": "string" }],
+      "returns": { "kind": "none" }
+    },
+    "bot.__logRaw": {
+      "pc": "log",
+      "availability": ["pc"],
+      "internal": true,
+      "args": [{ "name": "msg", "type": "string" }],
+      "returns": { "kind": "none" }
+    },
+    "bot.toast": {
+      "pc": "toast",
+      "availability": ["pc", "apk"],
+      "args": [{ "name": "msg", "type": "string" }],
+      "returns": { "kind": "none" }
+    },
+    "bot.openApp": {
+      "pc": "open_app",
+      "availability": ["pc", "apk"],
+      "args": [{ "name": "package_name", "type": "string" }],
+      "returns": { "kind": "bool" }
+    },
+    "bot.listApps": {
+      "availability": ["apk"],
+      "pc_missing": "raise",
+      "pc_error": "bot.listApps 仅 APK 可用（PC 联调不支持）",
+      "args": [],
+      "returns": { "kind": "array_of", "item_fields": ["label", "package"] }
+    },
+    "bot.reloadPanel": {
+      "availability": ["apk"],
+      "pc_missing": "raise",
+      "pc_error": "bot.reloadPanel 仅 APK 可用（PC 联调不支持）",
+      "args": [],
+      "returns": { "kind": "bool" }
+    },
+    "bot.read_chain": {
+      "availability": ["apk"],
+      "pc_missing": "raise",
+      "pc_error": "bot.read_chain 需 APK + root（PC 联调不支持）",
+      "args": [
+        { "name": "module", "type": "string" },
+        { "name": "base_offset", "type": "number" },
+        { "name": "offsets", "type": "table" },
+        { "name": "type", "type": "string", "optional": true }
+      ],
+      "returns": { "kind": "number" }
+    },
+    "bot.load_bases": {
+      "availability": ["apk"],
+      "pc_missing": "raise",
+      "pc_error": "bot.load_bases 需 APK + root（PC 联调不支持）",
+      "args": [{ "name": "json_path", "type": "string" }],
+      "returns": { "kind": "table" }
+    },
+    "bot.set_memory_pid": {
+      "availability": ["apk"],
+      "pc_missing": "raise",
+      "pc_error": "bot.set_memory_pid 需 APK + root（PC 联调不支持）",
+      "args": [{ "name": "pid", "type": "int" }],
+      "returns": { "kind": "none" }
+    },
+    "bot.set_pointer_size": {
+      "availability": ["apk"],
+      "pc_missing": "raise",
+      "pc_error": "bot.set_pointer_size 需 APK + root（PC 联调不支持）",
+      "args": [{ "name": "size", "type": "int" }],
+      "returns": { "kind": "none" }
+    },
+    "panel.get": {
+      "pc": "get",
+      "availability": ["pc", "apk"],
+      "args": [{ "name": "widget_id", "type": "string" }],
+      "returns": { "kind": "string" }
+    },
+    "panel.set": {
+      "pc": "set",
+      "availability": ["pc", "apk"],
+      "args": [
+        { "name": "widget_id", "type": "string" },
+        { "name": "value", "type": "string" }
+      ],
+      "returns": { "kind": "none" }
+    },
+    "panel.is": {
+      "pc": "is_value",
+      "availability": ["pc", "apk"],
+      "args": [
+        { "name": "widget_id", "type": "string" },
+        { "name": "expected", "type": "string" }
+      ],
+      "returns": { "kind": "bool" }
+    },
+    "panel.has": {
+      "pc": "has_option",
+      "availability": ["pc", "apk"],
+      "args": [
+        { "name": "widget_id", "type": "string" },
+        { "name": "option", "type": "string" }
+      ],
+      "returns": { "kind": "bool" }
+    },
+    "panel.values": {
+      "pc": "all",
+      "availability": ["pc", "apk"],
+      "args": [],
+      "returns": { "kind": "table" }
+    },
+    "panel.watch": {
+      "pc": "watch",
+      "availability": ["pc", "apk"],
+      "args": [
+        { "name": "widget_id", "type": "string" },
+        { "name": "callback", "type": "function" }
+      ],
+      "returns": { "kind": "none" }
+    },
+    "panel.unwatch": {
+      "pc": "unwatch",
+      "availability": ["pc", "apk"],
+      "args": [
+        { "name": "widget_id", "type": "string" },
+        { "name": "callback", "type": "function", "optional": true }
+      ],
+      "returns": { "kind": "none" }
+    },
+    "panel.isOn": {
+      "pc": "is_on",
+      "availability": ["pc", "apk"],
+      "args": [{ "name": "widget_id", "type": "string" }],
+      "returns": { "kind": "bool" }
+    },
+    "panel.getTimeRange": {
+      "pc": "time_range",
+      "availability": ["pc", "apk"],
+      "args": [{ "name": "widget_id", "type": "string" }],
+      "returns": { "kind": "table", "fields": ["start", "end"] }
+    },
+    "panel.snapshot": {
+      "pc": "snapshot",
+      "availability": ["pc", "apk"],
+      "args": [],
+      "returns": { "kind": "table" }
+    }
+  }
+}
