@@ -534,7 +534,7 @@ object LuaBindings {
             t.set("top", d.rect.y)
             t.set("width", d.rect.w)
             t.set("height", d.rect.h)
-            t.set("has_mask", if (d.hasMask) 1 else 0)
+            t.set("has_mask", LuaValue.valueOf(d.hasMask))
             if (d.hasMask && d.maskCenterX != null && d.maskCenterY != null) {
                 t.set("mask_center_x", d.maskCenterX!!)
                 t.set("mask_center_y", d.maskCenterY!!)

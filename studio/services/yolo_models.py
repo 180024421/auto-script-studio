@@ -35,6 +35,10 @@ def normalize_detection(det: dict) -> dict[str, int | float | str | bool]:
         "h": h,
         "center_x": cx,
         "center_y": cy,
+        "left": x,
+        "top": y,
+        "width": w,
+        "height": h,
         "has_mask": has_mask,
     }
     if has_mask:

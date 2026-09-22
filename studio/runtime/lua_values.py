@@ -32,7 +32,12 @@ def lua_to_python(value: Any) -> Any:
     except ImportError:
         return value
     lt = lua_type(value)
-    if lt is None or lt == "nil":
+    if lt is None:
+        # lupa 2.x 会把 number/boolean/string 自动解包成 Python 标量，此时 lua_type()
+        # 返回 None。原样交回：当成 nil 会让 opts 里的阈值/开关全变成 None，
+        # PcBot 静默退回默认值（threshold、click 等全部失效）。
+        return value
+    if lt == "nil":
         return None
     if lt == "boolean":
         return bool(value)
