@@ -122,7 +122,21 @@ def _verify_packaged_layout(project_dir: Path, apk: Path) -> None:
         raise RuntimeError(result.get("message", "APK layout 校验失败"))
 
 
+def _ensure_utf8_streams() -> None:
+    """Windows 上 stdout 一旦被重定向成管道（CI、`> file`、`| Select-String`），
+    Python 会退回 ANSI 代码页（英文 runner 是 cp1252），中文工程名直接
+    UnicodeEncodeError。统一切到 UTF-8。pythonw 下 sys.stdout 可能为 None，
+    已被上层替换成别的对象时也可能没有 reconfigure，所以整体兜底。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _ensure_utf8_streams()
     parser = argparse.ArgumentParser(description="Auto Script Studio 打包器")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
