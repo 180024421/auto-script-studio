@@ -85,6 +85,34 @@ def find_text(
     )
 
 
+def _lua_str(value: str) -> str:
+    return str(value).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _roi_literal(roi: Sequence[int]) -> str:
+    return f"roi = {{{roi[0]}, {roi[1]}, {roi[2]}, {roi[3]}}}"
+
+
+def _yolo_detect_opts(
+    model: str,
+    *,
+    class_name: str = "",
+    conf: float = 0.35,
+    roi: Optional[Sequence[int]] = None,
+) -> list[str]:
+    """`bot.yoloDetect` 只认 model / class_name / conf / roi。
+
+    `timeout`、`pick`、`limit` 属于 `findYolo` / `yoloSwipe` / `recognizeText`，
+    写进 yoloDetect 会被两端静默忽略，故此处不产出。
+    """
+    opts: list[str] = [f'model = "{_lua_str(model)}"', f"conf = {conf}"]
+    if class_name:
+        opts.append(f'class_name = "{_lua_str(class_name)}"')
+    if roi:
+        opts.append(_roi_literal(roi))
+    return opts
+
+
 def _yolo_opts_parts(
     model: str,
     *,
@@ -97,18 +125,16 @@ def _yolo_opts_parts(
     optional: bool = False,
     use_mask_center: bool = False,
 ) -> list[str]:
-    safe_model = model.replace("\\", "\\\\").replace('"', '\\"')
     opts: list[str] = [
-        f'model = "{safe_model}"',
+        f'model = "{_lua_str(model)}"',
         f"conf = {conf}",
         f"timeout = {timeout}",
         f'pick = "{pick}"',
     ]
     if class_name:
-        safe_cls = class_name.replace("\\", "\\\\").replace('"', '\\"')
-        opts.append(f'class_name = "{safe_cls}"')
+        opts.append(f'class_name = "{_lua_str(class_name)}"')
     if roi:
-        opts.append(f"roi = {{{roi[0]}, {roi[1]}, {roi[2]}, {roi[3]}}}")
+        opts.append(_roi_literal(roi))
     if frac is not None:
         opts.append(f"frac = {{{frac[0]}, {frac[1]}}}")
     if optional:
@@ -124,12 +150,8 @@ def yolo_detect(
     class_name: str = "",
     conf: float = 0.35,
     roi: Optional[Sequence[int]] = None,
-    limit: int = 20,
 ) -> str:
-    opts = _yolo_opts_parts(model, class_name=class_name, conf=conf, roi=roi)
-    if limit != 20:
-        opts.append(f"limit = {int(limit)}")
-    ol = _opts_literal(opts)
+    ol = _opts_literal(_yolo_detect_opts(model, class_name=class_name, conf=conf, roi=roi))
     return (
         f"local dets = bot.yoloDetect({ol})\n"
         f"for i, d in ipairs(dets) do\n"
@@ -289,17 +311,18 @@ def wait_gone_image(
 def wait_stable(
     *,
     timeout: float = 15,
-    stable_frames: int = 3,
-    diff_threshold: float = 8,
-    roi: Optional[Sequence[int]] = None,
+    stable_samples: int = 3,
+    max_mean_diff: float = 8,
+    optional: bool = False,
 ) -> str:
+    """`bot.waitStable` 读 timeout / stable_samples / max_mean_diff / optional。"""
     opts: list[str] = [
         f"timeout = {timeout}",
-        f"stable_frames = {stable_frames}",
-        f"diff_threshold = {diff_threshold}",
+        f"stable_samples = {stable_samples}",
+        f"max_mean_diff = {max_mean_diff}",
     ]
-    if roi:
-        opts.append(f"roi = {{{roi[0]}, {roi[1]}, {roi[2]}, {roi[3]}}}")
+    if optional:
+        opts.append("optional = true")
     return f"bot.waitStable({_opts_literal(opts)})"
 
 

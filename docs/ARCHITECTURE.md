@@ -13,7 +13,8 @@ PC Studio（抓抓/编辑/打包）  →  脚本工程（Lua + ui/layout.json + 
 | `studio/` | PC 开发助手（PySide6）：工程、抓抓、浮动面板、Lua 编辑、ADB 联调 |
 | `android-runtime/` | Android 运行时壳（无障碍/root、截屏、视觉、Lua、浮动面板） |
 | `packager/` | 工程 → assets → Gradle APK |
-| `tools/` | YOLO 导出、YAML→Lua 迁移、模拟器冒烟 |
+| `tools/` | 契约对账解析器、YOLO 导出、YAML→Lua 迁移、模拟器冒烟 |
+| `contract/` | `lua_api.json` —— `bot.*` / `panel.*` 的单一来源（名字、参数、opts、返回形状） |
 | `examples/` | 示例工程 |
 
 ## 脚本形态
@@ -51,3 +52,5 @@ YAML 为遗留兼容，新工程请用 Lua。
 | 脚本 | Lua + lupa 联调 | LuaJ |
 
 算法语义在 `bot.*` API 层对齐；PC 与设备实现不同，但脚本写法一致。
+
+这句话由 `contract/lua_api.json` 单一来源承载，`tests/test_lua_contract_parity.py` 逐处对账（设备端 Kotlin、PC 端 Python、工具箱按钮、`docs/LUA.md`）：改任何 `bot.*` / `panel.*` 的名字、opts 键或返回形状都必须同步契约，否则 CI 变红。`mem.*` 尚未入契约。

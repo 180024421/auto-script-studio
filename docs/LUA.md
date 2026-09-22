@@ -52,6 +52,11 @@ lib/              # 可选 Lua 模块
 | `bot.load_bases(jsonPath)` | 加载 ce-base SCC JSON，返回可调用读数表 |
 | `bot.set_memory_pid(pid)` | 设置读内存目标 PID |
 | `bot.set_pointer_size(4\|8)` | 指针宽度 |
+| `bot.runSaocheng(opts)` | 扫城状态机（仅 APK，`opts.conf` / `opts.auto`）；PC 联调下 `bot.runSaocheng` 为 `nil`，用 `if bot.runSaocheng then` 守卫 |
+
+> 本表与 `contract/lua_api.json` 由 `tests/test_lua_contract_parity.py` 双向对账：
+> 契约里每个公开名字都必须在这里出现，这里出现的名字也必须在契约里。
+> 各函数的完整 opts 键与返回形状以契约为准。
 
 ### 内存会话搜值（全局 `mem`，需 root）
 
@@ -74,6 +79,31 @@ lib/              # 可选 Lua 模块
 
 示例工程：`examples/mem-lock`（浮动面板 3 槽位，名称自填）。
 
+### 浮动面板读写（全局 `panel`）
+
+读用户在浮动面板上填的表单值；PC 联调读「预览」里的值（`.studio/panel-state.json`）。
+
+| 函数 | 说明 |
+|------|------|
+| `panel.get(id)` | 取值的字符串形式，未找到返回 `""` |
+| `panel.set(id, value)` | 写入值（会触发 `panel.watch` 回调） |
+| `panel.is(id, expected)` | 忽略大小写比较 |
+| `panel.has(id, option)` | 逗号分隔多值里是否含某项 |
+| `panel.isOn(id)` | 开关/复选是否为真 |
+| `panel.values()` | 全部键值表 |
+| `panel.snapshot()` | 同 `values()`，一次性快照 |
+| `panel.getTimeRange(id)` | 返回 `{ start = "09:00", end = "18:00" }`；`end` 是 Lua 关键字，只能写 `t["end"]` |
+| `panel.watch(id, fn)` | 值变化时回调 `fn(value)` |
+| `panel.unwatch(id [,fn])` | 去掉一个或全部回调 |
+
+```lua
+if panel.isOn("enable_fish") then
+  local t = panel.getTimeRange("active_time")
+  bot.log("活动时段 " .. t.start .. " - " .. t["end"])
+end
+panel.watch("mode", function(v) bot.log("模式切到 " .. v) end)
+```
+
 ### opts 常用字段
 
 - `timeout` 秒、`threshold`、`tol`、`click=true`
@@ -94,7 +124,8 @@ lib/              # 可选 Lua 模块
 | `x`, `y` | int | 框左上角 |
 | `w`, `h` | int | 框宽高 |
 | `center_x`, `center_y` | int | 框中心点 |
-| `has_mask` | bool | 是否为 seg 掩码结果（detect 模型恒为 `false`） |
+| `left`, `top`, `width`, `height` | int | `x` / `y` / `w` / `h` 的别名 |
+| `has_mask` | bool | 是否为 seg 掩码结果（detect 模型恒为 `false`；两端均为真布尔） |
 | `mask_center_x`, `mask_center_y` | int | 掩码质心（仅 `has_mask=true`） |
 | `mask_area` | int | 掩码前景像素数（仅 `has_mask=true`） |
 

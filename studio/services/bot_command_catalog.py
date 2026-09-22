@@ -155,9 +155,9 @@ def _commands() -> list[BotCommand]:
             api="bot.waitStable",
             syntax="bot.waitStable(opts)",
             description="连续多帧画面差异低于阈值时认为稳定。",
-            params_help="opts：timeout、stable_frames、diff_threshold、roi。",
+            params_help="opts：timeout、stable_samples、max_mean_diff、optional。",
             keywords="waitStable 稳定 stable 等待",
-            snippet="bot.waitStable({ timeout = 15, stable_frames = 3, diff_threshold = 8 })",
+            snippet="bot.waitStable({ timeout = 15, stable_samples = 3, max_mean_diff = 8 })",
         ),
         BotCommand(
             id="bot.findMultiColor",
@@ -225,9 +225,9 @@ def _commands() -> list[BotCommand]:
             syntax="bot.yoloDetect(opts)",
             description="对当前屏幕做 YOLO 推理，返回检测框列表。",
             params_help=(
-                "opts：model、class_name、conf、roi、limit。\n"
-                "每项含 class_name、confidence、x、y、w、h、center_x、center_y；"
-                "seg 模型另有 has_mask、mask_center_x/y、mask_area。"
+                "opts：model、class_name、conf、roi。\n"
+                "每项含 class_name、confidence、x、y、w、h、center_x、center_y、"
+                "left、top、width、height；seg 模型另有 has_mask、mask_center_x/y、mask_area。"
             ),
             keywords="yoloDetect 检测 detect onnx",
             snippet=(
