@@ -198,8 +198,28 @@ python -m packager.packager_cli build examples/demo-game -o dist/demo-game.apk -
 ### 运行测试
 
 ```powershell
+.\run-tests.cmd                # 等价于下面两行
 python -m pytest tests/ -q
 ```
+
+依赖分三层：`studio/requirements.txt`（范围，日常开发）、`studio/requirements.lock.txt`
+（精确版本，CI 与复现用）、`studio/requirements-dev.txt`（pytest / ruff 固定版本）。
+`.\start.cmd` 与 `.\setup-studio.cmd` 会一并装好运行依赖和 dev 工具。
+
+### 日志与排障
+
+| 位置 | 内容 |
+|------|------|
+| `.studio/logs/studio.log` | Studio 自身的滚动日志（2MB × 5），含未捕获异常与线程异常 |
+| `.studio/logs/runs/<时间>-pc-<工程>.log` | **每次 PC 运行**的完整输出归档，含退出码与耗时；保留最近 50 次 |
+
+```powershell
+$env:STUDIO_LOG_LEVEL = "DEBUG"   # 提高详细度后再启动 Studio
+.\run-studio.cmd
+```
+
+运行日志窗口每次跑完会打印本次归档文件路径，双击其中的行可跳到脚本对应行。
+`.studio/` 已在 `.gitignore` 中，提 Issue 时可直接把对应 runs 文件附上。
 
 ---
 

@@ -14,7 +14,12 @@
 ```powershell
 .\start.cmd          # 安装依赖 + 启动 Studio
 python -m packager.packager_cli build examples/demo-game -o dist/demo.apk
+.\run-tests.cmd      # pytest tests/（131 项，约 20s；需要 .venv）
+ruff check studio packager tests tools   # 版本固定于 studio/requirements-dev.txt
 ```
+
+排障：Studio 崩溃与未捕获异常落在 `.studio/logs/studio.log`；每次 PC 运行的完整输出
+归档在 `.studio/logs/runs/`（见 `studio/services/app_log.py`、`run_session_log.py`）。
 
 ## 禁止
 

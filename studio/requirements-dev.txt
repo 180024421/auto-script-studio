@@ -1,0 +1,10 @@
+# 开发 / CI 工具依赖（Studio 运行不需要）
+#
+# 固定版本的目的：本地 `ruff check` 和 CI 报同一批问题。
+# 之前 CI 用 `pip install ruff`（不固定），同一个提交本地 104 个错、CI 99 个错，
+# 无法判断是谁的规则集漂移了。
+#
+# 安装：pip install -r studio/requirements-dev.txt
+# 更新：改版本号 → 重跑 ruff/pytest → 提交
+pytest==9.1.1
+ruff==0.16.8

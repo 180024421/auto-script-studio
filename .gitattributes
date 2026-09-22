@@ -1,0 +1,27 @@
+# 换行符：仓库索引统一存 LF（core.autocrlf=true 时工作区仍是 CRLF，Windows 无感）。
+# 这里只钉死「跨平台必须固定」的脚本，避免对整仓做 renormalize 产生巨量 diff。
+
+# Gradle / shell 启动脚本必须是 LF：CRLF 会让 Linux CI 报
+# /bin/bash^M: bad interpreter 或 syntax error。
+android-runtime/gradlew text eol=lf
+*.sh text eol=lf
+
+# Windows 批处理必须是 CRLF（cmd.exe 对纯 LF 的续行/标签解析不可靠）。
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制：禁止任何换行符转换。
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.onnx binary
+*.jar binary
+*.aar binary
+*.keystore binary
+*.jks binary
+*.mp4 binary
+*.zip binary

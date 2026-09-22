@@ -1,0 +1,34 @@
+; 统一编辑器行为 —— 仓库内 Python/Kotlin/Lua/JSON/YAML 混排，缩进不一致会持续产生 diff 噪音
+; （例：ruff.toml 目前不得不为 phone_canvas_widget.py 单独豁免 W191/E111/E114）
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{py,kt,kts}]
+max_line_length = 100
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.lua]
+indent_size = 2
+
+; 历史遗留：该文件全文 2 空格步进（约 896 行）。不声明例外的话，
+; 编辑器会按全局 4 空格继续往里写，风格越混越乱。整体重排为 4 空格后可删掉本段。
+[studio/ui/phone_canvas_widget.py]
+indent_size = 2
+
+[*.{cmd,bat}]
+; Windows 批处理必须是 CRLF，且保留行尾空格（trailing space 在 cmd 里有语义）
+; 现有脚本是 UTF-8 无 BOM + chcp 65001，勿改成带 BOM
+end_of_line = crlf
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab

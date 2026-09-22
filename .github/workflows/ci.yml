@@ -15,20 +15,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            studio/requirements.lock.txt
+            studio/requirements-dev.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r studio/requirements.txt
-          pip install ruff
+          pip install -r studio/requirements.lock.txt -r studio/requirements-dev.txt
 
       - name: Ruff
-        run: ruff check studio packager tests
+        run: ruff check studio packager tests tools
 
       - name: Validate example projects
         run: |
           python -m packager.packager_cli validate examples/ldplayer-test
           python -m packager.packager_cli validate examples/demo-game
+          python -m packager.packager_cli validate examples/saocheng-game
+          python -m packager.packager_cli validate examples/lingzhu-fishing
+          python -m packager.packager_cli validate examples/dingtalk-remind
+          # examples/mem-lock 暂不纳入：layout.json 有 id 重复（start）与 select 尺寸过小，
+          # 修好后补回本列表
 
       - name: Run unit tests
         run: python -m pytest tests/ -q

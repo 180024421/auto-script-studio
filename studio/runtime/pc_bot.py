@@ -12,6 +12,9 @@ import cv2
 from studio.runtime.lua_values import frac_pair, roi_tuple, table_to_dict
 from studio.services import vision_pc
 from studio.services.adb_service import AdbService
+from studio.services.app_log import get_logger
+
+log = get_logger(__name__)
 
 
 class PcBot:
@@ -340,8 +343,8 @@ class PcBot:
                 data = json.loads(cfg_path.read_text(encoding="utf-8"))
                 runtime = data.get("runtime") or {}
                 default = str(runtime.get("default_digit_model") or default)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("project.json 读取 default_digit_model 失败，沿用 %s: %s", default, exc)
         return str(self.project_dir / default)
 
     @staticmethod

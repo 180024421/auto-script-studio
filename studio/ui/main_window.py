@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import sys
 from pathlib import Path
 
+from packager.icon_processor import resolve_icon_source
+from packager.pack_metadata import read_project_cfg, save_pack_metadata, validate_pack_fields
+from packager.publish_update import write_back_version
 from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QTimer
-from PySide6.QtGui import QCloseEvent, QFont, QGuiApplication, QKeySequence, QPixmap, QShortcut, QShowEvent
+from PySide6.QtGui import (
+    QCloseEvent,
+    QFont,
+    QGuiApplication,
+    QKeySequence,
+    QPixmap,
+    QShortcut,
+    QShowEvent,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -15,7 +28,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QFormLayout,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -25,23 +37,49 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QSplitter,
     QSizePolicy,
+    QSplitter,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
+from studio.runtime.panel_state import PanelState
+from studio.services import run_session_log
+from studio.services.adb_service import AdbService
+from studio.services.app_log import (
+    get_logger,
+    install_excepthooks,
+    setup_logging,
+    shutdown_logging,
+)
+from studio.services.async_command import AsyncCommand
+from studio.services.jiaoben_api import fetch_projects_for_combo
+from studio.services.jiaoben_project_id import resolve_jiaoben_project_id
+from studio.services.pack_preflight import validate_before_pack
+from studio.services.pack_result import build_pack_result_summary
+from studio.services.project_persistence import (
+    export_project_zip,
+    get_last_project,
+    get_recent_projects,
+    import_project_zip,
+    remember_project,
+)
+from studio.services.push_overlay import push_project_overlay
+from studio.services.runtime_presets import apply_preset, detect_current_preset
+from studio.ui.apk_pack_dialog import ApkPackDialog
 from studio.ui.app_theme import apply_theme, set_button_role
+from studio.ui.device_connect_dialog import DeviceConnectDialog
 from studio.ui.grab_widget import GrabWidget
+from studio.ui.image_gallery_widget import ImageGalleryWidget
 from studio.ui.layout_editor_widget import LayoutEditorWidget
 from studio.ui.lua_code_editor import LuaCodeEditor
 from studio.ui.lua_highlighter import LuaHighlighter
-from studio.ui.script_panel_widget import ScriptPanelWidget
-from studio.ui.script_command_toolbox import ScriptCommandToolbox
-from studio.ui.image_gallery_widget import ImageGalleryWidget
-from studio.ui.yolo_models_widget import YoloModelsWidget
+from studio.ui.new_project_wizard import NewProjectWizard, fork_demo_to
+from studio.ui.onboarding_dialog import OnboardingDialog, should_show_onboarding
+from studio.ui.pack_env_dialog import ensure_pack_environment
+from studio.ui.pack_result_dialog import PackResultDialog
 from studio.ui.page_shell import (
     main_column,
     page_root,
@@ -51,40 +89,15 @@ from studio.ui.page_shell import (
     tool_button_row,
     two_column_splitter,
 )
-from studio.services.adb_service import AdbService
-from studio.services.async_command import AsyncCommand
-from studio.ui.apk_pack_dialog import ApkPackDialog
-from studio.ui.publish_update_dialog import PublishUpdateDialog
-from studio.ui.pack_result_dialog import PackResultDialog
 from studio.ui.perf_scenario_dialog import PerfScenarioDialog
-from studio.services.pack_result import build_pack_result_summary
-from studio.services.pack_preflight import validate_before_pack
-from studio.services.runtime_presets import PRESETS, apply_preset, detect_current_preset
-from packager.publish_update import write_back_version
-from studio.services.jiaoben_api import fetch_projects_for_combo
-from studio.services.jiaoben_project_id import resolve_jiaoben_project_id
-from packager.pack_metadata import read_project_cfg, save_pack_metadata, validate_pack_fields
-from packager.icon_processor import resolve_icon_source
-from studio.runtime.panel_state import PanelState
-from studio.services.project_persistence import (
-    export_project_zip,
-    get_last_project,
-    get_recent_projects,
-    import_project_zip,
-    remember_project,
-)
-from studio.ui.onboarding_dialog import OnboardingDialog, should_show_onboarding
 from studio.ui.permissions_checklist_dialog import (
     ask_open_grab_after_install,
     show_permissions_checklist,
 )
-from studio.ui.pack_env_dialog import ensure_pack_environment
-from studio.services.push_overlay import push_project_overlay
-from studio.ui.new_project_wizard import NewProjectWizard, fork_demo_to
-from studio.ui.device_connect_dialog import DeviceConnectDialog
-import os
-import re
-
+from studio.ui.publish_update_dialog import PublishUpdateDialog
+from studio.ui.script_command_toolbox import ScriptCommandToolbox
+from studio.ui.script_panel_widget import ScriptPanelWidget
+from studio.ui.yolo_models_widget import YoloModelsWidget
 
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / "studio" / "resources" / "project-template"
@@ -99,6 +112,8 @@ class MainWindow(QMainWindow):
         self.project_dir: Path | None = None
         self.adb = AdbService()
         self._lua_proc: QProcess | None = None
+        self._log = get_logger("ui.main_window")
+        self._run_session: run_session_log.RunSession | None = None
         self._async_cmd = AsyncCommand(self)
         self._async_cmd.output.connect(self._on_async_output)
         self._async_cmd.finished.connect(self._on_async_finished)
@@ -735,6 +750,9 @@ class MainWindow(QMainWindow):
     def append_lua_log(self, msg: str) -> None:
         self.script_run_log.append(msg)
         self.log.append(msg)
+        session = self._run_session
+        if session is not None and session.is_open:
+            session.write(msg)
         sb = self.script_run_log.verticalScrollBar()
         if sb is not None:
             sb.setValue(sb.maximum())
@@ -746,6 +764,19 @@ class MainWindow(QMainWindow):
             return
         QApplication.clipboard().setText(text)
         self.append("已复制运行日志到剪贴板")
+
+    def _close_run_session(self, note: str = "") -> None:
+        """结束当前「运行会话」归档。幂等且不抛异常——日志失败不能影响运行。"""
+        session = self._run_session
+        self._run_session = None
+        if session is None:
+            return
+        try:
+            session.finish(note)
+            if session.path is not None:
+                self._log.info("运行会话结束: %s", session.path)
+        except Exception as exc:
+            self._log.warning("运行会话归档失败（%s）: %s", type(exc).__name__, exc)
 
     def _script_path(self) -> Path | None:
         if not self.project_dir:
@@ -1341,6 +1372,9 @@ class MainWindow(QMainWindow):
                     PanelState.save_sidecar(self.project_dir)
         elif self.project_dir:
             self._save_current_project_quiet()
+        self._close_run_session("Studio 退出，运行会话提前结束")
+        self._log.info("Studio 关闭")
+        shutdown_logging()
         super().closeEvent(event)
 
     def _run_from_script_tab(self) -> None:
@@ -1368,6 +1402,14 @@ class MainWindow(QMainWindow):
         summary = PanelState.format_summary()
         script_path = self._script_path()
         self.script_run_log.clear()
+        self._close_run_session("上一次运行未正常结束")
+        serial = self.current_device_serial()
+        self._run_session = run_session_log.start_session(
+            "pc",
+            self.project_dir,
+            device=serial or "",
+            script=script_path.name if script_path else "",
+        )
         idx = self._script_tab_index()
         if idx >= 0:
             self.tabs.setCurrentIndex(idx)
@@ -1376,7 +1418,6 @@ class MainWindow(QMainWindow):
             self.append_lua_log(f"脚本: {script_path.name}")
         if PanelState.all():
             self.append_lua_log(f"panel 表单状态 → {summary}")
-        serial = self.current_device_serial()
         if not serial:
             self.append_lua_log("警告: 未检测到 ADB 设备，bot.tap/截图 等可能失败 → 点状态栏「连接助理」")
             tip = (
@@ -1390,6 +1431,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             ) != QMessageBox.StandardButton.Yes:
+                self._close_run_session("已取消：未连接 adb 设备")
                 return
         args = ["-u", "-m", "studio.runtime.lua_runner", str(self.project_dir)]
         if serial:
@@ -1410,6 +1452,7 @@ class MainWindow(QMainWindow):
         if not self._lua_proc.waitForStarted(5000):
             self.append_lua_log(f"错误: 无法启动 Lua 子进程 — {self._lua_proc.errorString()}")
             self._lua_proc = None
+            self._close_run_session("启动失败：Lua 子进程无法启动")
             return
         self.run_lua_btn.setEnabled(False)
         if self._stop_lua_action is not None:
@@ -1499,6 +1542,11 @@ class MainWindow(QMainWindow):
         self.append_lua_log("Lua 运行完成" if code == 0 else f"Lua 运行失败，退出码 {code}")
         if code != 0:
             self.append_lua_log("提示: 双击含「.lua:行号」的日志行可跳转到脚本；PC 不支持的 API 见帮助 → Lua API")
+        session = self._run_session
+        archived = session.path if session is not None else None
+        self._close_run_session(f"退出码 {code}")
+        if archived is not None:
+            self.append_lua_log(f"本次运行日志已归档: {archived}")
 
     def _save_all_before_build(self) -> None:
         if self.project_dir:
@@ -1736,11 +1784,18 @@ class MainWindow(QMainWindow):
 
 
 def run_app() -> int:
+    log_file = setup_logging(ROOT)
+    install_excepthooks()
+    run_session_log.prune_sessions(root=ROOT)
     app = QApplication(sys.argv)
     apply_theme(app)
     w = MainWindow()
+    if log_file is not None:
+        w.append(f"运行日志: {log_file}（详细度用 STUDIO_LOG_LEVEL=DEBUG 提高）")
     w.show()
-    return app.exec()
+    code = app.exec()
+    shutdown_logging()
+    return code
 
 
 if __name__ == "__main__":

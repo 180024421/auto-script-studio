@@ -132,8 +132,8 @@ def default_model_path(project_dir: Path) -> Path | None:
                 for p in models:
                     if model_rel_path(project_dir, p) == rel or p.stem == Path(rel).stem:
                         return p
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("project.json default_yolo_model 解析失败，回退首个模型: %s", exc)
     onnx_first = [p for p in models if p.suffix.lower() == ".onnx"]
     return onnx_first[0] if onnx_first else models[0]
 

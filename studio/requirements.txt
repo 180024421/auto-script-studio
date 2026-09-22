@@ -1,11 +1,20 @@
-PySide6>=6.6.0
-opencv-python>=4.8.0
-numpy>=1.24.0
-pillow>=10.0.0
-PyYAML>=6.0
-lupa>=2.0
+# Studio 运行时依赖（开发用范围）
+#
+# 上限是为了防止「今天能用、明天 pip 装上大版本就崩」：
+# 2026-09-22 实测本仓库 131 个测试在下列**上界版本**全绿，见 requirements.lock.txt。
+# 需要精确复现（CI、给别人打包机器）时装锁文件：
+#   pip install -r studio/requirements.lock.txt
+# 更新锁文件（改完本文件后）：
+#   .venv\Scripts\python.exe -m pip freeze | findstr /I "PySide6 shiboken opencv numpy pillow PyYAML lupa" > studio\requirements.lock.txt
+PySide6>=6.6,<7
+opencv-python>=4.8,<6
+numpy>=1.24,<3
+pillow>=10,<13
+PyYAML>=6,<7
+lupa>=2,<3
 
 # optional: paddleocr / ultralytics for grab-page OCR & YOLO tests
-# paddleocr>=2.8.0
-# paddlepaddle>=2.6.0
-# ultralytics>=8.3.0
+# 这两项体积大且依赖链复杂，刻意不进锁文件；装了才启用抓抓页对应功能
+# paddleocr>=2.8,<3
+# paddlepaddle>=2.6,<3
+# ultralytics>=8.3,<9

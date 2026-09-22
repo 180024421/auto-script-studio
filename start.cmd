@@ -52,13 +52,17 @@ if exist "%HASH_FILE%" if exist "%REQ%" (
   if not errorlevel 1 set "NEED_INSTALL=0"
 )
 
+rem NOTE: change detection above only hashes requirements.txt. After editing
+rem requirements-dev.txt, force a reinstall with setup-studio.cmd.
+rem Keep rem lines ASCII-only: cmd parses them under the OEM codepage and UTF-8
+rem bytes here make it execute the comment text as commands.
 if "%NEED_INSTALL%"=="1" (
-  echo [安装] 检查 Studio 依赖（首次约需 5-15 分钟，PySide6 较大）...
+  echo [安装] 检查 Studio 依赖与测试工具（首次约需 5-15 分钟，PySide6 较大）...
   ".venv\Scripts\python.exe" -m pip install -q --upgrade pip
-  ".venv\Scripts\pip.exe" install --default-timeout=120 -i https://pypi.tuna.tsinghua.edu.cn/simple -r %REQ%
+  ".venv\Scripts\pip.exe" install --default-timeout=120 -i https://pypi.tuna.tsinghua.edu.cn/simple -r %REQ% -r studio\requirements-dev.txt
   if errorlevel 1 (
     echo [重试] 换官方源再试一次...
-    ".venv\Scripts\pip.exe" install --default-timeout=300 -r %REQ%
+    ".venv\Scripts\pip.exe" install --default-timeout=300 -r %REQ% -r studio\requirements-dev.txt
   )
   if errorlevel 1 (
     echo [错误] 依赖安装失败，请检查网络后重试 start.cmd

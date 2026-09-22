@@ -7,6 +7,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import List, Optional
 
+from studio.services.app_log import get_logger
+
 
 def _is_emulator_serial(serial: str) -> bool:
     s = serial.lower()
@@ -81,8 +83,8 @@ class AdbService:
                 from studio.services.emulator_bridge import auto_connect_emulators
 
                 auto_connect_emulators(self.adb_path)
-            except Exception:
-                pass
+            except Exception as exc:
+                get_logger(__name__).debug("模拟器自动连接跳过: %s", exc)
         proc = self._run(["devices", "-l"], check=False, text=True, timeout=15)
         out: List[AdbDevice] = []
         for line in proc.stdout.splitlines()[1:]:
