@@ -2,14 +2,14 @@
   "version": 4,
   "enabled": true,
   "panel": {
-    "title": "攻城掠地手机助手",
+    "title": "脚本助手",
     "theme": "green",
     "layout_mode": "free",
-    "design_width": 720,
-    "design_height": 1280,
-    "active_screen": 1,
+    "design_width": 480,
+    "design_height": 480,
+    "active_screen": 0,
     "width_mode": "auto",
-    "width_dp": 360,
+    "width_dp": 220,
     "height_mode": "wrap",
     "display_mode": "host",
     "auto_collapse_idle_ms": 0,
@@ -33,7 +33,7 @@
       "title": "账号登录",
       "widgets": [
         {
-          "id": "w_1",
+          "id": "w_0",
           "type": "text",
           "text": "",
           "text_style": "title",
@@ -61,7 +61,7 @@
           "placeholder": "请输入账号，多个用:号分隔",
           "layout_x": 24,
           "layout_y": 64,
-          "layout_w": 672,
+          "layout_w": 432,
           "layout_h": 56
         },
         {
@@ -71,7 +71,7 @@
           "placeholder": "请输入密码",
           "layout_x": 24,
           "layout_y": 136,
-          "layout_w": 672,
+          "layout_w": 432,
           "layout_h": 56
         },
         {
@@ -81,27 +81,130 @@
           "default": "false",
           "layout_x": 24,
           "layout_y": 208,
-          "layout_w": 672,
+          "layout_w": 432,
           "layout_h": 56
-        }
-      ]
-    },
-    {
-      "title": "运行设置",
-      "widgets": [
+        },
         {
-          "id": "w_0",
-          "type": "text",
-          "label": "",
-          "default": "",
+          "id": "w_1",
+          "type": "section",
+          "text": "分组标题",
+          "width": 2,
           "layout_x": 24,
-          "layout_y": 24,
-          "layout_w": 80,
-          "layout_h": 24,
-          "text": "",
-          "text_style": "title",
+          "layout_y": 280,
+          "layout_w": 432,
+          "layout_h": 200,
+          "label": "",
           "color": "#2563EB",
-          "width": 1,
+          "placeholder": "",
+          "default": "",
+          "x": 0,
+          "y": 0,
+          "x1": 0,
+          "y1": 0,
+          "x2": 0,
+          "y2": 0,
+          "lua": ""
+        },
+        {
+          "id": "w_2",
+          "type": "section",
+          "text": "分组标题",
+          "width": 2,
+          "layout_x": 24,
+          "layout_y": 496,
+          "layout_w": 432,
+          "layout_h": 200,
+          "label": "",
+          "color": "#2563EB",
+          "placeholder": "",
+          "default": "",
+          "x": 0,
+          "y": 0,
+          "x1": 0,
+          "y1": 0,
+          "x2": 0,
+          "y2": 0,
+          "lua": ""
+        },
+        {
+          "id": "w_3",
+          "type": "section",
+          "text": "分组标题",
+          "width": 2,
+          "layout_x": 24,
+          "layout_y": 712,
+          "layout_w": 432,
+          "layout_h": 200,
+          "label": "",
+          "color": "#2563EB",
+          "placeholder": "",
+          "default": "",
+          "x": 0,
+          "y": 0,
+          "x1": 0,
+          "y1": 0,
+          "x2": 0,
+          "y2": 0,
+          "lua": ""
+        },
+        {
+          "id": "w_4",
+          "type": "text",
+          "text": "提示用户的文字内容",
+          "text_style": "hint",
+          "width": 2,
+          "layout_x": 24,
+          "layout_y": 928,
+          "layout_w": 123,
+          "layout_h": 80,
+          "label": "",
+          "color": "#2563EB",
+          "placeholder": "",
+          "default": "",
+          "x": 0,
+          "y": 0,
+          "x1": 0,
+          "y1": 0,
+          "x2": 0,
+          "y2": 0,
+          "lua": ""
+        },
+        {
+          "id": "w_5",
+          "type": "input",
+          "label": "输入项",
+          "placeholder": "",
+          "default": "",
+          "width": 2,
+          "layout_x": 24,
+          "layout_y": 1024,
+          "layout_w": 432,
+          "layout_h": 48,
+          "text": "",
+          "color": "#2563EB",
+          "required": false,
+          "x": 0,
+          "y": 0,
+          "x1": 0,
+          "y1": 0,
+          "x2": 0,
+          "y2": 0,
+          "lua": ""
+        },
+        {
+          "id": "w_6",
+          "type": "time_range",
+          "label": "时段",
+          "default_start": "09:00",
+          "default_end": "18:00",
+          "default": "09:00-18:00",
+          "width": 2,
+          "layout_x": 24,
+          "layout_y": 1088,
+          "layout_w": 432,
+          "layout_h": 56,
+          "text": "",
+          "color": "#2563EB",
           "placeholder": "",
           "x": 0,
           "y": 0,
@@ -110,6 +213,26 @@
           "x2": 0,
           "y2": 0,
           "lua": ""
+        }
+      ]
+    },
+    {
+      "title": "运行设置",
+      "widgets": [
+        {
+          "id": "mode",
+          "type": "select",
+          "label": "模式",
+          "options": [
+            "普通",
+            "极速",
+            "省电"
+          ],
+          "default": "普通",
+          "layout_x": 24,
+          "layout_y": 24,
+          "layout_w": 432,
+          "layout_h": 56
         },
         {
           "id": "priority",
@@ -122,9 +245,9 @@
           ],
           "default": "中",
           "layout_x": 24,
-          "layout_y": 104,
-          "layout_w": 672,
-          "layout_h": 64
+          "layout_y": 96,
+          "layout_w": 432,
+          "layout_h": 56
         },
         {
           "id": "delay_sec",
@@ -135,8 +258,8 @@
           "max": 60,
           "step": 1,
           "layout_x": 24,
-          "layout_y": 184,
-          "layout_w": 672,
+          "layout_y": 168,
+          "layout_w": 432,
           "layout_h": 56
         },
         {
@@ -148,8 +271,8 @@
           "max": 99,
           "step": 1,
           "layout_x": 24,
-          "layout_y": 256,
-          "layout_w": 672,
+          "layout_y": 240,
+          "layout_w": 432,
           "layout_h": 56
         },
         {
@@ -163,9 +286,9 @@
           ],
           "default": "",
           "layout_x": 24,
-          "layout_y": 320,
-          "layout_w": 672,
-          "layout_h": 128
+          "layout_y": 312,
+          "layout_w": 432,
+          "layout_h": 48
         }
       ]
     }

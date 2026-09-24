@@ -367,6 +367,10 @@ QSplitter#PageSplitter::handle {{
     margin: 4px 2px;
     border-radius: 2px;
 }}
+QSplitter#PageSplitter::handle:vertical {{
+    height: 4px;
+    margin: 2px 4px;
+}}
 QSplitter#PageSplitter::handle:hover {{
     background: {COLORS['primary']};
 }}
@@ -410,6 +414,52 @@ QLabel#SectionTitle {{
     font-weight: 600;
     color: {COLORS['text']};
     padding: 4px 0;
+}}
+
+/* —— 工程页：概览卡 / 欢迎引导 —— */
+#OverviewTitle {{
+    font-size: 18px;
+    font-weight: 700;
+    padding: 2px 0;
+}}
+#OverviewPath {{
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 11px;
+    color: {COLORS['text_muted']};
+    padding: 2px 0;
+}}
+#MetaChip {{
+    background-color: {COLORS['surface3']};
+    border-radius: 6px;
+    padding: 4px 10px;
+    color: {COLORS['text_dim']};
+    font-size: 12px;
+}}
+#WelcomeTitle {{
+    font-size: 20px;
+    font-weight: 700;
+}}
+#WelcomeSub {{
+    color: {COLORS['text_dim']};
+    font-size: 13px;
+}}
+#StepCard {{
+    background-color: {COLORS['surface2']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 10px;
+}}
+#StepBadge {{
+    background-color: {COLORS['primary']};
+    color: #ffffff;
+    border-radius: 13px;
+    font-weight: 700;
+}}
+#StepName {{
+    font-weight: 600;
+}}
+#StepDesc {{
+    color: {COLORS['text_muted']};
+    font-size: 12px;
 }}
 """
 

@@ -42,6 +42,9 @@ class DigitRecognizer(
             return DigitResult("", emptyList(), 0f)
         }
         val gray = extractGray(frame, bounds)
+        if (manifest.isLineCrnn) {
+            return recognizeLine(session, labels, gray, bounds, manifest, minConf)
+        }
         val binary = preprocessBinary(gray, manifest)
         val crops = segmentProjection(binary, maxGap)
         if (crops.isEmpty()) {
@@ -66,6 +69,117 @@ class DigitRecognizer(
         }
         val mean = if (chars.isEmpty()) 0f else confSum / chars.size
         return DigitResult(sb.toString(), chars, mean)
+    }
+
+    private fun recognizeLine(
+        session: OrtSession,
+        labels: List<String>,
+        gray: Array<ByteArray>,
+        bounds: Rect,
+        manifest: DigitManifest,
+        minConf: Float,
+    ): DigitResult {
+        val th = manifest.height.coerceAtLeast(8)
+        val maxW = manifest.maxWidth.coerceAtLeast(32)
+        val h0 = gray.size
+        val w0 = if (h0 > 0) gray[0].size else 0
+        if (h0 <= 0 || w0 <= 0) return DigitResult("", emptyList(), 0f)
+        var mean = 0.0
+        var n = 0
+        for (y in 0 until h0) {
+            for (x in 0 until w0) {
+                mean += (gray[y][x].toInt() and 0xff)
+                n++
+            }
+        }
+        val invert = n > 0 && mean / n > 127.0
+        var nw = max(8, kotlin.math.round(w0 * (th.toDouble() / h0)).toInt())
+        if (nw > maxW) nw = maxW
+        val tensorData = FloatArray(th * maxW)
+        // resize gray -> th x nw then pad to maxW
+        val tmp = FloatArray(th * nw)
+        for (y in 0 until th) {
+            val sy = (y * h0 / th).coerceIn(0, h0 - 1)
+            for (x in 0 until nw) {
+                val sx = (x * w0 / nw).coerceIn(0, w0 - 1)
+                var v = (gray[sy][sx].toInt() and 0xff).toFloat()
+                if (invert) v = 255f - v
+                tmp[y * nw + x] = v / 255f
+            }
+        }
+        for (y in 0 until th) {
+            for (x in 0 until maxW) {
+                tensorData[y * maxW + x] = if (x < nw) tmp[y * nw + x] else 0f
+            }
+        }
+        val inputName = session.inputNames.iterator().next()
+        val shape = longArrayOf(1, 1, th.toLong(), maxW.toLong())
+        OnnxTensor.createTensor(env, FloatBuffer.wrap(tensorData), shape).use { tensor ->
+            session.run(mapOf(inputName to tensor)).use { result ->
+                val raw = result[0].value
+                val logitsTC: Array<FloatArray> = when (raw) {
+                    is Array<*> -> {
+                        @Suppress("UNCHECKED_CAST")
+                        val a = raw as Array<*>
+                        if (a.isNotEmpty() && a[0] is Array<*>) {
+                            // T,N,C with N=1 → take [t][0]
+                            Array(a.size) { t ->
+                                @Suppress("UNCHECKED_CAST")
+                                (a[t] as Array<FloatArray>)[0]
+                            }
+                        } else {
+                            @Suppress("UNCHECKED_CAST")
+                            a as Array<FloatArray>
+                        }
+                    }
+                    else -> throw IllegalStateException("未知行模型 ONNX 输出: ${raw?.javaClass}")
+                }
+                val blank = if (manifest.blankIndex >= 0) manifest.blankIndex else labels.size
+                val idxs = mutableListOf<Int>()
+                val confs = mutableListOf<Float>()
+                var prev: Int? = null
+                // 与训练 CTC 一致：只解码有效宽度对应时间步（CNN 宽约 /4）
+                val tUse = max(2, min(logitsTC.size, nw / 4))
+                for (t in 0 until tUse) {
+                    val row = logitsTC[t]
+                    var best = 0
+                    var bestV = row[0]
+                    for (i in 1 until row.size) {
+                        if (row[i] > bestV) {
+                            bestV = row[i]
+                            best = i
+                        }
+                    }
+                    if (best == blank) {
+                        prev = best
+                        continue
+                    }
+                    if (prev == null || best != prev) {
+                        idxs.add(best)
+                        var sum = 0.0
+                        val exps = DoubleArray(row.size)
+                        for (i in row.indices) {
+                            exps[i] = kotlin.math.exp((row[i] - bestV).toDouble())
+                            sum += exps[i]
+                        }
+                        confs.add((exps[best] / sum).toFloat())
+                    }
+                    prev = best
+                }
+                val sb = StringBuilder()
+                val chars = mutableListOf<DigitChar>()
+                var confSum = 0f
+                for (i in idxs.indices) {
+                    val lab = labels.getOrElse(idxs[i]) { idxs[i].toString() }
+                    val conf = confs.getOrElse(i) { 0f }
+                    confSum += conf
+                    chars.add(DigitChar(lab, conf, bounds.x, bounds.y, bounds.w, bounds.h))
+                    sb.append(if (conf >= minConf) displayLabel(lab) else "?")
+                }
+                val meanConf = if (chars.isEmpty()) 0f else confSum / chars.size
+                return DigitResult(sb.toString(), chars, meanConf)
+            }
+        }
     }
 
     fun release() {
@@ -344,6 +458,7 @@ class DigitRecognizer(
     private fun displayLabel(lab: String): String = when (lab) {
         "wan", "万" -> "万"
         "yi", "亿" -> "亿"
+        "dot" -> "."
         "comma" -> ","
         "slash" -> "/"
         "percent" -> "%"

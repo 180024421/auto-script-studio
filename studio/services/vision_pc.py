@@ -320,7 +320,7 @@ def recognize_digits(
     min_confidence: float = 0.5,
     max_gap: int = 3,
 ) -> dict:
-    """游戏 HUD 数字 ONNX（与 APK DigitRecognizer / game-digit-trainer 契约一致）。"""
+    """游戏 HUD 数字 ONNX（单字切字 或 line_crnn 整行）。"""
     try:
         import onnxruntime as ort  # type: ignore
     except ImportError as exc:
@@ -339,12 +339,23 @@ def recognize_digits(
         raise FileNotFoundError(f"数字模型不存在: {model_path}")
 
     labels_p = onnx_p.with_suffix(".labels")
+    if not labels_p.is_file():
+        alt = onnx_p.with_name("digits_line.labels")
+        labels_p = alt if alt.is_file() else labels_p
     if labels_p.is_file():
         labels = [ln.strip() for ln in labels_p.read_text(encoding="utf-8").splitlines() if ln.strip()]
     else:
         labels = [str(i) for i in range(10)]
 
-    manifest = {"width": 32, "height": 32, "invert": False, "binarize": "otsu"}
+    manifest = {
+        "kind": "char",
+        "width": 32,
+        "height": 32,
+        "max_width": 256,
+        "invert": False,
+        "binarize": "otsu",
+        "blank_index": len(labels),
+    }
     for mp in (onnx_p.with_name("manifest.json"), onnx_p.with_suffix(".manifest.json")):
         if mp.is_file():
             import json
@@ -352,13 +363,111 @@ def recognize_digits(
             data = json.loads(mp.read_text(encoding="utf-8"))
             inp = data.get("input") or {}
             prep = data.get("preprocess") or {}
+            manifest["kind"] = str(data.get("kind") or data.get("format") or "char")
             manifest["width"] = int(inp.get("width") or data.get("input_width") or 32)
             manifest["height"] = int(inp.get("height") or data.get("input_height") or 32)
+            manifest["max_width"] = int(inp.get("max_width") or data.get("input_max_width") or 256)
             manifest["invert"] = bool(prep.get("invert", False))
             manifest["binarize"] = str(prep.get("binarize") or "otsu")
+            if data.get("blank_index") is not None:
+                manifest["blank_index"] = int(data["blank_index"])
             if data.get("classes"):
                 labels = list(data["classes"])
+                if data.get("blank_index") is None:
+                    manifest["blank_index"] = len(labels)
             break
+
+    cache = getattr(recognize_digits, "_sess", {})
+    sess = cache.get(str(onnx_p))
+    if sess is None:
+        sess = ort.InferenceSession(str(onnx_p), providers=["CPUExecutionProvider"])
+        cache[str(onnx_p)] = sess
+        recognize_digits._sess = cache  # type: ignore[attr-defined]
+    in_name = sess.get_inputs()[0].name
+
+    def _disp(lab: str) -> str:
+        return {
+            "wan": "万",
+            "yi": "亿",
+            "dot": ".",
+            "comma": ",",
+            "slash": "/",
+            "percent": "%",
+            "colon": ":",
+        }.get(lab, lab)
+
+    kind = str(manifest["kind"]).lower()
+    if "line" in kind or "crnn" in kind:
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        if float(np.mean(gray)) > 127:
+            gray = 255 - gray
+        th = int(manifest["height"])
+        max_w = int(manifest["max_width"])
+        h0, w0 = gray.shape[:2]
+        nw = max(8, int(round(w0 * (th / max(h0, 1)))))
+        resized = cv2.resize(gray, (nw, th), interpolation=cv2.INTER_AREA)
+        if nw > max_w:
+            resized = cv2.resize(resized, (max_w, th), interpolation=cv2.INTER_AREA)
+            nw = max_w
+        canvas = np.zeros((th, max_w), dtype=np.float32)
+        canvas[:, :nw] = resized.astype(np.float32) / 255.0
+        # 与训练站一致：按墨迹裁掉左右空边后再推理（避免松 ROI 多读假字）
+        ink = (canvas > 0.08).sum(axis=0)
+        thr = max(1, int(0.08 * th))
+        xs = np.where(ink >= thr)[0]
+        if xs.size > 0:
+            x0 = max(0, int(xs[0]) - 1)
+            x1 = min(max_w, int(xs[-1]) + 2)
+            # 仍 pad 到 max_w，但有效内容左对齐
+            content = canvas[:, x0:x1]
+            canvas = np.zeros((th, max_w), dtype=np.float32)
+            ww = min(max_w, content.shape[1])
+            canvas[:, :ww] = content[:, :ww]
+            nw = ww
+        tensor = canvas.reshape(1, 1, th, max_w)
+        out = sess.run(None, {in_name: tensor})[0]
+        if out.ndim == 3 and out.shape[1] == 1:
+            logits = out[:, 0, :]
+        elif out.ndim == 3 and out.shape[0] == 1:
+            logits = out[0]
+        else:
+            logits = out.reshape(out.shape[0], -1) if out.ndim == 2 else out[:, 0, :]
+        blank = int(manifest["blank_index"])
+        # 与训练 CTC 一致：只解码有效宽度对应时间步（CNN 宽约 /4），避免 pad 尾巴乱码
+        t_use = max(2, min(logits.shape[0], nw // 4))
+        idxs: list[int] = []
+        prev = None
+        confs: list[float] = []
+        for t in range(t_use):
+            row = logits[t]
+            p = int(row.argmax())
+            if p == blank:
+                prev = p
+                continue
+            if p != prev:
+                idxs.append(p)
+                exp = np.exp(row - row.max())
+                confs.append(float(exp[p] / exp.sum()))
+            prev = p
+        parts = []
+        chars = []
+        for i, idx in enumerate(idxs):
+            lab = labels[idx] if 0 <= idx < len(labels) else str(idx)
+            conf = confs[i] if i < len(confs) else 0.0
+            shown = _disp(lab) if conf >= min_confidence else "?"
+            parts.append(shown)
+            chars.append(
+                {
+                    "label": lab,
+                    "confidence": conf,
+                    "x": int(x1),
+                    "y": int(y1),
+                    "w": int(x2 - x1),
+                    "h": int(y2 - y1),
+                }
+            )
+        mean = float(sum(confs) / len(confs)) if confs else 0.0
+        return {"text": "".join(parts), "confidence": mean, "chars": chars}
 
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     if manifest["binarize"] == "otsu":
@@ -374,7 +483,6 @@ def recognize_digits(
     if float(np.mean(binary)) > 127:
         binary = 255 - binary
 
-    # 投影切字
     col = (binary > 0).sum(axis=0)
     gaps: list[tuple[int, int]] = []
     in_gap = False
@@ -410,21 +518,10 @@ def recognize_digits(
     if not boxes:
         boxes = [(0, 0, binary.shape[1], binary.shape[0])]
 
-    cache = getattr(recognize_digits, "_sess", {})
-    sess = cache.get(str(onnx_p))
-    if sess is None:
-        sess = ort.InferenceSession(str(onnx_p), providers=["CPUExecutionProvider"])
-        cache[str(onnx_p)] = sess
-        recognize_digits._sess = cache  # type: ignore[attr-defined]
-    in_name = sess.get_inputs()[0].name
     tw, th = int(manifest["width"]), int(manifest["height"])
-
-    def _disp(lab: str) -> str:
-        return {"wan": "万", "yi": "亿", "comma": ",", "slash": "/", "percent": "%", "colon": ":"}.get(lab, lab)
-
-    chars: list[dict] = []
-    parts: list[str] = []
-    confs: list[float] = []
+    chars = []
+    parts = []
+    confs = []
     for bx, by, bw, bh in boxes:
         patch = binary[by : by + bh, bx : bx + bw]
         resized = cv2.resize(patch, (tw, th), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0

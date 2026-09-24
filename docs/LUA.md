@@ -154,20 +154,28 @@ local x, y = bot.findYolo({
 - PC Studio 脚本页「模型」Tab 可导入、编辑 labels、设默认模型（写入 `project.json` → `runtime.default_yolo_model`）
 - 从 `.pt` 导出：`python tools/export_yolo_onnx.py --pt best.pt --out models/ui`
 - **游戏数字模型**（[game-digit-trainer](https://github.com/180024421/game-digit-trainer) 导出）：
-  - `models/digits.onnx` + `digits.labels` + `manifest.json`
-  - `project.json` → `runtime.default_digit_model`（默认 `models/digits`）
+  - **行模型（推荐）**：`models/line/digits_line.onnx` + `manifest.json`（`kind=line_crnn`）
+  - 单字模型：`models/digits.onnx` + `digits.labels` + `manifest.json`
+  - `project.json` → `runtime.default_digit_model`（可设 `models/line/digits_line`）
 
 ### `bot.recognizeDigits(opts)` — 游戏 HUD 数字
 
 ```lua
+-- 行模型：整 ROI 一次识别，无需切字
 local r = bot.recognizeDigits({
   roi = {100, 200, 180, 40},
-  model = "models/digits",      -- 可省略，用 default_digit_model
+  model = "models/line/digits_line",
   min_confidence = 0.85,
-  max_gap = 3,                  -- 切字间距，粘连调小
 })
 bot.log("金币=" .. r.text)
--- r.confidence, r.chars[i].label / .confidence / .x .y .w .h
+
+-- 单字模型（兼容）：切字 + 分类
+local r2 = bot.recognizeDigits({
+  roi = {100, 200, 180, 40},
+  model = "models/digits",
+  min_confidence = 0.85,
+  max_gap = 3,
+})
 ```
 
 ## lib 模块

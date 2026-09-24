@@ -28,6 +28,8 @@ from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QFormLayout,
+    QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -37,8 +39,10 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -81,6 +85,8 @@ from studio.ui.onboarding_dialog import OnboardingDialog, should_show_onboarding
 from studio.ui.pack_env_dialog import ensure_pack_environment
 from studio.ui.pack_result_dialog import PackResultDialog
 from studio.ui.page_shell import (
+    RecentProjectDelegate,
+    card_frame,
     main_column,
     page_root,
     scroll_side_panel,
@@ -333,18 +339,25 @@ class MainWindow(QMainWindow):
         w = QWidget()
         root = page_root(w)
 
-        left, left_lay = side_column(260, None)
-        left_lay.addWidget(section_title("工程"))
+        # 左栏：只放工程入口与导航
+        left, left_lay = side_column(240, None)
+        left_lay.addWidget(section_title("开始"))
         tool_button_row(
             left_lay,
             [
                 ("新建工程", self.new_project, "primary"),
                 ("打开工程", self.open_project, "accent"),
                 ("试玩示例", lambda: self.open_demo_game(trial_run=True), "ghost"),
-                ("另存为我的工程", self.fork_demo_project, "accent"),
+                ("另存为我的工程", self.fork_demo_project, "ghost"),
             ],
-            columns=1,
+            columns=2,
         )
+        left_lay.addWidget(section_title("最近打开"))
+        self.recent_list = QListWidget()
+        self.recent_list.setObjectName("RecentProjectList")
+        self.recent_list.setItemDelegate(RecentProjectDelegate(self.recent_list))
+        self.recent_list.itemDoubleClicked.connect(self._on_recent_item_activated)
+        left_lay.addWidget(self.recent_list, 1)
         left_lay.addWidget(section_title("工程文件"))
         tool_button_row(
             left_lay,
@@ -355,40 +368,212 @@ class MainWindow(QMainWindow):
             ],
             columns=1,
         )
-        left_lay.addWidget(section_title("最近打开"))
-        self.recent_list = QListWidget()
-        self.recent_list.setObjectName("RecentProjectList")
-        self.recent_list.itemDoubleClicked.connect(self._on_recent_item_activated)
-        left_lay.addWidget(self.recent_list, 1)
-        left_lay.addWidget(section_title("打包到手机"))
+        left_scroll = scroll_side_panel(left, min_width=240)
+
+        # 中栏：概览/欢迎 → 打包发布 → 运行日志
+        center = QWidget()
+        center_lay = QVBoxLayout(center)
+        center_lay.setContentsMargins(0, 0, 0, 0)
+        center_lay.setSpacing(10)
+
+        center_split = QSplitter(Qt.Orientation.Vertical)
+        center_split.setObjectName("PageSplitter")
+        center_split.setChildrenCollapsible(False)
+
+        content = QWidget()
+        content_lay = QVBoxLayout(content)
+        content_lay.setContentsMargins(0, 0, 0, 0)
+        content_lay.setSpacing(10)
+        self._overview_stack = QStackedWidget()
+        self._overview_stack.addWidget(self._build_welcome_card())
+        self._overview_stack.addWidget(self._build_overview_card())
+        content_lay.addWidget(self._overview_stack)
+        content_lay.addWidget(self._build_pack_card())
+        content_lay.addStretch()
+
+        content_scroll = QScrollArea()
+        content_scroll.setWidgetResizable(True)
+        content_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        content_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content_scroll.setWidget(content)
+        self._project_content_scroll = content_scroll
+        center_split.addWidget(content_scroll)
+
+        log_card, log_lay = main_column()
+        self.log = QTextEdit()
+        self.log.setObjectName("LogConsole")
+        self.log.setReadOnly(True)
+        self.log.setPlaceholderText("操作与打包输出将显示在这里…")
+        log_header = QHBoxLayout()
+        log_header.addWidget(section_title("运行日志"))
+        log_header.addStretch()
+        clear_log_btn = QPushButton("清空")
+        set_button_role(clear_log_btn, "ghost")
+        clear_log_btn.setToolTip("清空工程页日志")
+        clear_log_btn.clicked.connect(self.log.clear)
+        log_header.addWidget(clear_log_btn)
+        log_lay.addLayout(log_header)
+        log_lay.addWidget(self.log, 1)
+        center_split.addWidget(log_card)
+        center_split.setStretchFactor(0, 3)
+        center_split.setStretchFactor(1, 2)
+        center_split.setSizes([440, 260])
+        center_lay.addWidget(center_split, 1)
+
+        root.addWidget(
+            two_column_splitter(left_scroll, center, sizes=(280, 820), stretches=(1, 5)),
+            1,
+        )
+        return w
+
+    def _build_welcome_card(self) -> QFrame:
+        """无工程时的引导首页：四步上手 + 快捷入口。"""
+        card, lay = card_frame()
+        title = QLabel("欢迎使用 Auto Script Studio")
+        title.setObjectName("WelcomeTitle")
+        lay.addWidget(title)
+        sub = QLabel("四步做出第一个手机自动化脚本：")
+        sub.setObjectName("WelcomeSub")
+        lay.addWidget(sub)
+        steps = QHBoxLayout()
+        steps.setSpacing(10)
+        for i, (name, desc) in enumerate(
+            (
+                ("新建工程", "从模板创建，或把 demo 示例另存为自己的工程"),
+                ("抓抓截图", "连接设备后截屏，在图上取色 / 取坐标"),
+                ("编写 Lua", "脚本页左侧命令库一键插入 tap / 找图代码"),
+                ("打包安装", "生成 APK 装到手机，用悬浮球启停脚本"),
+            )
+        ):
+            step_card = QFrame()
+            step_card.setObjectName("StepCard")
+            step_lay = QVBoxLayout(step_card)
+            step_lay.setContentsMargins(10, 10, 10, 10)
+            step_lay.setSpacing(6)
+            head = QHBoxLayout()
+            head.setSpacing(8)
+            badge = QLabel(str(i + 1))
+            badge.setObjectName("StepBadge")
+            badge.setFixedSize(26, 26)
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            head.addWidget(badge)
+            name_lbl = QLabel(name)
+            name_lbl.setObjectName("StepName")
+            head.addWidget(name_lbl)
+            head.addStretch()
+            step_lay.addLayout(head)
+            desc_lbl = QLabel(desc)
+            desc_lbl.setObjectName("StepDesc")
+            desc_lbl.setWordWrap(True)
+            step_lay.addWidget(desc_lbl)
+            steps.addWidget(step_card, 1)
+        lay.addLayout(steps)
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        for text, slot, role in (
+            ("新建工程", self.new_project, "primary"),
+            ("打开工程", self.open_project, "accent"),
+            ("试玩示例", lambda: self.open_demo_game(trial_run=True), "ghost"),
+        ):
+            btn = QPushButton(text)
+            set_button_role(btn, role)
+            btn.setMinimumHeight(36)
+            btn.clicked.connect(slot)
+            btn_row.addWidget(btn)
+        btn_row.addStretch()
+        lay.addLayout(btn_row)
+        return card
+
+    def _build_overview_card(self) -> QFrame:
+        """已打开工程时的概要：工程名 + 路径 + 应用信息 + 页面快捷跳转。"""
+        card, lay = card_frame()
+        top = QHBoxLayout()
+        top.setSpacing(6)
+        self.overview_name_label = QLabel("工程")
+        self.overview_name_label.setObjectName("OverviewTitle")
+        top.addWidget(self.overview_name_label)
+        top.addStretch()
+        for text, slot, role in (
+            ("编辑脚本", lambda: self.tabs.setCurrentIndex(self._script_tab_index()), "ghost"),
+            ("浮动面板", lambda: self.tabs.setCurrentWidget(self.layout_editor), "ghost"),
+            ("抓抓调试", lambda: self.tabs.setCurrentWidget(self.grab), "ghost"),
+            ("保存工程", self.save_all_project, "accent"),
+        ):
+            btn = QPushButton(text)
+            set_button_role(btn, role)
+            btn.clicked.connect(slot)
+            top.addWidget(btn)
+        lay.addLayout(top)
+        self.overview_path_label = QLabel("")
+        self.overview_path_label.setObjectName("OverviewPath")
+        self.overview_path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.overview_path_label.setWordWrap(True)
+        lay.addWidget(self.overview_path_label)
+        chips = QHBoxLayout()
+        chips.setSpacing(8)
+        self.overview_chip_name = self._meta_chip("应用名 —")
+        self.overview_chip_pkg = self._meta_chip("包名 —")
+        self.overview_chip_entry = self._meta_chip("入口 —")
+        for chip in (self.overview_chip_name, self.overview_chip_pkg, self.overview_chip_entry):
+            chips.addWidget(chip)
+        chips.addStretch()
+        lay.addLayout(chips)
+        return card
+
+    @staticmethod
+    def _meta_chip(text: str) -> QLabel:
+        chip = QLabel(text)
+        chip.setObjectName("MetaChip")
+        return chip
+
+    def _refresh_project_overview(self) -> None:
+        """根据当前工程状态切换 欢迎引导 / 工程概要。"""
+        if not hasattr(self, "_overview_stack"):
+            return
+        opened = bool(self.project_dir and (self.project_dir / "project.json").is_file())
+        self._overview_stack.setCurrentIndex(1 if opened else 0)
+        if not opened:
+            return
+        cfg: dict = {}
+        try:
+            cfg = json.loads((self.project_dir / "project.json").read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        name = str(cfg.get("name") or self.project_dir.name)
+        self.overview_name_label.setText(name)
+        self.overview_path_label.setText(str(self.project_dir))
+        self.overview_chip_name.setText(f"应用名  {name}")
+        self.overview_chip_pkg.setText(f"包名  {cfg.get('package_id') or '未设置'}")
+        self.overview_chip_entry.setText(f"入口  {cfg.get('entry') or 'main.lua'}")
+
+    def _build_pack_card(self) -> QFrame:
+        """打包与发布：主操作一行常显，工具行不再折叠，应用信息双列布局。"""
+        card, lay = main_column()
+        lay.addWidget(section_title("打包与发布"))
+
+        action_row = QHBoxLayout()
+        action_row.setSpacing(8)
         install_btn = QPushButton("打包并安装到当前设备")
         set_button_role(install_btn, "primary")
         install_btn.setMinimumHeight(42)
         install_btn.clicked.connect(self.build_and_install)
-        left_lay.addWidget(install_btn)
-        self._pack_action_buttons.append(install_btn)
+        action_row.addWidget(install_btn, 2)
+        push_btn = QPushButton("推送到设备（热替换）")
+        set_button_role(push_btn, "accent")
+        push_btn.setMinimumHeight(42)
+        push_btn.setToolTip("将工程推到已安装 debug APK 的 project_overlay，无需 Gradle")
+        push_btn.clicked.connect(self.push_overlay_to_device)
+        action_row.addWidget(push_btn, 1)
+        lay.addLayout(action_row)
+        self._pack_action_buttons.extend((install_btn, push_btn))
 
+        tools_row = QHBoxLayout()
+        tools_row.setSpacing(8)
         self.pack_fast_cb = QCheckBox("快速重打包（跳过 clean）")
         self.pack_fast_cb.setChecked(True)
         self.pack_fast_cb.setToolTip("日常改脚本/资源推荐勾选；正式 Release 或异常构建时请取消")
-        left_lay.addWidget(self.pack_fast_cb)
-
-        push_btn = QPushButton("推送到设备（热替换）")
-        set_button_role(push_btn, "accent")
-        push_btn.setToolTip("将工程推到已安装 debug APK 的 project_overlay，无需 Gradle")
-        push_btn.clicked.connect(self.push_overlay_to_device)
-        left_lay.addWidget(push_btn)
-        self._pack_action_buttons.append(push_btn)
-
-        self._project_build_more_btn = QPushButton("▸ 更多构建选项")
-        set_button_role(self._project_build_more_btn, "ghost")
-        self._project_build_more_btn.clicked.connect(self._toggle_project_build_more)
-        left_lay.addWidget(self._project_build_more_btn)
-
-        self._project_build_more_wrap = QWidget()
-        build_more_lay = QVBoxLayout(self._project_build_more_wrap)
-        build_more_lay.setContentsMargins(0, 0, 0, 0)
-        build_more_lay.setSpacing(8)
+        tools_row.addWidget(self.pack_fast_cb)
+        tools_row.addStretch()
         for text, slot, role in (
             ("校验工程", self.validate_project, "ghost"),
             ("YAML→Lua", self.convert_yaml_to_lua, "ghost"),
@@ -397,102 +582,87 @@ class MainWindow(QMainWindow):
         ):
             btn = QPushButton(text)
             set_button_role(btn, role)
-            btn.setMinimumHeight(34)
             btn.clicked.connect(slot)
-            build_more_lay.addWidget(btn)
+            tools_row.addWidget(btn)
             if text in ("仅打包 APK", "校验工程"):
                 self._pack_action_buttons.append(btn)
-        self._project_build_more_wrap.setVisible(False)
-        left_lay.addWidget(self._project_build_more_wrap)
-        self._project_build_more_expanded = False
+        lay.addLayout(tools_row)
 
         self._project_pack_adv_btn = QPushButton("▸ 应用信息与发布选项")
         set_button_role(self._project_pack_adv_btn, "ghost")
         self._project_pack_adv_btn.clicked.connect(self._toggle_project_pack_adv)
-        left_lay.addWidget(self._project_pack_adv_btn)
+        lay.addWidget(self._project_pack_adv_btn)
 
         self._project_pack_adv_wrap = QWidget()
-        pack_adv_lay = QVBoxLayout(self._project_pack_adv_wrap)
-        pack_adv_lay.setContentsMargins(0, 0, 0, 0)
-        pack_adv_lay.setSpacing(8)
+        adv_grid = QGridLayout(self._project_pack_adv_wrap)
+        adv_grid.setContentsMargins(0, 0, 0, 0)
+        adv_grid.setHorizontalSpacing(18)
+        adv_grid.setVerticalSpacing(8)
+        adv_grid.setColumnStretch(0, 1)
+        adv_grid.setColumnStretch(1, 1)
 
-        pack_adv_lay.addWidget(section_title("打包应用信息"))
-        pack_form = QFormLayout()
+        left_form = QFormLayout()
         self.pack_name_edit = QLineEdit()
         self.pack_name_edit.setPlaceholderText("安装后显示的应用名称")
-        pack_form.addRow("软件名称", self.pack_name_edit)
+        left_form.addRow("软件名称", self.pack_name_edit)
         self.pack_pkg_edit = QLineEdit()
         self.pack_pkg_edit.setPlaceholderText("com.example.myscript")
-        pack_form.addRow("包名", self.pack_pkg_edit)
+        left_form.addRow("包名", self.pack_pkg_edit)
         icon_row = QHBoxLayout()
-        self.pack_icon_edit = QLineEdit()
-        self.pack_icon_edit.setPlaceholderText("留空=默认图标；可点右侧选择")
-        pick_icon_btn = QPushButton("选择…")
-        set_button_role(pick_icon_btn, "ghost")
-        pick_icon_btn.clicked.connect(self._pick_pack_icon)
-        icon_row.addWidget(self.pack_icon_edit, 1)
-        icon_row.addWidget(pick_icon_btn)
-        icon_wrap = QWidget()
-        icon_wrap.setLayout(icon_row)
-        pack_form.addRow("应用图标", icon_wrap)
-        pack_form_box = QWidget()
-        pack_form_box.setLayout(pack_form)
-        pack_adv_lay.addWidget(pack_form_box)
-
+        icon_row.setSpacing(8)
         self.pack_icon_preview = QLabel()
         self.pack_icon_preview.setFixedSize(56, 56)
         self.pack_icon_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.pack_icon_preview.setStyleSheet(
             "border:1px solid #CBD5E1;border-radius:8px;background:#F8FAFC;"
         )
-        pack_adv_lay.addWidget(self.pack_icon_preview)
-        save_pack_btn = QPushButton("保存应用信息")
-        set_button_role(save_pack_btn, "ghost")
-        save_pack_btn.clicked.connect(lambda: self._save_pack_fields(show_ok=True))
-        pack_adv_lay.addWidget(save_pack_btn)
+        self.pack_icon_edit = QLineEdit()
+        self.pack_icon_edit.setPlaceholderText("留空=默认图标；可点右侧选择")
+        pick_icon_btn = QPushButton("选择…")
+        set_button_role(pick_icon_btn, "ghost")
+        pick_icon_btn.clicked.connect(self._pick_pack_icon)
+        icon_row.addWidget(self.pack_icon_preview)
+        icon_row.addWidget(self.pack_icon_edit, 1)
+        icon_row.addWidget(pick_icon_btn)
+        icon_wrap = QWidget()
+        icon_wrap.setLayout(icon_row)
+        left_form.addRow("应用图标", icon_wrap)
+        left_box = QWidget()
+        left_box.setLayout(left_form)
+        adv_grid.addWidget(left_box, 0, 0)
 
-        pack_adv_form = QFormLayout()
+        right_lay = QVBoxLayout()
+        right_lay.setContentsMargins(0, 0, 0, 0)
+        right_lay.setSpacing(8)
+        right_form = QFormLayout()
         self.pack_project_combo = QComboBox()
         self.pack_project_combo.setEditable(True)
         self.pack_project_combo.setPlaceholderText("jiaoben 发卡项目")
-        pack_adv_form.addRow("发卡项目", self.pack_project_combo)
+        right_form.addRow("发卡项目", self.pack_project_combo)
         self.pack_show_log_cb = QCheckBox("悬浮窗显示运行日志")
         self.pack_show_log_cb.setToolTip("勾选后 APK 悬浮窗可展开小块日志区，不影响脚本运行")
-        pack_adv_form.addRow("", self.pack_show_log_cb)
-        pack_adv_box = QWidget()
-        pack_adv_box.setLayout(pack_adv_form)
-        pack_adv_lay.addWidget(pack_adv_box)
-        preset_row = QHBoxLayout()
+        right_form.addRow("", self.pack_show_log_cb)
+        right_box = QWidget()
+        right_box.setLayout(right_form)
+        right_lay.addWidget(right_box)
         scenario_btn = QPushButton("性能场景向导…")
         set_button_role(scenario_btn, "accent")
         scenario_btn.clicked.connect(self._open_perf_scenario_wizard)
-        preset_row.addWidget(scenario_btn)
-        preset_row.addStretch()
-        preset_wrap = QWidget()
-        preset_wrap.setLayout(preset_row)
-        pack_adv_lay.addWidget(QLabel("性能配置"))
-        pack_adv_lay.addWidget(preset_wrap)
+        right_lay.addWidget(scenario_btn)
+        save_pack_btn = QPushButton("保存应用信息")
+        set_button_role(save_pack_btn, "ghost")
+        save_pack_btn.clicked.connect(lambda: self._save_pack_fields(show_ok=True))
+        right_lay.addWidget(save_pack_btn)
+        right_lay.addStretch()
+        right_wrap = QWidget()
+        right_wrap.setLayout(right_lay)
+        adv_grid.addWidget(right_wrap, 0, 1)
+
         self._project_pack_adv_wrap.setVisible(False)
-        left_lay.addWidget(self._project_pack_adv_wrap)
+        lay.addWidget(self._project_pack_adv_wrap)
         self._project_pack_adv_expanded = False
-
         self.pack_icon_edit.textChanged.connect(self._refresh_pack_icon_preview)
-
-        left_scroll = scroll_side_panel(left, min_width=260)
-
-        center, center_lay = main_column()
-        center_lay.addWidget(section_title("运行日志"))
-        self.log = QTextEdit()
-        self.log.setObjectName("LogConsole")
-        self.log.setReadOnly(True)
-        self.log.setPlaceholderText("操作与打包输出将显示在这里…")
-        center_lay.addWidget(self.log, 1)
-
-        root.addWidget(
-            two_column_splitter(left_scroll, center, sizes=(300, 720), stretches=(1, 4)),
-            1,
-        )
-        return w
+        return card
 
     def _build_script_tab(self) -> QWidget:
         w = QWidget()
@@ -889,13 +1059,6 @@ class MainWindow(QMainWindow):
         self._pack_phase = "yaml_lua"
         self._run([sys.executable, str(ROOT / "tools" / "yaml_to_lua.py"), str(src)])
 
-    def _toggle_project_build_more(self) -> None:
-        self._project_build_more_expanded = not self._project_build_more_expanded
-        self._project_build_more_wrap.setVisible(self._project_build_more_expanded)
-        self._project_build_more_btn.setText(
-            "▾ 收起构建选项" if self._project_build_more_expanded else "▸ 更多构建选项"
-        )
-
     def _toggle_project_pack_adv(self) -> None:
         self._project_pack_adv_expanded = not self._project_pack_adv_expanded
         self._project_pack_adv_wrap.setVisible(self._project_pack_adv_expanded)
@@ -1159,6 +1322,7 @@ class MainWindow(QMainWindow):
             self.pack_show_log_cb.setChecked(False)
             if hasattr(self, "pack_project_combo"):
                 self.pack_project_combo.clear()
+            self._refresh_project_overview()
             return
         name, pkg, icon = ApkPackDialog.load_fields(self.project_dir)
         self.pack_name_edit.setText(name)
@@ -1173,6 +1337,7 @@ class MainWindow(QMainWindow):
             self.pack_show_log_cb.setChecked(False)
         self._refresh_pack_icon_preview()
         self._refresh_jiaoben_projects()
+        self._refresh_project_overview()
 
     def _refresh_pack_icon_preview(self) -> None:
         if not self.project_dir:

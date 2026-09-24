@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QStyle,
     QStyledItemDelegate,
     QVBoxLayout,
     QWidget,
@@ -32,6 +33,53 @@ def configure_elide_combo(combo: QComboBox) -> None:
     view = combo.view()
     view.setTextElideMode(Qt.TextElideMode.ElideRight)
     combo.setItemDelegate(_LeftElideComboDelegate(combo))
+
+
+class RecentProjectDelegate(QStyledItemDelegate):
+    """最近工程列表项：首行工程名（加粗），次行弱化的所在目录。"""
+
+    def paint(self, painter, option, index) -> None:
+        from pathlib import Path
+
+        from PySide6.QtGui import QColor, QFont, QPainter
+
+        from studio.ui.app_theme import COLORS
+
+        name = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
+        raw = index.data(Qt.ItemDataRole.UserRole)
+        sub = str(Path(str(raw)).parent) if raw else ""
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.setBrush(QColor(COLORS["primary_bg"]))
+            painter.drawRoundedRect(option.rect.adjusted(4, 2, -4, -2), 6, 6)
+        elif option.state & QStyle.StateFlag.State_MouseOver:
+            painter.setBrush(QColor(COLORS["surface3"]))
+            painter.drawRoundedRect(option.rect.adjusted(4, 2, -4, -2), 6, 6)
+        rect = option.rect.adjusted(14, 7, -14, -7)
+        name_font = QFont(option.font)
+        name_font.setBold(True)
+        painter.setFont(name_font)
+        painter.setPen(QColor(COLORS["text"]))
+        painter.drawText(rect, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft, name)
+        sub_font = QFont(option.font)
+        sub_font.setPointSize(max(8, option.font.pointSize() - 1))
+        sub_y = rect.top() + painter.fontMetrics().height() + 2
+        painter.setFont(sub_font)
+        painter.setPen(QColor(COLORS["text_muted"]))
+        elided = painter.fontMetrics().elidedText(
+            sub, Qt.TextElideMode.ElideMiddle, rect.width()
+        )
+        painter.drawText(
+            QRect(rect.left(), sub_y, rect.width(), rect.bottom() - sub_y + 1),
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft,
+            elided,
+        )
+        painter.restore()
+
+    def sizeHint(self, option, index) -> QSize:  # noqa: N802
+        return QSize(200, 56)
 
 
 def page_root(widget: QWidget) -> QVBoxLayout:
